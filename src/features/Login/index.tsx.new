@@ -1,0 +1,115 @@
+import logo from "/img/logo.png";
+import { useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { Controller, useForm } from "react-hook-form";
+import { handleLogin } from "../../api/handleLogin";
+import { FaEye, FaEyeSlash } from "react-icons/fa";
+
+import './Login.css';
+
+const Login = () => {
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const navigate = useNavigate();
+  const {
+    handleSubmit,
+    formState: { errors },
+    control,
+    reset,
+  } = useForm<{ email: string; password: string }>();
+
+  const onSubmit = async (data: { email: string; password: string }) => {
+    try {
+      const { email, password } = data;
+      await handleLogin(email, password);
+    } catch {
+      // Mostrar error visual si lo deseas
+    } finally {
+      reset();
+    }
+  };
+
+  return (
+    <div className="login-bg min-h-screen flex items-center justify-center relative">
+      {/* Elementos flotantes de comida */}
+      <div className="floating-food">🥬</div>
+      <div className="floating-food">🍅</div>
+      <div className="floating-food">🧅</div>
+      <div className="floating-food">🥓</div>
+
+      <div className="login-x" onClick={() => navigate("/")}>✕</div>
+      <form className="login-card flex flex-col items-center relative" onSubmit={handleSubmit(onSubmit)}>
+        <img src={logo} alt="logo shucway" className="login-logo" />
+        <h2 className="login-title text-center">
+          Bienvenido a <span style={{ color: '#ffd600' }}>Shucway</span>
+        </h2>
+        <div className="login-subtitle text-center mb-6">Ingresa con tu email y contraseña</div>
+        
+        <div className="w-full flex flex-col gap-4">
+          <div className="input-group">
+            <Controller
+              name="email"
+              control={control}
+              rules={{
+                required: "El email es requerido",
+                pattern: {
+                  value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                  message: "Email inválido",
+                },
+              }}
+              render={({ field }) => (
+                <input
+                  {...field}
+                  type="email"
+                  placeholder="Correo electrónico"
+                  className="w-full border border-gray-200 rounded-full px-5 py-3 text-[1.4rem] placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-yellow-400 transition-all"
+                  autoComplete="username"
+                />
+              )}
+            />
+            {errors?.email?.message && (
+              <p className="text-red-600 pl-2 text-[1.2rem]">{errors?.email?.message as string}</p>
+            )}
+          </div>
+
+          <div className="input-group password-group">
+            <Controller
+              name="password"
+              control={control}
+              rules={{ required: "La contraseña es requerida" }}
+              render={({ field }) => (
+                <div className="relative">
+                  <input
+                    {...field}
+                    type={passwordVisible ? "text" : "password"}
+                    placeholder="Contraseña"
+                    className="w-full border border-gray-200 rounded-full px-5 py-3 text-[1.4rem] placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-yellow-400 transition-all pr-12"
+                    autoComplete="current-password"
+                  />
+                  <span
+                    className="absolute right-5 top-1/2 -translate-y-1/2 text-[1.7rem] text-gray-400 cursor-pointer"
+                    onClick={() => setPasswordVisible((v) => !v)}
+                  >
+                    {passwordVisible ? <FaEye /> : <FaEyeSlash />}
+                  </span>
+                </div>
+              )}
+            />
+            {errors?.password?.message && (
+              <p className="text-red-600 pl-2 text-[1.2rem]">{errors?.password?.message as string}</p>
+            )}
+          </div>
+        </div>
+
+        <button type="submit" className="login-btn mt-6">
+          Iniciar Sesión
+        </button>
+
+        <div className="w-full text-center mt-4 text-[1.2rem] text-gray-500">
+          ¿Problemas para ingresar? <span className="underline cursor-pointer">Contacta al administrador</span>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+export default Login;

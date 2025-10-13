@@ -1,0 +1,379 @@
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Controller, useForm } from "react-hook-form";
+import {
+  Button,
+  Drawer,
+  Input,
+  message,
+  Select,
+  Spin,
+  Upload,
+  UploadProps,
+} from "antd";
+import { BiPhone, BiUser, BiMap } from "react-icons/bi";
+import { CgClose } from "react-icons/cg";
+
+import { supabase } from "../../api/supabaseClient";
+import { addUsuario } from "../../api/addUsuario";
+import { uploadFile } from "../../api/uploadFIle";
+import { getPublicUrl } from "../../api/getPublicUrl";
+import { useToggleDrawer } from "../../hooks/usetoggleDrawer";
+import { UsuarioDataType } from "../../types";
+
+import AddNewUserIcon from "../../assets/icons/AddNewUser.svg";
+import ImportAvatar from "../../assets/icons/importAvatar.svg";
+import UploadIcon from "../../assets/icons/uploadIcon.svg";
+
+const { Dragger } = Upload;
+
+export const AddDrawer = () => {
+  const [isAddDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [avatar, setAvatar] = useState<string | null>(null);
+  const [isUplaoding, setIsUploading] = useState<boolean>(false);
+
+  const location = useLocation();
+  const toggleDrawer = useToggleDrawer();
+  const queryClient = useQueryClient();
+
+  const {
+    handleSubmit,
+    formState: { errors },
+    control,
+    reset,
+  } = useForm<Omit<UsuarioDataType, "id_perfil" | "fecha_registro">>();
+
+  const { mutate: addUsuarioApi } = useMutation({
+    mutationFn: addUsuario,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["usuarios"] });
+    },
+  });
+
+  useEffect(() => {
+    const queryParams = new URLSearchParams(location.search);
+    const showDrawerParam = queryParams.get("showDrawerAdd");
+    setIsDrawerOpen(showDrawerParam === "true");
+  }, [location.search]);
+
+  const onCloseDrawer = () => {
+    toggleDrawer(false, "showDrawerAdd");
+  };
+
+  const onSubmit = async (data: Omit<UsuarioDataType, "id_perfil" | "fecha_registro">) => {
+    try {
+      if (avatar) data.avatar_url = avatar;
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        data.id_perfil = user.id;
+      }
+
+      await addUsuarioApi(data);
+      message.success('Usuario añadido exitosamente');
+      reset();
+      onCloseDrawer();
+    } catch (error) {
+      console.error('Error al crear usuario:', error);
+      message.error('Error al crear usuario');
+    }
+  };
+
+  const props: UploadProps = {
+    name: "file",
+    multiple: false,
+    async onChange(info) {
+      const { status } = info.file;
+      setIsUploading(true);
+
+      if (status === "done") {
+        const file = info.file.originFileObj;
+        const filePath = await uploadFile(file);
+        if (!filePath) return;
+
+        const fileUrl = getPublicUrl(filePath);
+        setAvatar(fileUrl);
+        message.success(`${info.file.name} subido exitosamente`);
+      } else if (status === "error") {
+        message.error(`${info.file.name} error al subir el archivo`);
+      }
+
+      setIsUploading(false);
+    },
+    customRequest: ({ onSuccess }) => {
+      setTimeout(() => {
+        onSuccess?.("ok");
+      }, 0);
+    },
+    onDrop(e) {
+      console.log("Archivos soltados", e.dataTransfer.files);
+    },
+  };
+
+  return (
+    <Drawer
+      title={
+        <div className="flex items-center gap-2">
+          <img src={AddNewUserIcon} alt="add new user" />
+          <span>Añadir nuevo usuario</span>
+        </div>
+      }
+      onClose={onCloseDrawer}
+      open={isAddDrawerOpen}
+      width={500}
+      className="custom-drawer"
+      extra={
+        <button onClick={onCloseDrawer}>
+          <CgClose size={20} />
+        </button>
+      }
+    >
+      <form onSubmit={handleSubmit(onSubmit)} className="px-6 py-4">
+        <div className="mb-8">
+          <div className="flex items-center gap-4 mb-4">
+            <img
+              src={avatar || ImportAvatar}
+              alt="import avatar icon"
+              className="w-24 h-24 rounded-full object-cover bg-gray-100"
+            />
+            <div className="flex flex-col gap-2">
+              <h3 className="text-lg font-medium text-gray-900">Foto de Perfil</h3>
+              <p className="text-sm text-gray-500">
+                Sube una foto para el perfil del usuario
+              </p>
+            </div>
+          </div>
+          <Dragger
+            {...props}
+            className="bg-white border-dashed hover:border-[#346d61] transition-all duration-200"
+            showUploadList={false}
+          >
+            <div className="flex items-center justify-center gap-3 px-4 py-6">
+              {isUplaoding ? (
+                <Spin />
+              ) : (
+                <img src={UploadIcon} alt="upload icon" className="w-6 h-6" />
+              )}
+              <p className="text-sm text-gray-600">
+                <span className="font-medium text-[#346d61]">Click para subir</span> o arrastra una imagen
+                <br />
+                <span className="text-xs text-gray-500">PNG, JPG o GIF (máx. 2MB)</span>
+              </p>
+            </div>
+          </Dragger>
+        </div>
+
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="primer_nombre" className="block text-sm font-medium text-gray-700 mb-1">
+                Primer Nombre <span className="text-red-500">*</span>
+              </label>
+              <Controller
+                name="primer_nombre"
+                control={control}
+                rules={{ required: "Primer nombre es requerido" }}
+                render={({ field }) => (
+                  <Input
+                    {...field}
+                    prefix={<BiUser className="text-gray-400" />}
+                    placeholder="Ingrese primer nombre"
+                    className="w-full"
+                  />
+                )}
+              />
+              {errors.primer_nombre && (
+                <p className="mt-1 text-sm text-red-600">
+                  {errors.primer_nombre.message}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label htmlFor="segundo_nombre" className="block text-sm font-medium text-gray-700 mb-1">
+                Segundo Nombre
+              </label>
+              <Controller
+                name="segundo_nombre"
+                control={control}
+                render={({ field }) => (
+                  <Input
+                    {...field}
+                    value={field.value || ""}
+                    prefix={<BiUser className="text-gray-400" />}
+                    placeholder="Ingrese segundo nombre"
+                    className="w-full"
+                  />
+                )}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="primer_apellido" className="block text-sm font-medium text-gray-700 mb-1">
+                Primer Apellido <span className="text-red-500">*</span>
+              </label>
+              <Controller
+                name="primer_apellido"
+                control={control}
+                rules={{ required: "Primer apellido es requerido" }}
+                render={({ field }) => (
+                  <Input
+                    {...field}
+                    prefix={<BiUser className="text-gray-400" />}
+                    placeholder="Ingrese primer apellido"
+                    className="w-full"
+                  />
+                )}
+              />
+              {errors.primer_apellido && (
+                <p className="mt-1 text-sm text-red-600">
+                  {errors.primer_apellido.message}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label htmlFor="segundo_apellido" className="block text-sm font-medium text-gray-700 mb-1">
+                Segundo Apellido
+              </label>
+              <Controller
+                name="segundo_apellido"
+                control={control}
+                render={({ field }) => (
+                  <Input
+                    {...field}
+                    value={field.value || ""}
+                    prefix={<BiUser className="text-gray-400" />}
+                    placeholder="Ingrese segundo apellido"
+                    className="w-full"
+                  />
+                )}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="telefono" className="block text-sm font-medium text-gray-700 mb-1">
+                Teléfono <span className="text-red-500">*</span>
+              </label>
+              <Controller
+                name="telefono"
+                control={control}
+                rules={{
+                  required: "Teléfono es requerido",
+                  pattern: {
+                    value: /^[0-9]{8}$/,
+                    message: "Ingrese un número de teléfono válido (8 dígitos)",
+                  },
+                }}
+                render={({ field }) => (
+                  <Input
+                    {...field}
+                    prefix={<BiPhone className="text-gray-400" />}
+                    placeholder="Ingrese número de teléfono"
+                    className="w-full"
+                  />
+                )}
+              />
+              {errors.telefono && (
+                <p className="mt-1 text-sm text-red-600">
+                  {errors.telefono.message}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label htmlFor="correo" className="block text-sm font-medium text-gray-700 mb-1">
+                Correo <span className="text-red-500">*</span>
+              </label>
+              <Controller
+                name="correo"
+                control={control}
+                rules={{
+                  required: "Correo es requerido",
+                  pattern: {
+                    value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                    message: "Ingrese una dirección de correo válida",
+                  },
+                }}
+                render={({ field }) => (
+                  <Input 
+                    {...field} 
+                    placeholder="Ingrese correo"
+                    className="w-full"
+                  />
+                )}
+              />
+              {errors.correo && (
+                <p className="mt-1 text-sm text-red-600">
+                  {errors.correo.message}
+                </p>
+              )}
+            </div>
+
+            <div className="col-span-2">
+              <label htmlFor="direccion" className="block text-sm font-medium text-gray-700 mb-1">
+                Dirección <span className="text-red-500">*</span>
+              </label>
+              <Controller
+                name="direccion"
+                control={control}
+                rules={{ required: "Dirección es requerida" }}
+                render={({ field }) => (
+                  <Input
+                    {...field}
+                    prefix={<BiMap className="text-gray-400" />}
+                    placeholder="Ingrese dirección"
+                    className="w-full"
+                  />
+                )}
+              />
+              {errors.direccion && (
+                <p className="mt-1 text-sm text-red-600">
+                  {errors.direccion.message}
+                </p>
+              )}
+            </div>
+
+            <div className="col-span-2">
+              <label htmlFor="rol" className="block text-sm font-medium text-gray-700 mb-1">
+                Rol <span className="text-red-500">*</span>
+              </label>
+              <Controller
+                name="rol"
+                control={control}
+                rules={{ required: "Rol es requerido" }}
+                render={({ field }) => (
+                  <Select
+                    {...field}
+                    value={field.value || ""}
+                    placeholder="Seleccione un rol"
+                    className="w-full"
+                    options={[
+                      { value: "Administrador", label: "Administrador" },
+                      { value: "Usuario", label: "Usuario" },
+                    ]}
+                  />
+                )}
+              />
+              {errors.rol && (
+                <p className="mt-1 text-sm text-red-600">
+                  {errors.rol.message}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 mt-8 pt-4 border-t">
+            <Button onClick={onCloseDrawer}>Cancelar</Button>
+            <Button type="primary" htmlType="submit">
+              Guardar Usuario
+            </Button>
+          </div>
+        </div>
+      </form>
+    </Drawer>
+  );
+};

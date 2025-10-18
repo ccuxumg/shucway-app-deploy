@@ -1,32 +1,38 @@
-import React, { FC, useEffect, useState } from "react";
-import { validateToken } from "../api/validateToken";
+import React, { FC } from "react";
 import { Spin } from "antd";
 import { Navigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 interface GuestGuardProps {
   children: React.ReactNode;
 }
+
 const GuestGuard: FC<GuestGuardProps> = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const { user, loading } = useAuth();
 
-  useEffect(() => {
-    const checkAuth = async () => {
-      const isValid = await validateToken();
-      setIsAuthenticated(isValid);
-    };
-    checkAuth();
-  }, []);
-
-  if (isAuthenticated === null) {
+  // Mostrar loader mientras se verifica la autenticación
+  if (loading) {
     return (
-      <div className="h-screen w-full flex items-center justify-center ">
-        <Spin />
+      <div style={{ 
+        display: 'flex', 
+        flexDirection: 'column',
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        gap: '16px'
+      }}>
+        <Spin size="large" />
+        <span style={{ color: '#666' }}>Verificando autenticación...</span>
       </div>
     );
   }
 
-  if (isAuthenticated) return <Navigate to="/dashboard" replace />;
+  // Si el usuario ya está autenticado, redirigir al dashboard
+  if (user) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
+  // Usuario no autenticado, mostrar página de login
   return <>{children}</>;
 };
 

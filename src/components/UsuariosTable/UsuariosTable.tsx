@@ -2,16 +2,16 @@ import { useState, useEffect } from "react";
 import TableTitle from "../TableTitle/TableTitle";
 import "./UsuariosTable.css";
 import TableHeader from "../TableHeader/TableHeader";
-import { Pagination, PaginationProps, Spin, Table, message } from "antd";
+import { Pagination, PaginationProps, Spin, Table } from "antd";
 import AddDrawer from "../Drawer/AddDrawer";
 import ActionDropDown from "../ActionDropDown/ActionDropDown";
 import EditDrawer from "../Drawer/EditDrawer";
 import { useLocation } from "react-router-dom";
 import { getUsuario } from "../../api/getUsuario";
 import { UsuarioDataType } from "../../types";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { subscribeToUsuarios } from "../../api/subscribeToUsuarios";
-import { getUsuarios } from "../../api/getUsuarios";
+import { useQuery } from "@tanstack/react-query";
+// Importar el nuevo servicio del backend
+import { getUsuarios } from "../../api/usuariosService";
 
 import { IFilters, TColumns } from "../../types";
 import { useMemo } from "react";
@@ -141,23 +141,10 @@ const columns: TColumns = [
 ];
 
 const UsuariosTable = () => {
-  const queryClient = useQueryClient();
   const [columnsInfo, setColumnsInfo] = useState<TColumns>(columns);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(5);
   const [searchValue, setSearchValue] = useState<string>("");
-  
-  useEffect(() => {
-    const unsubscribe = subscribeToUsuarios((payload) => {
-      // Invalida la caché cuando hay cambios en tiempo real
-      queryClient.invalidateQueries({ queryKey: ['usuarios'] });
-      message.info(`Usuario ${payload.eventType}: ${payload.new?.primer_nombre || payload.old?.primer_nombre}`);
-    });
-
-    return () => {
-      unsubscribe();
-    };
-  }, [queryClient]);
 
   const [filters, setFilters] = useState<IFilters>({
     telefono: null,
@@ -165,10 +152,15 @@ const UsuariosTable = () => {
     estado: null,
   });
 
+  // Usar el nuevo servicio del backend (sin suscripción en tiempo real por ahora)
   const { data, isLoading } = useQuery({
-    queryFn: () => getUsuarios(currentPage, pageSize, filters, searchValue),
+    queryFn: () => getUsuarios(currentPage, pageSize, {
+      estado: filters.estado || undefined,
+      telefono: filters.telefono || undefined,
+      searchValue: searchValue || undefined,
+    }),
     queryKey: ["usuarios", currentPage, pageSize, filters, searchValue],
-    staleTime: 1000, // 1 segundo
+    staleTime: 5000, // 5 segundos
     refetchOnWindowFocus: true,
     retry: 3
   });
@@ -192,7 +184,29 @@ const UsuariosTable = () => {
     }
   };
 
-  const usuarios: UsuarioDataType[] = useMemo(() => (data?.data || []) as UsuarioDataType[], [data?.data]);
+  const usuarios: UsuarioDataType[] = useMemo(() => {
+    if (!data?.data) return [];
+    // Mapear PerfilConRoles a UsuarioDataType
+    return data.data.map(perfil => ({
+      id_perfil: perfil.id_perfil,
+      primer_nombre: perfil.primer_nombre || '',
+      segundo_nombre: perfil.segundo_nombre || null,
+      primer_apellido: perfil.primer_apellido || '',
+      segundo_apellido: perfil.segundo_apellido || null,
+      telefono: perfil.telefono || null,
+      direccion: perfil.direccion || null,
+      fecha_nacimiento: perfil.fecha_nacimiento || null,
+      fecha_registro: perfil.fecha_registro?.toString() || new Date().toISOString(),
+      estado: perfil.estado,
+      username: perfil.username || null,
+      avatar_url: perfil.avatar_url || null,
+      ultimo_acceso: perfil.ultimo_acceso?.toString() || null,
+      email: perfil.email,
+      nombre: perfil.nombre,
+      roles: perfil.roles,
+      nivel_permiso: perfil.nivel_permiso,
+    }));
+  }, [data?.data]);
   const totalUsuarios = data?.count || 0;
   const location = useLocation();
   const [drawerUser, setDrawerUser] = useState<UsuarioDataType | null>(null);

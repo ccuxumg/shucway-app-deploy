@@ -11,6 +11,7 @@ export interface IRoute {
   element: ComponentType;
   guard?: ComponentType<GuardProps>;
   layout?: ComponentType<GuardProps>;
+  requiredLevel?: number; // Nivel mínimo de permiso requerido
 }
 
 export interface AuthUserType {
@@ -48,7 +49,7 @@ export interface UsuarioFormData {
 }
 
 export interface UsuarioDataType {
-  id_perfil: string;
+  id_perfil: number; // Cambiado de string a number para coincidir con backend
   primer_nombre: string;
   segundo_nombre: string | null;
   primer_apellido: string;
@@ -62,6 +63,9 @@ export interface UsuarioDataType {
   avatar_url: string | null;
   ultimo_acceso: string | null;
   email?: string;
+  nombre?: string; // Campo adicional del backend
+  roles?: string; // Roles concatenados del backend
+  nivel_permiso?: number; // Nivel de permiso del backend
 }
 
 export type TColumns = TableProps<UsuarioDataType>["columns"];

@@ -1,77 +1,74 @@
 import { createContext, useState, useEffect, useContext, ReactNode } from 'react';
-import { supabase } from '../api/supabaseClient';
-import { User } from '@supabase/supabase-js';
+import { validateToken, AuthUser } from '../api/authService';
 
 // Definimos la estructura de lo que nuestro contexto proveerá
 interface AuthContextType {
-  user: User | null;
+  user: AuthUser | null;
   role: string | null;
   loading: boolean;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Creamos el "Proveedor" que envolverá nuestra aplicación
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [role, setRole] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Cambiar a false inicialmente
+
+  const refreshUser = async () => {
+    try {
+      setLoading(true);
+      
+      // Verificar si hay token en localStorage
+      const token = localStorage.getItem('access_token');
+      
+      if (!token) {
+        // No hay token, usuario no autenticado
+        setUser(null);
+        setRole(null);
+        setLoading(false);
+        return;
+      }
+      
+      // Intentar validar el token con el backend
+      const validatedUser = await validateToken();
+      
+      if (validatedUser) {
+        setUser(validatedUser);
+        setRole(validatedUser.rol);
+      } else {
+        // Token inválido, limpiar todo
+        setUser(null);
+        setRole(null);
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('user');
+      }
+    } catch (err) {
+      console.error('Error al validar usuario:', err);
+      setUser(null);
+      setRole(null);
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('user');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let mounted = true;
+    // Solo verificar si hay token, no llamar a la API inmediatamente
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      refreshUser();
+    }
+  }, []); // Solo se ejecuta una vez al montar
 
-    const checkUser = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const currentUser = session?.user ?? null;
-        if (!mounted) return;
-        setUser(currentUser);
-
-        if (currentUser) {
-          // Si hay un usuario, buscamos su rol en la base de datos
-          const { data: profile, error } = await supabase
-            .from('perfil_usuario')
-            .select('rol_usuario ( nombre )')
-            .eq('id_perfil', currentUser.id)
-            .single();
-
-          if (!error && profile && profile.rol_usuario && profile.rol_usuario.length > 0) {
-            setRole(profile.rol_usuario[0].nombre);
-          }
-        } else {
-          setRole(null);
-        }
-      } catch (err) {
-        // no detener la app por errores de permisos; dejar role como null
-        console.error('Error al cargar perfil en AuthProvider:', err);
-        setRole(null);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-
-    // Ejecutar una vez al montar
-    checkUser();
-
-    // Listener de cambios de auth: actualiza user sin re-ejecutar checkUser innecesariamente
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      const currentUser = session?.user ?? null;
-      setUser(currentUser);
-      if (!currentUser) setRole(null);
-    });
-
-    return () => {
-      mounted = false;
-      listener?.subscription.unsubscribe();
-    };
-  }, []); // efecto solo se ejecuta una vez en el montaje
-
-  const value = { user, role, loading };
+  const value = { user, role, loading, refreshUser };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-// --- CÓDIGO CORREGIDO ---
 // Hook personalizado para usar nuestro contexto fácilmente
 export const useAuth = () => {
   const context = useContext(AuthContext);

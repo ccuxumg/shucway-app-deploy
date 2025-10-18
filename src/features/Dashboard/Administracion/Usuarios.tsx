@@ -1,7 +1,10 @@
 import React, { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import UsuariosTable from "../../../components/UsuariosTable/UsuariosTable";
 import { MdAdminPanelSettings, MdPriceCheck, MdReceiptLong, MdTrendingUp } from "react-icons/md";
 import { motion } from "framer-motion";
+import { getEstadisticas } from "../../../api/usuariosService";
+import { Spin } from "antd";
 
 // colores principales para las tarjetas (hex)
 const CARD_COLORS: Record<string, string> = {
@@ -104,39 +107,51 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, icon, trend, trendLab
 const Usuarios = () => {
   const [activeTab, setActiveTab] = useState('todos');
 
+  // Obtener estadísticas desde el backend
+  const { data: stats, isLoading: loadingStats } = useQuery({
+    queryKey: ['usuarios-estadisticas'],
+    queryFn: getEstadisticas,
+    refetchInterval: 30000, // Refrescar cada 30 segundos
+  });
+
+  // Calcular tasa de retención (simplificada como activos/total * 100)
+  const tasaRetencion = stats ? Math.round((stats.activos / stats.total) * 100) : 0;
+
   return (
     <div className="w-full bg-[#f3f2f7] pt-6 pb-8 px-6">
       {/* Stats Row */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <StatCard
-          title="Total Usuarios"
-          value="0"
-          icon={<MdAdminPanelSettings size={20} />}
-          trend={0}
-          trendLabel="vs mes anterior"
-        />
-        <StatCard
-          title="Usuarios Activos"
-          value="0"
-          icon={<MdAdminPanelSettings size={20} />}
-          trend={0}
-          trendLabel="últimos 30 días"
-        />
-        <StatCard
-          title="Nuevos Usuarios"
-          value="0"
-          icon={<MdAdminPanelSettings size={20} />}
-          trend={0}
-          trendLabel="este mes"
-        />
-        <StatCard
-          title="Tasa de Retención"
-          value="0%"
-          icon={<MdAdminPanelSettings size={20} />}
-          trend={0}
-          trendLabel="promedio mensual"
-        />
-      </div>
+      {loadingStats ? (
+        <div className="flex justify-center items-center h-40 mb-8">
+          <Spin size="large" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <StatCard
+            title="Total Usuarios"
+            value={stats?.total.toString() || "0"}
+            icon={<MdAdminPanelSettings size={20} />}
+            trendLabel="registrados en el sistema"
+          />
+          <StatCard
+            title="Usuarios Activos"
+            value={stats?.activos.toString() || "0"}
+            icon={<MdAdminPanelSettings size={20} />}
+            trendLabel="usuarios activos"
+          />
+          <StatCard
+            title="Nuevos Usuarios"
+            value={stats?.nuevosEsteMes.toString() || "0"}
+            icon={<MdAdminPanelSettings size={20} />}
+            trendLabel="registrados este mes"
+          />
+          <StatCard
+            title="Tasa de Retención"
+            value={`${tasaRetencion}%`}
+            icon={<MdAdminPanelSettings size={20} />}
+            trendLabel="usuarios activos"
+          />
+        </div>
+      )}
 
       {/* Actions Cards */}
       <div className="w-full mb-8">

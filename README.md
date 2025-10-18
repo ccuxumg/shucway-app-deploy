@@ -1,65 +1,80 @@
-# Shucway-web ʕっ˘ڡ˘ςʔ
+# 🍔 Shucway App - Sistema de Gestión
 
-Utilicen los siguiente para la instalacion del proyecto correctamente
+Sistema completo de gestión para el negocio Shucway con frontend React + Vite y backend Node.js + Express.
 
-### Auth
+## 🚀 Inicio Rápido
 
-- **Secure Login**: Autenticación de usuarios gestionada mediante Supabase.
-- **Role-Based Access**: Protección de rutas con AuthGuard y GuestGuard para una navegación segura.
+### Ejecutar todo el sistema
 
-## TECNOLOGIAS
+```bash
+npm run dev:all
+```
 
-### Frontend
+- Frontend: `http://localhost:5173` (o puerto 3000)
+- Backend: `http://localhost:3001`
 
-- **React, Vite, Tailwind CSS, AntD**
+## 👤 Usuarios del Sistema
 
-### Backend
+| Rol | Email | Username | Password | Nivel Permisos |
+|-----|-------|----------|----------|----------------|
+| **Propietario** (Luis Rene Flores Pivaral) | `luisflores@shucway.com` | `lrflores` | `rene123` | 100 |
+| **Cajera** (Ximena Flores) | `ximenaflores@shucway.com` | `xiflores` | `ximena123` | 30 |
 
-- **Supabase**
+💡 **Login flexible:** Puedes usar email O username
 
-## --------- Instalacion -------
+### 🔐 Niveles de Permisos
 
-### Prerequisites
+- **Propietario (100)**: Acceso total al sistema
+- **Administrador (80)**: Gestión completa del negocio
+- **Cajero (30)**: Ventas, inventario básico
+- **Cliente (10)**: Solo consultas
 
-- Node.js (>= 14.x)
-- npm or yarn
-- Cuenta de Supabase
+Ver [PERMISSIONS_GUIDE.md](./PERMISSIONS_GUIDE.md) para detalles completos.
 
-### Steps
+## 🛠️ Scripts Disponibles
 
-1. **Clonar el repo**
+```bash
+npm run dev:all       # 🚀 Frontend + Backend
+npm run dev           # Frontend solo
+npm run dev:backend   # Backend solo
+npm run build:all     # Compilar todo
+```
 
-   ```bash
-   git clone https://github.com/yourusername/admin-dashboard.git
-   cd admin-dashboard
-   ```
+## 📦 Instalación
 
-2. **Con estos instalan las dependecias**
+1. Instalar dependencias del frontend:
 
    ```bash
    npm install
-   # or
-   yarn install
    ```
 
-
-3. **Correr el server**
+1. Instalar dependencias del backend:
 
    ```bash
-   npm run dev
-   # or
-   yarn dev
+   cd backend
+   npm install
    ```
 
-5. **Produccion**
-   ```bash
-   npm run build
-   # or
-   yarn build
-   ```
+1. Configurar base de datos:
+   - Ejecutar `BD-modificado.sql` en Supabase
+   - Ejecutar `backend/init-database.sql` para crear usuarios
 
----
+## 🔐 Autenticación
 
-## License
+- JWT personalizado (no Supabase Auth)
+- Login con email O username
+- Contraseñas hasheadas con bcrypt
+
+## 📚 Documentación
+
+- [Frontend Migration Guide](./FRONTEND_MIGRATION.md)
+- [Backend README](./backend/README.md)
+- [Permissions Guide](./PERMISSIONS_GUIDE.md) - Sistema de permisos y roles
+
+## 🔧 Stack Tecnológico
+
+**Frontend:** React 18, TypeScript, Vite, Ant Design, Axios
+
+**Backend:** Node.js, Express, TypeScript, JWT, bcrypt, Supabase (PostgreSQL + Storage)
 
 This project is licensed under the [MIT License](LICENSE).

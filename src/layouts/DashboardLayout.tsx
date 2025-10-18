@@ -9,7 +9,7 @@ import { FiBell } from "react-icons/fi";
 import { IoAlertCircleOutline } from "react-icons/io5";
 import { handleLogout } from "../api/handleLogout";
 import { useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "../api/supabaseClient";
+// import { supabase } from "../api/supabaseClient"; // Ya no necesitamos supabase para auth
 
 // usar el logo público (public/img/logo.png)
 const publicLogo = "/img/logo.png";
@@ -49,58 +49,27 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const profileRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    // Intenta obtener el usuario de supabase; si no, usa email como fallback
-    const getUserMetadata = (u: unknown): Record<string, unknown> | null => {
-      if (!u || typeof u !== 'object') return null;
-      const obj = u as Record<string, unknown>;
-      if (Object.prototype.hasOwnProperty.call(obj, 'user_metadata')) {
-        const md = obj['user_metadata'];
-        if (md && typeof md === 'object') return md as Record<string, unknown>;
-      }
-      return null;
-    };
-
+    // Obtener el usuario del localStorage (guardado por el backend JWT)
     const fetchUser = async () => {
       try {
-        const { data } = await supabase.auth.getUser();
-        const user = data?.user;
-        if (!user) {
+        const userStr = localStorage.getItem('user');
+        if (!userStr) {
           setUserName(null);
           setAvatarUrl(null);
           return;
         }
 
-        // Primero intentar obtener el perfil desde la tabla perfil_usuario
-        try {
-          const { data: profile, error: profileError } = await supabase
-            .from('perfil_usuario')
-            .select('primer_nombre, primer_apellido, username, avatar_url')
-            .eq('id_perfil', user.id)
-            .single();
-
-          if (!profileError && profile) {
-            const fullName = `${profile.primer_nombre || ''} ${profile.primer_apellido || ''}`.trim();
-            const nameToUse = fullName || profile.username || (user.email ? user.email.split('@')[0] : null);
-            setUserName(nameToUse);
-            setAvatarUrl(profile.avatar_url || null);
-            return;
-          }
-        } catch {
-          // ignore and fallback to metadata
-        }
-
-        // Si no hay perfil, usar metadata o email como fallback
-        const metadata = getUserMetadata(user);
-        const metaName = metadata && (metadata['full_name'] as string) ? (metadata['full_name'] as string) : null;
-        const fallbackName = metaName || (user.email ? user.email.split('@')[0] : null);
-        let avatar: string | null = null;
-        if (metadata) {
-          avatar = (metadata['avatar_url'] as string) || (metadata['avatar'] as string) || (metadata['picture'] as string) || null;
-        }
-        setAvatarUrl(avatar);
-        setUserName(fallbackName);
-      } catch {
-        setUserName(null);
+        const user = JSON.parse(userStr);
+        
+        // Construir el nombre completo del usuario
+        const fullName = `${user.primer_nombre || ''} ${user.primer_apellido || ''}`.trim();
+        const nameToUse = fullName || user.username || user.nombre || user.email?.split('@')[0] || 'Usuario';
+        
+        setUserName(nameToUse);
+        setAvatarUrl(user.avatar_url || null);
+      } catch (error) {
+        console.error('Error al cargar usuario:', error);
+        setUserName('Usuario');
         setAvatarUrl(null);
       }
     };

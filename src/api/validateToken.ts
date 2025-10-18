@@ -1,8 +1,12 @@
-import { supabase } from "./supabaseClient";
+// ================================================================
+// 🔐 VALIDATE TOKEN (USANDO BACKEND JWT)
+// ================================================================
+// Este archivo mantiene compatibilidad con el código existente
+// pero ahora usa el nuevo servicio de autenticación
 
-export const validateToken = async () => {
-  const { data, error } = await supabase.auth.getSession();
-  if (error || !data.session) return false;
+import { validateToken as validateJWT } from './authService';
 
-  return true;
+export const validateToken = async (): Promise<boolean> => {
+  const user = await validateJWT();
+  return user !== null;
 };

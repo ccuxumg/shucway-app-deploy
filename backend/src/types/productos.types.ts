@@ -1,0 +1,92 @@
+// ================================================================
+// 📦 TIPOS DE PRODUCTOS
+// ================================================================
+
+export interface CategoriaProducto {
+  id_categoria: number;
+  nombre_categoria: string;
+  descripcion?: string;
+  estado: 'activo' | 'desactivado';
+}
+
+export interface Producto {
+  id_producto: number;
+  nombre_producto: string;
+  descripcion?: string;
+  precio_venta: number;
+  costo_producto: number;
+  id_categoria?: number;
+  estado: 'activo' | 'desactivado';
+  imagen_url?: string;
+  fecha_creacion: Date;
+}
+
+export interface ProductoVariante {
+  id_variante: number;
+  id_producto: number;
+  nombre_variante: string;
+  precio_variante: number;
+  costo_variante?: number;
+  estado: 'activo' | 'desactivado';
+}
+
+export interface RecetaDetalle {
+  id_receta: number;
+  id_producto: number;
+  id_insumo: number;
+  cantidad_requerida: number;
+  unidad_medida: string;
+}
+
+export interface BitacoraProductos {
+  id_bitacora: number;
+  tabla_afectada: string;
+  operacion: 'INSERT' | 'UPDATE' | 'DELETE';
+  id_registro: number;
+  datos_anteriores?: Record<string, unknown>;
+  datos_nuevos?: Record<string, unknown>;
+  id_perfil?: number;
+  fecha_operacion: Date;
+}
+
+// ================================================================
+// DTOs para Productos
+// ================================================================
+
+export interface CreateProductoDTO {
+  nombre_producto: string;
+  descripcion?: string;
+  precio_venta: number;
+  costo_producto?: number;
+  id_categoria?: number;
+  imagen_url?: string;
+}
+
+export interface UpdateProductoDTO {
+  nombre_producto?: string;
+  descripcion?: string;
+  precio_venta?: number;
+  costo_producto?: number;
+  id_categoria?: number;
+  estado?: 'activo' | 'desactivado';
+  imagen_url?: string;
+}
+
+export interface CreateVarianteDTO {
+  id_producto: number;
+  nombre_variante: string;
+  precio_variante: number;
+  costo_variante?: number;
+}
+
+export interface CreateRecetaDTO {
+  id_producto: number;
+  id_insumo: number;
+  cantidad_requerida: number;
+  unidad_medida: string;
+}
+
+export interface ProductoConReceta extends Producto {
+  receta: RecetaDetalle[];
+  variantes?: ProductoVariante[];
+}

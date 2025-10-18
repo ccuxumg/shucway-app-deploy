@@ -25,17 +25,20 @@ const Login = () => {
   });
 
   const onSubmit = async (data: { email: string; password: string }) => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
       const { email, password } = data;
       const success = await handleLogin(email, password);
+      
       if (success) {
-        navigate('/dashboard');
+        // Esperar un momento para que el token se guarde
+        setTimeout(() => {
+          window.location.href = '/dashboard';
+        }, 100);
         return;
       }
     } catch (error) {
       console.error('Error al iniciar sesión:', error);
-    } finally {
       setIsLoading(false);
       reset({
         email: '',
@@ -83,17 +86,13 @@ const Login = () => {
                   name="email"
                   control={control}
                   rules={{
-                    required: "El email es requerido",
-                    pattern: {
-                      value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                      message: "Email inválido",
-                    },
+                    required: "El email o username es requerido",
                   }}
                   render={({ field }) => (
                     <input
                       {...field}
-                      type="email"
-                      placeholder="Correo electrónico"
+                      type="text"
+                      placeholder="Correo electrónico o username"
                       autoComplete="username"
                     />
                   )}

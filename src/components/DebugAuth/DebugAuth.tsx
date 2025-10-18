@@ -1,7 +1,7 @@
 // ================================================================
 // 🐛 DEBUG: Componente temporal para ver el estado de autenticación
 // ================================================================
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../hooks/useAuth';
 import { usePermissions } from '../../hooks/usePermissions';
 import { ROLE_PERMISSIONS } from '../../constants/permissions';
 

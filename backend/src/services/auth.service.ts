@@ -264,7 +264,13 @@ export class AuthService {
     const payload = {
       id_perfil: user.id_perfil,
       email: user.email,
-      rol: user.rol.nombre_rol
+      username: user.username || user.email,
+      nombre: `${user.primer_nombre} ${user.primer_apellido}`,
+        role: {
+        id_rol: user.rol.id_rol,
+        nombre_rol: user.rol.nombre_rol,
+        nivel_permisos: user.rol.nivel_permisos
+      }
     };
     
     // @ts-expect-error - jwt.sign types are too strict, but this is valid usage

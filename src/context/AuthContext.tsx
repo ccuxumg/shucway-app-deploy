@@ -1,4 +1,4 @@
-import { createContext, useState, useEffect, useContext, ReactNode } from 'react';
+import { createContext, useState, useEffect, ReactNode } from 'react';
 import { validateToken, AuthUser } from '../api/authService';
 
 // Definimos la estructura de lo que nuestro contexto proveerá
@@ -37,7 +37,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       if (validatedUser) {
         setUser(validatedUser);
-        setRole(validatedUser.rol);
+        setRole(validatedUser.role.nombre_rol);
       } else {
         // Token inválido, limpiar todo
         setUser(null);
@@ -69,11 +69,5 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-// Hook personalizado para usar nuestro contexto fácilmente
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth debe ser usado dentro de un AuthProvider');
-  }
-  return context;
-};
+// Exportamos el contexto para usos avanzados si es necesario
+export { AuthContext };

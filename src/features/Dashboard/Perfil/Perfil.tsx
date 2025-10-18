@@ -37,18 +37,21 @@ const Perfil: React.FC = () => {
           setFormData(profile);
         } else {
           // Si no existe perfil, crear uno básico
+          const fullName = user.user_metadata?.full_name || '';
+          const names = fullName.split(' ');
+          // Reemplazar la creación de basicProfile para corregir errores de tipos
           const basicProfile: UsuarioDataType = {
-            id_perfil: user.id,
-            primer_nombre: '',
-            segundo_nombre: null,
-            primer_apellido: '',
+            id_perfil: Number(user.id), // Convertir id a número
+            primer_nombre: names[0] || (user.email ? user.email : ''),
+            segundo_nombre: names.length > 2 ? names.slice(1, names.length - 1).join(' ') : null,
+            primer_apellido: names[names.length - 1] || '',
             segundo_apellido: null,
             telefono: null,
             direccion: null,
             fecha_nacimiento: null,
             fecha_registro: user.created_at,
             estado: 'activo',
-            username: user.email?.split('@')[0] || null,
+            username: user.email ? user.email : null, // Asegurar que no sea undefined
             avatar_url: null,
             ultimo_acceso: user.last_sign_in_at || null
           };

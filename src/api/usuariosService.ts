@@ -93,7 +93,10 @@ export const getUsuarios = async (
       if (filters.fecha_fin) params.append('fecha_fin', filters.fecha_fin);
     }
 
-    const response = await api.get(`/usuarios?${params.toString()}`);
+    const token = localStorage.getItem('token');
+    const response = await api.get(`/usuarios?${params.toString()}`, {
+      headers: { Authorization: token ? `Bearer ${token}` : '' }
+    });
     return response.data;
   } catch (error) {
     console.error('Error al obtener usuarios:', error);
@@ -197,7 +200,10 @@ export const removerRol = async (idUsuarioRol: number): Promise<void> => {
  */
 export const getEstadisticas = async (): Promise<Estadisticas> => {
   try {
-    const response = await api.get(`/usuarios/estadisticas`);
+    const token = localStorage.getItem('token');
+    const response = await api.get(`/usuarios/estadisticas`, {
+      headers: { Authorization: token ? `Bearer ${token}` : '' }
+    });
     return response.data.data;
   } catch (error) {
     console.error('Error al obtener estadísticas:', error);

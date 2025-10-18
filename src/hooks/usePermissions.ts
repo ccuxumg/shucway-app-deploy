@@ -3,7 +3,7 @@
 // ================================================================
 // Hook personalizado para verificar permisos del usuario actual
 
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../hooks/useAuth';
 import { hasPermission, getRoleLevel } from '../constants/permissions';
 
 export const usePermissions = () => {

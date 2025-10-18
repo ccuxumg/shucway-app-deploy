@@ -3,7 +3,7 @@ import '../Inventario.css';
 import './Auditoria.css';
 import { MdCheckCircle, MdEventNote, MdErrorOutline } from 'react-icons/md';
 import { FaUserCircle } from 'react-icons/fa';
-import { useAuth } from '../../../../context/AuthContext';
+import { useAuth } from '../../../../hooks/useAuth';
 import { supabase } from '../../../../api/supabaseClient';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -136,7 +136,7 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
   // No generar sessionId por defecto: usar únicamente el que venga por props
   const sessionId = initialSessionId ?? undefined;
   const { user } = useAuth();
-  const detectedName = user?.user_metadata?.full_name || user?.email || auditorName || '—';
+  const detectedName = user?.nombre || user?.email || auditorName || '—';
   const [isFinalizing, setIsFinalizing] = useState<boolean>(false);
   // Notificaciones locales (simple)
   const [notification, setNotification] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>(null);
@@ -207,7 +207,7 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
       const ajustePayload = {
         motivo,
         descripcion: `Ajuste generado por auditoría. Sesión: ${effectiveSession}`,
-        id_perfil: user?.id ?? null
+        id_perfil: user?.id_perfil ?? null
       };
 
       type AjusteResp = { id_ajuste?: number } | null;
@@ -240,7 +240,7 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
           id_lote: null,
           tipo_movimiento: tipo_mov,
           cantidad: Math.abs(cantidadSigned),
-          id_perfil: user?.id ?? null,
+    id_perfil: user?.id_perfil ?? null,
           id_referencia: idAjuste,
           modulo_origen: 'auditoria',
           descripcion: `Ajuste por auditoría. Sesión: ${sessionId}`

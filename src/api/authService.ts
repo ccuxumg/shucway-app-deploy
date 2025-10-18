@@ -27,13 +27,16 @@ export interface RegisterData {
 
 export interface AuthUser {
   id_perfil: number;
+  nombre: string;
   email: string;
-  primer_nombre: string;
-  primer_apellido: string;
-  username: string | null;
-  avatar_url: string | null;
-  rol: string;
-  estado: string;
+  username: string;
+  role: {
+    id_rol: number;
+    nombre_rol: string;
+    nivel_permiso: number;
+  };
+  avatar_url?: string | null;
+  estado?: string;
 }
 
 export interface LoginResponse {

@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Catalogo from './Catalogo';
 import IngresoCompra from './IngresoCompra';
 import Auditoria from './Auditoria';
-import { supabase } from '../../../api/supabaseClient';
+import { dashboardService } from '../../../api/dashboardService';
 
 const primary = '#00B074';
 const mid = '#346C60';
@@ -53,16 +53,6 @@ const InvActionCard: React.FC<{ title: string; subtitle?: string; icon: React.Re
 // Los datos ahora se cargan desde Supabase. Mantener tipos mínimos para el front.
 type InventoryItem = { id?: number; name: string; qty?: string; note?: string };
 
-// Tipo usado internamente para mapear filas desde la vista o tabla
-type RowForMapping = {
-  id_insumo?: number;
-  insumo?: string;
-  nombre?: string;
-  stock_actual?: number | null;
-  unidad_medida?: string;
-  estado_stock?: string;
-};
-
 type Tab = 'overview'|'catalogo'|'ingreso'|'auditoria';
 
 const Inventario: React.FC = () => {
@@ -71,7 +61,10 @@ const Inventario: React.FC = () => {
   // Estado dinámico para reemplazar los arrays estáticos
   const [perpetualData, setPerpetualData] = useState<InventoryItem[]>([]);
   const [operationalData, setOperationalData] = useState<InventoryItem[]>([]);
-// alertas removidas temporalmente
+  const [totalPerpetualStock, setTotalPerpetualStock] = useState(0);
+  const [totalOperationalStock, setTotalOperationalStock] = useState(0);
+  const [totalPerpetualItems, setTotalPerpetualItems] = useState(0);
+  const [totalOperationalItems, setTotalOperationalItems] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   // sección objetivo para el catálogo: 'todos' | 'perpetuos' | 'operativos'
@@ -83,87 +76,13 @@ const Inventario: React.FC = () => {
     setIsLoading(true);
     setFetchError(null);
     try {
-      // Intento preferente: vista agregada por el DBA
-      const { data: inventarioRows, error: invErr } = await supabase
-        .from('vw_inventario_actual')
-        .select('id_insumo, insumo, categoria, stock_actual, stock_minimo, unidad_medida, estado_stock')
-        .order('insumo', { ascending: true })
-        .limit(200);
-
-      // Si la vista falla por permisos, haremos un fallback a la tabla `insumo`
-  let rowsForMapping: Array<RowForMapping> | null = null;
-
-      if (invErr) {
-        const maybeErr = invErr as { message?: string } | undefined;
-        const msg = maybeErr && maybeErr.message ? maybeErr.message : String(invErr);
-        console.warn('Error leyendo vw_inventario_actual:', msg);
-        // No tirar excepción: intentamos fallback
-        try {
-          const { data: insRows, error: insErr } = await supabase
-            .from('insumo')
-            .select('id_insumo, nombre, tipo_insumo, unidad_medida, stock')
-            .order('nombre', { ascending: true })
-            .limit(200);
-
-          if (insErr) {
-            const maybe2 = insErr as { message?: string } | undefined;
-            const msg2 = maybe2 && maybe2.message ? maybe2.message : String(insErr);
-            console.warn('Fallback insumo falló:', msg2);
-            setFetchError(msg + ' | ' + msg2);
-          } else {
-            rowsForMapping = Array.isArray(insRows) ? insRows.map((r: RowForMapping) => {
-              const asRecord = r as unknown as Record<string, unknown>;
-              const fallbackStock = typeof asRecord['stock'] === 'number' ? (asRecord['stock'] as number) : null;
-              const stockVal = r.stock_actual ?? fallbackStock ?? null;
-              return {
-                id_insumo: r.id_insumo,
-                insumo: r.nombre,
-                stock_actual: stockVal,
-                unidad_medida: r.unidad_medida,
-                // No hay stock_minimo en la tabla insumo del script provisto; dejamos estado por defecto
-                estado_stock: stockVal === 0 ? 'Crítico' : 'Normal'
-              };
-            }) : null;
-          }
-        } catch (fallbackErr) {
-          console.error('Error en fallback a insumo:', fallbackErr);
-        }
-      } else {
-        rowsForMapping = Array.isArray(inventarioRows) ? inventarioRows : null;
-      }
-
-      if (Array.isArray(rowsForMapping)) {
-        // Intentamos obtener tipo_insumo desde la tabla insumo para enriquecer si fue necesario
-  const ids = rowsForMapping.map((r: RowForMapping) => r.id_insumo).filter(Boolean) as number[];
-        let insumosFull: Array<{ id_insumo?: number; tipo_insumo?: string; nombre?: string }> = [];
-        if (ids.length) {
-          const { data: insFull, error: insFullErr } = await supabase.from('insumo').select('id_insumo, tipo_insumo, nombre').in('id_insumo', ids);
-          if (insFullErr) {
-            const maybe = insFullErr as { message?: string } | undefined;
-            console.warn('Error leyendo insumo (tipo):', maybe && maybe.message ? maybe.message : insFullErr);
-          }
-          insumosFull = Array.isArray(insFull) ? insFull : [];
-        }
-
-        const mappedAll = rowsForMapping.map((row: RowForMapping) => {
-          const tipo = insumosFull.find(i => i.id_insumo === row.id_insumo)?.tipo_insumo || 'perpetuo';
-          return {
-            id: row.id_insumo,
-            name: (row.insumo ?? row.nombre ?? '—') as string,
-            qty: row.stock_actual != null ? String(row.stock_actual) : '-',
-            note: row.estado_stock || 'Normal',
-            tipo_insumo: tipo
-          };
-        });
-
-        const perpetualItems = mappedAll.filter(m => m.tipo_insumo === 'perpetuo').map(({ id, name, qty, note }) => ({ id, name: name as string, qty, note }));
-        const operationalItems = mappedAll.filter(m => m.tipo_insumo === 'operativo').map(({ id, name, qty, note }) => ({ id, name: name as string, qty, note }));
-
-        setPerpetualData(perpetualItems as InventoryItem[]);
-        setOperationalData(operationalItems as InventoryItem[]);
-      }
-
-      // alertas removidas temporalmente
+      const data = await dashboardService.getInventoryData();
+      setPerpetualData(data.perpetual);
+      setOperationalData(data.operational);
+      setTotalPerpetualStock(data.totalPerpetualStock);
+      setTotalOperationalStock(data.totalOperationalStock);
+      setTotalPerpetualItems(data.totalPerpetualItems);
+      setTotalOperationalItems(data.totalOperationalItems);
     } catch (e) {
       console.error('Error cargando datos de inventario:', e);
       setFetchError(String(e));
@@ -179,7 +98,6 @@ const Inventario: React.FC = () => {
   // No usar valores por defecto. Los arrays provienen exclusivamente de la BD.
   const perpetual = perpetualData;
   const operational = operationalData;
-  // alerts removed
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -221,20 +139,22 @@ const Inventario: React.FC = () => {
                   {/* Summary cards */}
                   <div className="inv-overview">
                     <div className="inv-card">
-                      <h3>Productos Perpetuo</h3>
-                      <div className="number">{perpetual.length}</div>
+                      <h3>Stock Perpetuo Total</h3>
+                      <div className="number">{totalPerpetualStock.toFixed(2)}</div>
+                      <div className="text-xs text-gray-500">{totalPerpetualItems} productos</div>
                     </div>
 
                     <div className="inv-card">
-                      <h3>Productos Operativos</h3>
-                      <div className="number">{operational.length}</div>
+                      <h3>Stock Operativo Total</h3>
+                      <div className="number">{totalOperationalStock.toFixed(2)}</div>
+                      <div className="text-xs text-gray-500">{totalOperationalItems} productos</div>
                     </div>
 
                     {/* Alertas removidas: tarjeta eliminada para evitar referencias a estado inexistente */}
 
                     <div className="inv-card">
-                      <h3>Contactos Próximos</h3>
-                      <div className="number">1</div>
+                      <h3>Auditorías Pendientes</h3>
+                      <div className="number">0</div>
                     </div>
                   </div>
 

@@ -11,8 +11,9 @@ import {
   DatePicker,
 } from "antd";
 import { uploadFile } from "../../api/uploadFIle";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { addUsuario } from "../../api/addUsuario";
+import { getRoles, Rol } from "../../api/rolesService";
 import { useLocation } from "react-router-dom";
 import { useToggleDrawer } from "../../hooks/usetoggleDrawer";
 import { Controller, useForm } from "react-hook-form";
@@ -37,6 +38,22 @@ const AddDrawer = () => {
   const toggleDrawer = useToggleDrawer();
   const queryClient = useQueryClient();
 
+  // Obtener roles disponibles
+  const { data: rolesData, isLoading: isLoadingRoles } = useQuery({
+    queryKey: ["roles"],
+    queryFn: () => getRoles(1, 100), // Obtener todos los roles
+    staleTime: 15 * 60 * 1000, // 15 minutos - los roles no cambian frecuentemente
+  });
+
+  const { mutate: addUsuarioApi } = useMutation({
+    mutationFn: addUsuario,
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["usuarios"],
+      });
+    },
+  });
+
   const {
     handleSubmit,
     formState: { errors },
@@ -56,17 +73,8 @@ const AddDrawer = () => {
       avatar_url: '',
       estado: 'activo',
       username: '',
-      rol: 'user'
+      rol: rolesData?.data?.[0]?.nombre_rol || ''
     }
-  });
-
-  const { mutate: addUsuarioApi } = useMutation({
-    mutationFn: addUsuario,
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["usuarios"],
-      });
-    },
   });
 
   useEffect(() => {
@@ -480,10 +488,13 @@ const AddDrawer = () => {
                   <Select
                     {...field}
                     placeholder="Seleccione rol"
-                    options={[
-                      { value: 'user', label: 'Usuario' },
-                      { value: 'admin', label: 'Administrador' }
-                    ]}
+                    loading={isLoadingRoles}
+                    options={
+                      rolesData?.data?.map((rol: Rol) => ({
+                        value: rol.nombre_rol,
+                        label: rol.nombre_rol
+                      })) || []
+                    }
                   />
                 )}
               />
@@ -500,7 +511,7 @@ const AddDrawer = () => {
           <div className="max-w-full px-6">
             <Button
               type="primary"
-              className="py-3 text-[1.4rem] w-full !bg-blue-700 transition-all duration-200 hover:opacity-80"
+              className="py-3 text-[1.4rem] w-full !bg-emerald-500 transition-all duration-200 hover:opacity-80"
               htmlType="submit"
             >
               Crear Usuario

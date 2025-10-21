@@ -1,81 +1,9 @@
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import UsuariosTable from "../../../components/UsuariosTable/UsuariosTable";
-import { MdAdminPanelSettings, MdPriceCheck, MdReceiptLong, MdTrendingUp } from "react-icons/md";
-import { motion } from "framer-motion";
+import { MdAdminPanelSettings, MdTrendingUp } from "react-icons/md";
 import { getEstadisticas } from "../../../api/usuariosService";
 import { Spin } from "antd";
-
-// colores principales para las tarjetas (hex)
-const CARD_COLORS: Record<string, string> = {
-  usuarios: "#346d61",
-  precios: "#01a049",
-  promociones: "#fec223",
-  gastos: "#13443c",
-};
-
-const hexToRgba = (hex: string, alpha = 0.08) => {
-  const clean = hex.replace('#', '');
-  const r = parseInt(clean.substring(0, 2), 16);
-  const g = parseInt(clean.substring(2, 4), 16);
-  const b = parseInt(clean.substring(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-};
-
-const InfoCard: React.FC<{
-  title: string;
-  subtitle?: string;
-  icon: React.ReactNode;
-  tone: string; // color hex
-  onClick?: () => void;
-}> = ({ title, subtitle, icon, tone, onClick }) => {
-  const bg = hexToRgba(tone, 0.12);
-  const iconBg = tone;
-  return (
-    <motion.button
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
-      type="button"
-      onClick={onClick}
-      aria-label={title}
-      style={{ background: bg }}
-      className="w-full flex items-center gap-5 rounded-xl px-6 py-5 min-h-[100px] group hover:shadow-lg transition-all duration-200 ease-in-out relative overflow-hidden"
-    >
-      {/* Círculo decorativo de fondo */}
-      <div 
-        className="absolute right-0 top-0 w-32 h-32 -translate-y-16 translate-x-16 rounded-full transition-transform group-hover:scale-110 duration-300 opacity-10"
-        style={{ background: iconBg }}
-      />
-      
-      {/* Contenedor del icono con borde y fondo */}
-      <div className="relative">
-        <div 
-          className="absolute inset-0 rounded-xl opacity-20"
-          style={{ background: iconBg }}
-        />
-        <div 
-          style={{ background: iconBg }} 
-          className="relative flex items-center justify-center w-16 h-16 rounded-xl text-white shadow-lg transform transition-transform group-hover:scale-105 z-10"
-        >
-          {React.isValidElement(icon) ? 
-            React.cloneElement(icon as unknown as React.ReactElement, { 
-              className: 'text-white transition-transform group-hover:scale-110', 
-              size: 24 
-            }) : icon}
-        </div>
-      </div>
-      
-      <div className="flex flex-col text-left z-10">
-        <span className="text-lg font-semibold text-gray-800 mb-1">{title}</span>
-        {subtitle && (
-          <span className="text-sm text-gray-500 group-hover:text-gray-600 transition-colors">
-            {subtitle}
-          </span>
-        )}
-      </div>
-    </motion.button>
-  );
-};
 
 interface StatCardProps {
   title: string;
@@ -111,7 +39,7 @@ const Usuarios = () => {
   const { data: stats, isLoading: loadingStats } = useQuery({
     queryKey: ['usuarios-estadisticas'],
     queryFn: getEstadisticas,
-    refetchInterval: 30000, // Refrescar cada 30 segundos
+    refetchInterval: 5 * 60 * 1000, // Refrescar cada 5 minutos (reducido de 30 segundos)
   });
 
   // Calcular tasa de retención (simplificada como activos/total * 100)
@@ -153,20 +81,11 @@ const Usuarios = () => {
         </div>
       )}
 
-      {/* Actions Cards */}
-      <div className="w-full mb-8">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 w-full">
-          <InfoCard title="GESTIÓN DE USUARIO" subtitle="Acciones rápidas" icon={<MdAdminPanelSettings />} tone={CARD_COLORS.usuarios} />
-          <InfoCard title="CONFIGURACIÓN DE PRECIOS" subtitle="Ajustes y promociones" icon={<MdPriceCheck />} tone={CARD_COLORS.precios} />
-          <InfoCard title="GASTOS OPERATIVOS" subtitle="Registro de costos" icon={<MdReceiptLong />} tone={CARD_COLORS.gastos} />
-        </div>
-      </div>
-
       {/* Tabs y Tabla */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="border-b border-gray-100 px-6 py-4">
           <div className="flex space-x-6">
-            {['todos', 'activos', 'inactivos', 'pendientes'].map((tab) => (
+            {['todos', 'activo', 'inactivo', 'suspendido', 'eliminado'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -182,7 +101,7 @@ const Usuarios = () => {
           </div>
         </div>
         <div className="px-6 py-4">
-          <UsuariosTable />
+          <UsuariosTable estadoFilter={activeTab} />
         </div>
       </div>
     </div>

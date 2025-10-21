@@ -4,7 +4,9 @@
   "description": "Backend API para Shucway App con Node.js y Supabase como DB",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx src/index.ts",
+    "dev:watch": "tsx watch src/index.ts",
+    "dev:fast": "set SKIP_DB_CHECK=true && tsx src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "jest",

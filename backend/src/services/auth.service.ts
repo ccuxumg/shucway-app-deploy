@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
+import * as jwt from 'jsonwebtoken';
 import { supabase } from '../config/database';
 import { config } from '../config/env';
 import { logger } from '../utils/logger';
@@ -93,14 +93,12 @@ export class AuthService {
       // Buscar usuario por email O username en nuestra tabla
       // Probar primero con email, luego con username
       let user = null;
-      
       // Intentar buscar por email primero
       const { data: userByEmail } = await supabase
         .from('perfil_usuario')
         .select('*')
-        .eq('email', credentials.email)
+        .eq('email', credentials.identifier)
         .single();
-      
       if (userByEmail) {
         user = userByEmail;
       } else {
@@ -108,9 +106,8 @@ export class AuthService {
         const { data: userByUsername } = await supabase
           .from('perfil_usuario')
           .select('*')
-          .eq('username', credentials.email)
+          .eq('username', credentials.identifier)
           .single();
-        
         if (userByUsername) {
           user = userByUsername;
         }
@@ -266,17 +263,17 @@ export class AuthService {
       email: user.email,
       username: user.username || user.email,
       nombre: `${user.primer_nombre} ${user.primer_apellido}`,
-        role: {
+      role: {
         id_rol: user.rol.id_rol,
         nombre_rol: user.rol.nombre_rol,
-        nivel_permisos: user.rol.nivel_permisos
+        nivel_permiso: user.rol.nivel_permisos // <--- corregido para coincidir con el middleware
       }
     };
-    
-    // @ts-expect-error - jwt.sign types are too strict, but this is valid usage
-    return jwt.sign(payload, config.jwt.secret, { 
-      expiresIn: config.jwt.expiresIn
-    });
+    return jwt.sign(
+      payload,
+      config.jwt.secret,
+      { expiresIn: 604800 } // 7 días en segundos
+    );
   }
 
   // Generar refresh token
@@ -286,11 +283,11 @@ export class AuthService {
       email: user.email,
       rol: user.rol.nombre_rol
     };
-    
-    // @ts-expect-error - jwt.sign types are too strict, but this is valid usage
-    return jwt.sign(payload, config.jwt.secret, { 
-      expiresIn: config.jwt.refreshExpiresIn
-    });
+    return jwt.sign(
+      payload,
+      config.jwt.secret,
+      { expiresIn: 2592000 } // 30 días en segundos
+    );
   }
 }
 

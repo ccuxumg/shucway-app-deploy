@@ -117,6 +117,7 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
       // Intentar update-first; si no existe fila, insertar una nueva (campos mínimos) y fallback a update en caso de race condition
       const upsertPerfilFromAdmin = async (idPerfil: string | undefined, body: Partial<UsuarioDataType>) => {
         if (!idPerfil) throw new Error('Falta id_perfil');
+        const numericId = parseInt(idPerfil);
         try {
           // intentar UPDATE
           const { data: uData, error: uErr } = await supabase
@@ -129,7 +130,7 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
 
           // no se actualizó: intentar INSERT con campos obligatorios
           const base: Partial<UsuarioDataType> = {
-            id_perfil: String(idPerfil),
+            id_perfil: numericId,
             primer_nombre: body.primer_nombre || 'Usuario',
             primer_apellido: body.primer_apellido || 'SinApellido',
             email: (body.email as string | undefined) || undefined,
@@ -161,13 +162,13 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
           throw err;
         }
       };
-      await upsertPerfilFromAdmin(data?.id_perfil, apiData as Partial<UsuarioDataType>);
+      await upsertPerfilFromAdmin(data?.id_perfil?.toString(), apiData as Partial<UsuarioDataType>);
       // invalidar cache
   queryClient.invalidateQueries({ queryKey: ['usuarios'] });
 
       // Actualizar rol si cambió
       if (data?.id_perfil) {
-        await setUsuarioRol(data.id_perfil, selectedRoleId).catch((err) => {
+        await setUsuarioRol(data.id_perfil.toString(), selectedRoleId).catch((err) => {
           console.error('Error actualizando rol del usuario:', err);
           throw err;
         });
@@ -235,7 +236,7 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
       .catch(() => {});
 
     if (data?.id_perfil) {
-      getUsuarioRoles(data.id_perfil)
+      getUsuarioRoles(data.id_perfil.toString())
         .then((ur: unknown) => {
           if (!mounted) return;
           const list = (ur as Array<{ id_rol?: number }>) || [];

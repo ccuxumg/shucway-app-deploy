@@ -1,10 +1,10 @@
-import { supabase } from "./supabaseClient";
+import { api } from "./apiClient";
 import { UsuarioDataType } from "../types";
 
 interface AddUsuarioParams {
   email: string;
   password: string;
-  role: "admin" | "user";
+  role: string; // Cambiado de "admin" | "user" a string para aceptar cualquier rol
   perfil: Omit<UsuarioDataType, "id_perfil" | "fecha_registro" | "auth_id">;
 }
 
@@ -14,50 +14,30 @@ export const addUsuario = async ({
   role,
   perfil
 }: AddUsuarioParams) => {
-  // Primero crear el usuario en auth
-  const { data: authData, error: authError } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: {
-        role
-      }
-    }
-  });
+  try {
+    // Crear el usuario usando el endpoint del backend
+    const usuarioData = {
+      email,
+      password,
+      nombre: `${perfil.primer_nombre} ${perfil.segundo_nombre || ''}`.trim(),
+      username: perfil.username || email.split('@')[0], // Usar parte del email si no hay username
+      telefono: perfil.telefono,
+      direccion: perfil.direccion,
+      fecha_nacimiento: perfil.fecha_nacimiento,
+      avatar_url: perfil.avatar_url,
+      primer_nombre: perfil.primer_nombre,
+      segundo_nombre: perfil.segundo_nombre,
+      primer_apellido: perfil.primer_apellido,
+      segundo_apellido: perfil.segundo_apellido,
+      rol: role, // Usar el nombre del rol directamente
+    };
 
-  if (authError) throw new Error(authError.message);
+    const response = await api.post('/usuarios', usuarioData);
 
-  if (!authData.user) throw new Error("No se pudo crear el usuario");
-
-  // Luego crear el perfil
-  const { data: profileData, error: profileError } = await supabase
-    .from("perfil_usuario")
-    .insert([{
-      id_perfil: authData.user.id,
-      ...perfil,
-      estado: 'activo'
-    }])
-    .select();
-
-  if (profileError) {
-    // Nota: No se puede eliminar el usuario con anon key, manejar manualmente
-    console.error('Error al crear perfil:', profileError);
-    throw new Error(profileError.message);
+    return response.data.data;
+  } catch (error: unknown) {
+    console.error('Error al crear usuario:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+    throw new Error(errorMessage);
   }
-
-  // Asignar rol al usuario
-  const roleName = role === 'admin' ? 'Administrador' : 'Cajero'; // Ajustar según roles en BD
-  const { error: roleError } = await supabase
-    .from('usuario_rol')
-    .insert([{
-      id_perfil: authData.user.id,
-      id_rol: (await supabase.from('rol_usuario').select('id_rol').eq('nombre', roleName).single()).data?.id_rol
-    }]);
-
-  if (roleError) {
-    console.error('Error al asignar rol:', roleError);
-    // No throw aquí, ya que el perfil se creó
-  }
-
-  return profileData;
 };

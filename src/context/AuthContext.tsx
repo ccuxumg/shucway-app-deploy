@@ -15,7 +15,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [role, setRole] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false); // Cambiar a false inicialmente
+  const [loading, setLoading] = useState(true); // Iniciar en true para evitar problemas de timing
 
   const refreshUser = async () => {
     try {
@@ -57,10 +57,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
-    // Solo verificar si hay token, no llamar a la API inmediatamente
+    // Verificar token al montar el componente
     const token = localStorage.getItem('access_token');
     if (token) {
       refreshUser();
+    } else {
+      setLoading(false); // Si no hay token, terminar loading
     }
   }, []); // Solo se ejecuta una vez al montar
 

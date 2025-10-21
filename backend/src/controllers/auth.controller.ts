@@ -3,7 +3,34 @@ import { authService } from '../services/auth.service';
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../types';
 
+import { UsuariosService } from '../services/usuarios.service';
+
 export class AuthController {
+  // GET /api/auth/profile
+  async profile(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id_perfil;
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'No autenticado' });
+        return;
+      }
+      // Obtener perfil completo con rol
+      const perfil = await new UsuariosService().getUsuarioById(userId);
+      if (!perfil) {
+        res.status(404).json({ success: false, message: 'Perfil no encontrado' });
+        return;
+      }
+      res.status(200).json({ success: true, data: perfil });
+  } catch (error: unknown) {
+      logger.error('Error en profile controller:', error);
+  const statusCode = typeof error === 'object' && error && 'statusCode' in error ? (error as { statusCode?: number }).statusCode : 500;
+  const errorMsg = typeof error === 'object' && error && 'message' in error ? (error as { message?: string }).message : 'Error al obtener perfil';
+  res.status(statusCode ?? 500).json({
+        success: false,
+        error: errorMsg
+      });
+    }
+  }
   // POST /api/auth/register
   async register(req: Request, res: Response): Promise<void> {
     try {
@@ -14,11 +41,13 @@ export class AuthController {
         data: user,
         message: 'Usuario registrado exitosamente'
       });
-    } catch (error: any) {
+  } catch (error: unknown) {
       logger.error('Error en register controller:', error);
-      res.status(error.statusCode || 500).json({
+  const statusCode = typeof error === 'object' && error && 'statusCode' in error ? (error as { statusCode?: number }).statusCode : 500;
+  const errorMsg = typeof error === 'object' && error && 'message' in error ? (error as { message?: string }).message : 'Error al registrar usuario';
+  res.status(statusCode ?? 500).json({
         success: false,
-        error: error.message || 'Error al registrar usuario'
+        error: errorMsg
       });
     }
   }
@@ -33,11 +62,13 @@ export class AuthController {
         data: result,
         message: 'Login exitoso'
       });
-    } catch (error: any) {
+  } catch (error: unknown) {
       logger.error('Error en login controller:', error);
-      res.status(error.statusCode || 500).json({
+  const statusCode = typeof error === 'object' && error && 'statusCode' in error ? (error as { statusCode?: number }).statusCode : 500;
+  const errorMsg = typeof error === 'object' && error && 'message' in error ? (error as { message?: string }).message : 'Error al iniciar sesión';
+  res.status(statusCode ?? 500).json({
         success: false,
-        error: error.message || 'Error al iniciar sesión'
+        error: errorMsg
       });
     }
   }
@@ -51,11 +82,13 @@ export class AuthController {
         data: req.user,
         message: 'Token válido'
       });
-    } catch (error: any) {
+  } catch (error: unknown) {
       logger.error('Error en validateToken controller:', error);
-      res.status(error.statusCode || 500).json({
+  const statusCode = typeof error === 'object' && error && 'statusCode' in error ? (error as { statusCode?: number }).statusCode : 500;
+  const errorMsg = typeof error === 'object' && error && 'message' in error ? (error as { message?: string }).message : 'Error al validar token';
+  res.status(statusCode ?? 500).json({
         success: false,
-        error: error.message || 'Error al validar token'
+        error: errorMsg
       });
     }
   }
@@ -80,11 +113,13 @@ export class AuthController {
         data: result,
         message: 'Token renovado exitosamente'
       });
-    } catch (error: any) {
+  } catch (error: unknown) {
       logger.error('Error en refreshToken controller:', error);
-      res.status(error.statusCode || 500).json({
+  const statusCode = typeof error === 'object' && error && 'statusCode' in error ? (error as { statusCode?: number }).statusCode : 500;
+  const errorMsg = typeof error === 'object' && error && 'message' in error ? (error as { message?: string }).message : 'Error al renovar token';
+  res.status(statusCode ?? 500).json({
         success: false,
-        error: error.message || 'Error al renovar token'
+        error: errorMsg
       });
     }
   }
@@ -100,7 +135,7 @@ export class AuthController {
         success: true,
         message: 'Logout exitoso'
       });
-    } catch (error: any) {
+  } catch (error: unknown) {
       logger.error('Error en logout controller:', error);
       res.status(500).json({
         success: false,

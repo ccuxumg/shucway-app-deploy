@@ -17,18 +17,18 @@ const Login = () => {
     formState: { errors },
     control,
     reset,
-  } = useForm<{ email: string; password: string }>({
+  } = useForm<{ identifier: string; password: string }>({
     defaultValues: {
-      email: '',
+      identifier: '',
       password: '',
     },
   });
 
-  const onSubmit = async (data: { email: string; password: string }) => {
+  const onSubmit = async (data: { identifier: string; password: string }) => {
     setIsLoading(true);
     try {
-      const { email, password } = data;
-      const success = await handleLogin(email, password);
+      const { identifier, password } = data;
+      const success = await handleLogin(identifier, password);
       
       if (success) {
         // Esperar un momento para que el token se guarde
@@ -41,7 +41,7 @@ const Login = () => {
       console.error('Error al iniciar sesión:', error);
       setIsLoading(false);
       reset({
-        email: '',
+        identifier: '',
         password: '',
       });
     }
@@ -83,10 +83,10 @@ const Login = () => {
                   />
                 </svg>
                 <Controller
-                  name="email"
+                  name="identifier"
                   control={control}
                   rules={{
-                    required: "El email o username es requerido",
+                    required: "El correo electrónico o username es requerido",
                   }}
                   render={({ field }) => (
                     <input
@@ -97,8 +97,8 @@ const Login = () => {
                     />
                   )}
                 />
-                {errors?.email?.message && (
-                  <p className="text-red-600">{errors?.email?.message as string}</p>
+                {errors?.identifier?.message && (
+                  <p className="text-red-600">{errors?.identifier?.message as string}</p>
                 )}
               </div>
 

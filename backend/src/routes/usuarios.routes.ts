@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { usuariosController } from '../controllers/usuarios.controller';
 import { authenticateToken } from '../middlewares/auth.middleware';
-import { requireCajero, requireAdministrador } from '../middlewares/roleGuard.middleware';
+import { requireCajero, requireAdministrador, requirePropietario } from '../middlewares/roleGuard.middleware';
 import { AuthRequest } from '../types/express.types';
 
 const router = Router();
@@ -25,6 +25,9 @@ router.get('/test', (req: AuthRequest, res) => {
 // Obtener usuarios (paginado con filtros) - Requiere Cajero (nivel 30)
 router.get('/', requireCajero, usuariosController.getUsuarios);
 
+// Crear nuevo usuario - Requiere Propietario (nivel 100)
+router.post('/', requirePropietario, usuariosController.createUsuario);
+
 // Obtener estadísticas de usuarios - Requiere Administrador (nivel 80)
 router.get('/estadisticas', requireAdministrador, usuariosController.getEstadisticas);
 
@@ -47,6 +50,24 @@ router.get('/:id/roles', requireCajero, usuariosController.getRolesByUsuario);
 router.post('/:id/roles', requireAdministrador, usuariosController.asignarRol);
 
 // Remover rol de usuario - Requiere Administrador (nivel 80)
-router.delete('/roles/:idUsuarioRol', requireAdministrador, usuariosController.removerRol);
+router.delete('/:idUsuario/roles', requireAdministrador, usuariosController.removerRol);
+
+// Obtener todos los roles disponibles - Requiere Cajero (nivel 30)
+router.get('/roles/all', requireCajero, usuariosController.getRoles);
+
+// Eliminar rol - Requiere Administrador (nivel 80)
+router.delete('/roles/:id', requireAdministrador, usuariosController.deleteRol);
+
+// Obtener rol por ID - Requiere Administrador (nivel 80)
+router.get('/roles/:id', requireAdministrador, usuariosController.getRolById);
+
+// Obtener usuarios por rol - Requiere Cajero (nivel 30)
+router.get('/roles/:idRol/usuarios', requireCajero, usuariosController.getUsuariosByRol);
+
+// Crear nuevo rol - Requiere Propietario (nivel 100)
+router.post('/roles', requireAdministrador, usuariosController.createRol);
+
+// Actualizar rol - Requiere Propietario (nivel 100)
+router.put('/roles/:id', requireAdministrador, usuariosController.updateRol);
 
 export default router;

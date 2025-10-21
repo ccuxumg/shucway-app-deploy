@@ -47,45 +47,47 @@ const FiltersComponent = ({
   };
 
   return (
-    <div className="flex flex-col gap-10">
-      <div className="flex flex-wrap  gap-x-16 gap-y-8">
+    <div className="flex flex-col gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div className="flex flex-col gap-2">
-          <p className="text-gray-500 text-[1.3rem]">Teléfono</p>
+          <p className="text-gray-500 text-sm font-medium">Teléfono</p>
           <Input
             placeholder="Buscar por teléfono"
-            className="w-[16rem]"
+            className="w-full"
             onChange={(e) => handleFilerChange("telefono", e.target.value)}
             value={filters.telefono || ""}
           />
         </div>
 
         <div className="flex flex-col gap-2">
-          <p className="text-gray-500 text-[1.3rem]">Fecha de Nacimiento</p>
+          <p className="text-gray-500 text-sm font-medium">Fecha de Nacimiento</p>
           <RangePicker
             onChange={(value) => handleFilerChange("fecha_nacimiento", value)}
             value={filters.fecha_nacimiento}
+            className="w-full"
           />
         </div>
 
         <div className="flex flex-col gap-2">
-          <p className="text-gray-500 text-[1.3rem]">Estado</p>
+          <p className="text-gray-500 text-sm font-medium">Estado</p>
           <Select
             placeholder="Elegir estado"
-            className="w-[16rem]"
+            className="w-full"
             value={filters.estado}
             onChange={(value) => handleFilerChange("estado", value)}
           >
             <Select.Option value="activo">Activo</Select.Option>
             <Select.Option value="inactivo">Inactivo</Select.Option>
+            <Select.Option value="suspendido">Suspendido</Select.Option>
             <Select.Option value="eliminado">Eliminado</Select.Option>
           </Select>
         </div>
       </div>
 
-      <div className="flex gap-6 self-end">
-        <Button onClick={handleReset}>Reset</Button>
-        <Button onClick={handleSubmit} type="primary">
-          Submit
+      <div className="flex gap-4 self-end">
+        <Button onClick={handleReset} size="small">Reset</Button>
+        <Button onClick={handleSubmit} type="primary" size="small">
+          Aplicar Filtros
         </Button>
       </div>
     </div>

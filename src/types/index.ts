@@ -43,9 +43,9 @@ export interface UsuarioFormData {
   direccion: string | null;
   fecha_nacimiento: Dayjs | null;
   avatar_url: string;
-  estado: 'activo' | 'desactivado' | 'eliminado';
+  estado: 'activo' | 'inactivo' | 'eliminado';
   username: string | null;
-  rol: 'admin' | 'user';
+  rol: string;
 }
 
 export interface UsuarioDataType {

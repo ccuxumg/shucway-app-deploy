@@ -4,11 +4,6 @@ import { supabase } from '../config/database';
 // 👥 SERVICIO DE USUARIOS (PERFILES)
 // ================================================================
 
-type SupabaseRolRecord = {
-  id_perfil: number;
-  rol_usuario: { nombre: string; nivel_permiso: number } | { nombre: string; nivel_permiso: number }[];
-};
-
 export interface PerfilUsuario {
   id_perfil: number;
   nombre: string;
@@ -18,7 +13,7 @@ export interface PerfilUsuario {
   direccion?: string;
   fecha_nacimiento?: string;
   avatar_url?: string;
-  estado: 'activo' | 'desactivado' | 'suspendido';
+  estado: 'activo' | 'inactivo' | 'suspendido' | 'eliminado';
   fecha_registro: Date;
   ultimo_acceso?: Date;
   primer_nombre?: string;
@@ -37,6 +32,7 @@ export interface CreateUsuarioDTO {
   email: string;
   username: string;
   password: string;
+  rol: string;
   telefono?: string;
   direccion?: string;
   fecha_nacimiento?: string;
@@ -53,12 +49,41 @@ export interface UpdateUsuarioDTO {
   telefono?: string;
   direccion?: string;
   fecha_nacimiento?: string;
-  avatar_url?: string;
-  estado?: 'activo' | 'desactivado' | 'suspendido';
   primer_nombre?: string;
   segundo_nombre?: string;
   primer_apellido?: string;
   segundo_apellido?: string;
+  estado?: 'activo' | 'inactivo' | 'suspendido' | 'eliminado';
+}
+
+export interface Rol {
+  id_rol: number;
+  nombre_rol: string;
+  descripcion?: string;
+  nivel_permisos: number;
+  permisos?: string;
+  activo: boolean;
+  fecha_creacion: string;
+}
+
+export interface RolesResponse {
+  data: Rol[];
+  total: number;
+}
+
+export interface CreateRolDTO {
+  nombre_rol: string;
+  descripcion?: string;
+  nivel_permisos: number;
+  permisos?: Record<string, unknown>;
+}
+
+export interface UpdateRolDTO {
+  nombre_rol?: string;
+  descripcion?: string;
+  nivel_permisos?: number;
+  permisos?: Record<string, unknown>;
+  activo?: boolean;
 }
 
 export class UsuariosService {
@@ -78,10 +103,13 @@ export class UsuariosService {
   ): Promise<{ data: PerfilConRoles[]; count: number }> {
     const offset = (page - 1) * pageSize;
 
-    // Construir query base
+    // Construir query base con join a rol_usuario
     let query = supabase
       .from('perfil_usuario')
-      .select('*', { count: 'exact' })
+      .select(`
+        *,
+        rol_usuario!inner(id_rol, nombre_rol, nivel_permisos)
+      `, { count: 'exact' })
       .order('fecha_registro', { ascending: false });
 
     // Aplicar filtros
@@ -114,47 +142,15 @@ export class UsuariosService {
       return { data: [], count: 0 };
     }
 
-    // Obtener roles para estos perfiles
-    const ids = perfiles.map((p) => p.id_perfil);
-    const rolesMap: Record<number, { roles: string; nivel: number }> = {};
-
-    if (ids.length > 0) {
-      const { data: rolesData, error: rolesError } = await supabase
-        .from('usuario_rol')
-        .select(
-          `
-          id_perfil,
-          rol_usuario!inner(nombre, nivel_permiso)
-        `
-        )
-        .in('id_perfil', ids);
-
-      if (!rolesError && rolesData) {
-        rolesData.forEach((r: SupabaseRolRecord) => {
-          const rol = Array.isArray(r.rol_usuario) ? r.rol_usuario[0] : r.rol_usuario;
-          const roleName = rol?.nombre || 'Sin rol';
-          const nivelPermiso = rol?.nivel_permiso || 0;
-          const idPerfil = r.id_perfil;
-
-          if (!rolesMap[idPerfil]) {
-            rolesMap[idPerfil] = { roles: roleName, nivel: nivelPermiso };
-          } else {
-            rolesMap[idPerfil].roles += `, ${roleName}`;
-            // Tomar el nivel más alto
-            if (nivelPermiso > rolesMap[idPerfil].nivel) {
-              rolesMap[idPerfil].nivel = nivelPermiso;
-            }
-          }
-        });
-      }
-    }
-
     // Combinar perfiles con roles
-    const perfilesConRoles = perfiles.map((perfil) => ({
-      ...perfil,
-      roles: rolesMap[perfil.id_perfil]?.roles || 'Sin rol',
-      nivel_permiso: rolesMap[perfil.id_perfil]?.nivel || 0,
-    })) as PerfilConRoles[];
+    const perfilesConRoles = perfiles.map((perfil) => {
+      const rolUsuario = (perfil as Record<string, unknown>).rol_usuario as Record<string, unknown>;
+      return {
+        ...perfil,
+        roles: rolUsuario?.nombre_rol as string || 'Sin rol',
+        nivel_permiso: rolUsuario?.nivel_permisos as number || 0,
+      };
+    }) as PerfilConRoles[];
 
     return {
       data: perfilesConRoles,
@@ -166,10 +162,13 @@ export class UsuariosService {
    * Obtener usuario por ID
    */
   async getUsuarioById(id: number): Promise<PerfilConRoles | null> {
-    // Obtener perfil
+    // Obtener perfil con rol
     const { data: perfil, error } = await supabase
       .from('perfil_usuario')
-      .select('*')
+      .select(`
+        *,
+        rol_usuario!inner(nombre_rol, nivel_permisos)
+      `)
       .eq('id_perfil', id)
       .single();
 
@@ -179,38 +178,9 @@ export class UsuariosService {
 
     if (!perfil) return null;
 
-    // Obtener roles
-    const { data: rolesData } = await supabase
-      .from('usuario_rol')
-      .select(
-        `
-        rol_usuario!inner(nombre, nivel_permiso)
-      `
-      )
-      .eq('id_perfil', id);
-
-    let roles = 'Sin rol';
-    let nivel_permiso = 0;
-
-    if (rolesData && rolesData.length > 0) {
-      const rolesArray = rolesData as unknown as Array<{
-        rol_usuario: { nombre: string; nivel_permiso: number } | { nombre: string; nivel_permiso: number }[];
-      }>;
-
-      roles = rolesArray
-        .map((r) => {
-          const rol = Array.isArray(r.rol_usuario) ? r.rol_usuario[0] : r.rol_usuario;
-          return rol?.nombre || 'Sin rol';
-        })
-        .join(', ');
-
-      nivel_permiso = Math.max(
-        ...rolesArray.map((r) => {
-          const rol = Array.isArray(r.rol_usuario) ? r.rol_usuario[0] : r.rol_usuario;
-          return rol?.nivel_permiso || 0;
-        })
-      );
-    }
+    const rolUsuario = (perfil as Record<string, unknown>).rol_usuario as Record<string, unknown>;
+    const roles = rolUsuario?.nombre_rol as string || 'Sin rol';
+    const nivel_permiso = rolUsuario?.nivel_permisos as number || 0;
 
     return {
       ...perfil,
@@ -220,32 +190,224 @@ export class UsuariosService {
   }
 
   /**
+   * Crear nuevo usuario
+   */
+  async createUsuario(dto: CreateUsuarioDTO): Promise<PerfilConRoles> {
+    const { logger } = await import('../utils/logger');
+
+    logger.info(`[CREATE USUARIO SERVICE] Creando usuario: ${dto.email}`);
+
+    // Validar que el email no exista
+    const { data: existingUser, error: checkError } = await supabase
+      .from('perfil_usuario')
+      .select('id_perfil')
+      .eq('email', dto.email)
+      .single();
+
+    if (checkError && checkError.code !== 'PGRST116') {
+      logger.error(`[CREATE USUARIO SERVICE] Error al verificar email existente: ${checkError.message}`);
+      throw new Error(`Error al verificar email: ${checkError.message}`);
+    }
+
+    if (existingUser) {
+      logger.error(`[CREATE USUARIO SERVICE] Email ya existe: ${dto.email}`);
+      throw new Error('Ya existe un usuario con este email');
+    }
+
+    // Obtener rol especificado
+    const rolNombre = dto.rol.toLowerCase(); // Convertir a minúsculas para coincidir con BD
+    const { data: rolData, error: rolError } = await supabase
+      .from('rol_usuario')
+      .select('id_rol')
+      .eq('nombre_rol', rolNombre)
+      .eq('activo', true)
+      .single();
+
+    if (rolError || !rolData) {
+      logger.error(`[CREATE USUARIO SERVICE] Error al obtener rol '${rolNombre}': ${rolError?.message}`);
+      throw new Error(`Error al obtener rol: ${rolNombre}`);
+    }
+
+    // Generar hash de contraseña
+    const bcrypt = await import('bcrypt');
+    const saltRounds = 12;
+    const passwordHash = await bcrypt.hash(dto.password, saltRounds);
+
+    // Crear usuario
+    const { data: newUser, error: createError } = await supabase
+      .from('perfil_usuario')
+      .insert({
+        email: dto.email,
+        password_hash: passwordHash,
+        primer_nombre: dto.primer_nombre,
+        segundo_nombre: dto.segundo_nombre,
+        primer_apellido: dto.primer_apellido,
+        segundo_apellido: dto.segundo_apellido,
+        telefono: dto.telefono,
+        direccion: dto.direccion,
+        fecha_nacimiento: dto.fecha_nacimiento,
+        avatar_url: dto.avatar_url,
+        username: dto.username,
+        id_rol: rolData.id_rol,
+        estado: 'activo'
+      })
+      .select(`
+        *,
+        rol_usuario!inner(nombre_rol, nivel_permisos)
+      `)
+      .single();
+
+    if (createError) {
+      logger.error(`[CREATE USUARIO SERVICE] Error al crear usuario: ${createError.message}`);
+      throw new Error(`Error al crear usuario: ${createError.message}`);
+    }
+
+    const rolUsuario = (newUser as Record<string, unknown>).rol_usuario as Record<string, unknown>;
+    const roles = rolUsuario?.nombre_rol as string || 'Sin rol';
+    const nivel_permiso = rolUsuario?.nivel_permisos as number || 0;
+
+    logger.info(`[CREATE USUARIO SERVICE] Usuario creado exitosamente: ${newUser.email}`);
+
+    return {
+      ...newUser,
+      roles,
+      nivel_permiso,
+    } as PerfilConRoles;
+  }
+
+  /**
    * Actualizar usuario
    */
   async updateUsuario(id: number, dto: UpdateUsuarioDTO): Promise<PerfilUsuario> {
-    const { data, error } = await supabase
-      .from('perfil_usuario')
-      .update(dto)
-      .eq('id_perfil', id)
-      .select()
-      .single();
+    // Filtrar campos que puedan causar problemas con triggers
+    const safeDto: Record<string, unknown> = { ...dto };
+    delete safeDto.active_token;
+    delete safeDto.session_token;
+    delete safeDto.token;
 
-    if (error) throw new Error(`Error al actualizar usuario: ${error.message}`);
-    return data;
+    // Intentar update directo primero
+    try {
+      const { data, error } = await supabase
+        .from('perfil_usuario')
+        .update(safeDto)
+        .eq('id_perfil', id)
+        .select()
+        .single();
+
+      if (error) {
+        // Si el error es específico de unique_active_token, intentar una solución alternativa
+        if (error.message.includes('unique_active_token')) {
+          console.warn('Error de unique_active_token detectado, intentando solución alternativa');
+
+          // Obtener el registro actual para comparar qué campos realmente cambiaron
+          const { data: currentData, error: selectError } = await supabase
+            .from('perfil_usuario')
+            .select('*')
+            .eq('id_perfil', id)
+            .single();
+
+          if (selectError) {
+            throw new Error(`Error al obtener usuario actual: ${selectError.message}`);
+          }
+
+          // Crear objeto solo con campos que realmente cambiaron
+          const changedFields: Record<string, unknown> = {};
+          for (const [key, value] of Object.entries(safeDto)) {
+            if (currentData[key] !== value) {
+              changedFields[key] = value;
+            }
+          }
+
+          console.log('Campos que cambiaron:', changedFields);
+
+          // Si no hay cambios, devolver los datos actuales
+          if (Object.keys(changedFields).length === 0) {
+            console.log('No hay cambios que aplicar');
+            return currentData;
+          }
+
+          // Intentar actualizar solo los campos que cambiaron
+          const { data: updatedData, error: updateError } = await supabase
+            .from('perfil_usuario')
+            .update(changedFields)
+            .eq('id_perfil', id)
+            .select()
+            .single();
+
+          if (updateError) {
+            console.error('Error en actualización selectiva:', updateError);
+            // Si aún falla, intentar campo por campo como último recurso
+            console.warn('Intentando actualización campo por campo...');
+            let finalData = { ...currentData };
+
+            for (const [key, value] of Object.entries(changedFields)) {
+              try {
+                const { data: fieldData, error: fieldError } = await supabase
+                  .from('perfil_usuario')
+                  .update({ [key]: value })
+                  .eq('id_perfil', id)
+                  .select()
+                  .single();
+
+                if (fieldError) {
+                  console.error(`Error actualizando campo ${key}:`, fieldError);
+                } else if (fieldData) {
+                  finalData = { ...finalData, ...fieldData };
+                }
+              } catch (fieldErr) {
+                console.error(`Error en campo ${key}:`, fieldErr);
+              }
+            }
+
+            return finalData;
+          }
+
+          return updatedData;
+        }
+
+        throw new Error(`Error al actualizar usuario: ${error.message}`);
+      }
+
+      return data;
+    } catch (err) {
+      console.error('Error en updateUsuario:', err);
+      throw err;
+    }
   }
 
   /**
    * Cambiar estado de usuario
    */
-  async cambiarEstado(id: number, estado: 'activo' | 'desactivado' | 'suspendido'): Promise<PerfilUsuario> {
+  async cambiarEstado(id: number, estado: 'activo' | 'inactivo' | 'suspendido' | 'eliminado'): Promise<PerfilUsuario> {
     return this.updateUsuario(id, { estado });
   }
 
   /**
-   * Eliminar usuario (soft delete - cambiar estado a desactivado)
+   * Eliminar usuario (soft delete primero, hard delete después)
    */
   async deleteUsuario(id: number): Promise<void> {
-    await this.cambiarEstado(id, 'desactivado');
+    // Obtener el usuario actual para verificar su estado
+    const usuario = await this.getUsuarioById(id);
+    if (!usuario) {
+      throw new Error('Usuario no encontrado');
+    }
+
+    if (usuario.estado === 'activo') {
+      // Si está activo, hacer soft delete (cambiar a inactivo)
+      await this.cambiarEstado(id, 'inactivo');
+    } else if (usuario.estado === 'inactivo') {
+      // Si ya está inactivo, eliminar completamente
+      const { error } = await supabase
+        .from('perfil_usuario')
+        .delete()
+        .eq('id_perfil', id);
+
+      if (error) {
+        throw new Error(`Error al eliminar usuario: ${error.message}`);
+      }
+    } else {
+      throw new Error(`No se puede eliminar usuario con estado: ${usuario.estado}`);
+    }
   }
 
   /**
@@ -253,16 +415,14 @@ export class UsuariosService {
    */
   async getRolesByUsuario(idUsuario: number): Promise<unknown[]> {
     const { data, error } = await supabase
-      .from('usuario_rol')
+      .from('perfil_usuario')
       .select(
         `
-        id_usuario_rol,
         id_rol,
-        fecha_asignacion,
         rol_usuario!inner(
           id_rol,
           nombre,
-          nivel_permiso
+          nivel_permisos
         )
       `
       )
@@ -276,21 +436,72 @@ export class UsuariosService {
    * Asignar rol a usuario
    */
   async asignarRol(idUsuario: number, idRol: number): Promise<void> {
-    const { error } = await supabase.from('usuario_rol').insert({
-      id_perfil: idUsuario,
-      id_rol: idRol,
-    });
+    const { error } = await supabase
+      .from('perfil_usuario')
+      .update({ id_rol: idRol })
+      .eq('id_perfil', idUsuario);
 
     if (error) throw new Error(`Error al asignar rol: ${error.message}`);
   }
 
   /**
-   * Remover rol de usuario
+   * Remover rol de usuario (asignar rol por defecto: cliente)
    */
-  async removerRol(idUsuarioRol: number): Promise<void> {
-    const { error } = await supabase.from('usuario_rol').delete().eq('id_usuario_rol', idUsuarioRol);
+  async removerRol(idUsuario: number): Promise<void> {
+    // Obtener el ID del rol "cliente" (rol por defecto)
+    const { data: rolCliente, error: rolError } = await supabase
+      .from('rol_usuario')
+      .select('id_rol')
+      .eq('nombre_rol', 'cliente')
+      .eq('activo', true)
+      .single();
 
-    if (error) throw new Error(`Error al remover rol: ${error.message}`);
+    if (rolError || !rolCliente) {
+      throw new Error('No se pudo encontrar el rol por defecto (cliente)');
+    }
+
+    // Asignar rol por defecto al usuario
+    const { error } = await supabase
+      .from('perfil_usuario')
+      .update({ id_rol: rolCliente.id_rol })
+      .eq('id_perfil', idUsuario);
+
+    if (error) {
+      throw new Error(`Error al remover rol del usuario: ${error.message}`);
+    }
+  }
+
+  /**
+   * Obtener todos los roles disponibles
+   */
+  async getRoles(page?: number, pageSize?: number, filters?: { estado?: string; searchValue?: string }): Promise<RolesResponse> {
+    let query = supabase
+      .from('rol_usuario')
+      .select('id_rol, nombre_rol, descripcion, nivel_permisos, permisos, activo, fecha_creacion', { count: 'exact' });
+
+    // Aplicar filtros
+    if (filters?.estado && filters.estado !== 'todos') {
+      query = query.eq('activo', filters.estado === 'activo');
+    }
+
+    if (filters?.searchValue) {
+      query = query.ilike('nombre_rol', `%${filters.searchValue}%`);
+    }
+
+    // Ordenar
+    query = query.order('nivel_permisos', { ascending: false });
+
+    // Paginación
+    if (page && pageSize) {
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+      query = query.range(from, to);
+    }
+
+    const { data, error, count } = await query;
+
+    if (error) throw new Error(`Error al obtener roles: ${error.message}`);
+    return { data: data || [], total: count || 0 };
   }
 
   /**
@@ -299,10 +510,10 @@ export class UsuariosService {
   async getEstadisticas(): Promise<{
     total: number;
     activos: number;
-    desactivados: number;
+    inactivos: number;
     nuevosEsteMes: number;
   }> {
-    // Total usuarios
+    // Total de usuarios
     const { count: total } = await supabase
       .from('perfil_usuario')
       .select('*', { count: 'exact', head: true });
@@ -313,13 +524,13 @@ export class UsuariosService {
       .select('*', { count: 'exact', head: true })
       .eq('estado', 'activo');
 
-    // Usuarios desactivados
-    const { count: desactivados } = await supabase
+    // Usuarios inactivos
+    const { count: inactivos } = await supabase
       .from('perfil_usuario')
       .select('*', { count: 'exact', head: true })
-      .eq('estado', 'desactivado');
+      .eq('estado', 'inactivo');
 
-    // Nuevos usuarios este mes
+    // Nuevos este mes
     const primerDiaMes = new Date();
     primerDiaMes.setDate(1);
     primerDiaMes.setHours(0, 0, 0, 0);
@@ -332,10 +543,135 @@ export class UsuariosService {
     return {
       total: total || 0,
       activos: activos || 0,
-      desactivados: desactivados || 0,
+      inactivos: inactivos || 0,
       nuevosEsteMes: nuevosEsteMes || 0,
     };
   }
-}
 
-export const usuariosService = new UsuariosService();
+  /**
+   * Eliminar rol (desactivar)
+   */
+  async deleteRol(idRol: number): Promise<{ yaInactivo: boolean; eliminadoCompletamente: boolean }> {
+    const { logger } = await import('../utils/logger');
+
+    logger.info(`[DELETE ROL SERVICE] Iniciando eliminación de rol ID: ${idRol}`);
+
+    // Validar que no se eliminen roles predefinidos críticos
+    const rolesProtegidos = ['cliente', 'cajero', 'administrador', 'propietario'];
+
+    // Primero obtener el rol para verificar si es protegido
+    const { data: rol, error: fetchError } = await supabase
+      .from('rol_usuario')
+      .select('nombre_rol, activo')
+      .eq('id_rol', idRol)
+      .single();
+
+    if (fetchError) {
+      logger.error(`[DELETE ROL SERVICE] Error al obtener rol: ${fetchError.message}`);
+      throw new Error(`Error al obtener rol: ${fetchError.message}`);
+    }
+
+    if (!rol) {
+      logger.error(`[DELETE ROL SERVICE] Rol no encontrado con ID: ${idRol}`);
+      throw new Error('Rol no encontrado');
+    }
+
+    logger.info(`[DELETE ROL SERVICE] Rol encontrado: ${rol.nombre_rol}, activo: ${rol.activo}`);
+
+    // Si el rol ya está inactivo, eliminarlo completamente
+    if (!rol.activo) {
+      logger.info(`[DELETE ROL SERVICE] Rol ya está inactivo, eliminando completamente`);
+
+      // Verificar si hay usuarios con este rol (aunque esté inactivo)
+      const { data: usuarios, error: usuariosError } = await supabase
+        .from('perfil_usuario')
+        .select('id_perfil')
+        .eq('id_rol', idRol)
+        .limit(1);
+
+      if (usuariosError) {
+        logger.error(`[DELETE ROL SERVICE] Error al verificar usuarios: ${usuariosError.message}`);
+        throw new Error(`Error al verificar usuarios con este rol: ${usuariosError.message}`);
+      }
+
+      if (usuarios && usuarios.length > 0) {
+        logger.error(`[DELETE ROL SERVICE] No se puede eliminar completamente el rol, tiene usuarios asignados`);
+        throw new Error('No se puede eliminar completamente el rol porque aún tiene usuarios asignados. Primero reasigna los usuarios a otro rol.');
+      }
+
+      // Eliminar completamente el rol
+      const { error: deleteError } = await supabase
+        .from('rol_usuario')
+        .delete()
+        .eq('id_rol', idRol);
+
+      if (deleteError) {
+        logger.error(`[DELETE ROL SERVICE] Error al eliminar completamente rol: ${deleteError.message}`);
+        throw new Error(`Error al eliminar completamente rol: ${deleteError.message}`);
+      }
+
+      logger.info(`[DELETE ROL SERVICE] Rol eliminado completamente de la base de datos`);
+      return { yaInactivo: true, eliminadoCompletamente: true };
+    }
+
+    // Verificar si es un rol protegido
+    if (rolesProtegidos.includes(rol.nombre_rol.toLowerCase())) {
+      logger.error(`[DELETE ROL SERVICE] Intento de eliminar rol protegido: ${rol.nombre_rol}`);
+      throw new Error(`No se puede eliminar el rol "${rol.nombre_rol}" porque es un rol del sistema protegido`);
+    }
+
+    // Verificar si hay usuarios con este rol
+    const { data: usuarios, error: usuariosError } = await supabase
+      .from('perfil_usuario')
+      .select('id_perfil')
+      .eq('id_rol', idRol)
+      .limit(1);
+
+    if (usuariosError) {
+      logger.error(`[DELETE ROL SERVICE] Error al verificar usuarios: ${usuariosError.message}`);
+      throw new Error(`Error al verificar usuarios con este rol: ${usuariosError.message}`);
+    }
+
+    if (usuarios && usuarios.length > 0) {
+      logger.error(`[DELETE ROL SERVICE] Rol tiene usuarios asignados, no se puede eliminar`);
+      throw new Error('No se puede eliminar el rol porque hay usuarios asignados a él. Primero reasigna los usuarios a otro rol.');
+    }
+
+    logger.info(`[DELETE ROL SERVICE] Ejecutando actualización para desactivar rol`);
+
+    // Desactivar el rol
+    const { error, data } = await supabase
+      .from('rol_usuario')
+      .update({ activo: false })
+      .eq('id_rol', idRol)
+      .select();
+
+    if (error) {
+      logger.error(`[DELETE ROL SERVICE] Error al actualizar rol: ${error.message}`);
+      throw new Error(`Error al eliminar rol: ${error.message}`);
+    }
+
+    logger.info(`[DELETE ROL SERVICE] Rol actualizado exitosamente. Filas afectadas: ${data?.length || 0}`);
+    return { yaInactivo: false, eliminadoCompletamente: false };
+  }
+
+  /**
+   * Obtener rol por ID (para debugging)
+   */
+  async getRolById(idRol: number) {
+    const { logger } = await import('../utils/logger');
+
+    const { data, error } = await supabase
+      .from('rol_usuario')
+      .select('*')
+      .eq('id_rol', idRol)
+      .single();
+
+    if (error) {
+      logger.error(`[GET ROL BY ID SERVICE] Error al obtener rol: ${error.message}`);
+      throw new Error(`Error al obtener rol: ${error.message}`);
+    }
+
+    return data;
+  }
+}

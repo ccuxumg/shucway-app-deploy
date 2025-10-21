@@ -19,7 +19,7 @@ export interface PerfilUsuario {
   direccion?: string;
   fecha_nacimiento?: string;
   avatar_url?: string;
-  estado: 'activo' | 'desactivado' | 'suspendido';
+  estado: 'activo' | 'inactivo' | 'suspendido' | 'eliminado';
   fecha_registro: Date;
   ultimo_acceso?: Date;
   primer_nombre?: string;
@@ -64,7 +64,7 @@ export interface GetUsuariosResponse {
 export interface Estadisticas {
   total: number;
   activos: number;
-  desactivados: number;
+  inactivos: number;
   nuevosEsteMes: number;
 }
 
@@ -135,7 +135,7 @@ export const updateUsuario = async (id: number, data: UpdateUsuarioDTO): Promise
  */
 export const cambiarEstado = async (
   id: number,
-  estado: 'activo' | 'desactivado' | 'suspendido'
+  estado: 'activo' | 'inactivo' | 'suspendido' | 'eliminado'
 ): Promise<PerfilUsuario> => {
   try {
     const response = await api.patch(`/usuarios/${id}/estado`, { estado });
@@ -186,9 +186,9 @@ export const asignarRol = async (idUsuario: number, idRol: number): Promise<void
 /**
  * Remover rol de usuario
  */
-export const removerRol = async (idUsuarioRol: number): Promise<void> => {
+export const removerRol = async (idUsuario: number): Promise<void> => {
   try {
-    await api.delete(`/usuarios/roles/${idUsuarioRol}`);
+    await api.delete(`/usuarios/${idUsuario}/roles`);
   } catch (error) {
     console.error('Error al remover rol:', error);
     throw error;

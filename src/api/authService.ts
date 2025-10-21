@@ -1,3 +1,18 @@
+// ============================================================
+// OBTENER PERFIL COMPLETO DEL USUARIO AUTENTICADO
+// ============================================================
+export const getProfile = async () => {
+  try {
+    const response = await api.get('/auth/profile');
+    if (response.data.success) {
+      return response.data.data;
+    }
+    throw new Error(response.data.message || 'No se pudo obtener el perfil');
+  } catch (error) {
+    console.error('Error al obtener perfil:', error);
+    throw error;
+  }
+};
 // ================================================================
 // 🔐 SERVICIO DE AUTENTICACIÓN
 // ================================================================
@@ -8,7 +23,7 @@ import api from './apiClient';
 
 // Interfaces
 export interface LoginCredentials {
-  email: string;
+  identifier: string;
   password: string;
 }
 
@@ -54,16 +69,12 @@ export interface LoginResponse {
 export const login = async (credentials: LoginCredentials): Promise<boolean> => {
   try {
     const response = await api.post<LoginResponse>('/auth/login', credentials);
-    
     if (response.data.success) {
-      // Guardar token y usuario en localStorage
       localStorage.setItem('access_token', response.data.data.token);
       localStorage.setItem('user', JSON.stringify(response.data.data.user));
-      
       message.success('¡Sesión iniciada correctamente!');
       return true;
     }
-    
     message.error(response.data.message || 'Error al iniciar sesión');
     return false;
   } catch (error: unknown) {

@@ -44,7 +44,10 @@ const Dashboard: React.FC = () => {
 
   // Configuraciones locales (persistidas en localStorage)
   const STORAGE_PREFIX = "dashboard:";
-  const [enableNotifications, setEnableNotifications] = useState<boolean>(() => {
+
+  // Variables de configuración futuras - se usarán más adelante
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_enableNotifications, _setEnableNotifications] = useState<boolean>(() => {
     try {
       const v = localStorage.getItem(STORAGE_PREFIX + "enableNotifications");
       return v === null ? true : v === "true";
@@ -52,7 +55,9 @@ const Dashboard: React.FC = () => {
       return true;
     }
   });
-  const [autoPrint, setAutoPrint] = useState<boolean>(() => {
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_autoPrint, _setAutoPrint] = useState<boolean>(() => {
     try {
       const v = localStorage.getItem(STORAGE_PREFIX + "autoPrint");
       return v === null ? false : v === "true";
@@ -60,7 +65,9 @@ const Dashboard: React.FC = () => {
       return false;
     }
   });
-  const [showLowStockAlerts, setShowLowStockAlerts] = useState<boolean>(() => {
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_showLowStockAlerts, _setShowLowStockAlerts] = useState<boolean>(() => {
     try {
       const v = localStorage.getItem(STORAGE_PREFIX + "showLowStockAlerts");
       return v === null ? true : v === "true";

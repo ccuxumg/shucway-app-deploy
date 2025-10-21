@@ -1,4 +1,4 @@
-import { apiClient } from "./apiClient";
+import apiClient from "./apiClient";
 
 export interface StatsData {
   ventas: {
@@ -36,6 +36,13 @@ export interface Alert {
   timestamp: string;
 }
 
+export interface InventoryItem {
+  id?: number;
+  name: string;
+  qty?: string;
+  note?: string;
+}
+
 export const dashboardService = {
   async getStats(): Promise<StatsData> {
     const response = await apiClient.get('/dashboard/stats');
@@ -49,6 +56,18 @@ export const dashboardService = {
 
   async getAlertasRecientes(): Promise<Alert[]> {
     const response = await apiClient.get('/dashboard/alertas');
+    return response.data;
+  },
+
+  async getInventoryData(): Promise<{ 
+    perpetual: InventoryItem[]; 
+    operational: InventoryItem[]; 
+    totalPerpetualStock: number; 
+    totalOperationalStock: number; 
+    totalPerpetualItems: number; 
+    totalOperationalItems: number; 
+  }> {
+    const response = await apiClient.get('/dashboard/inventory');
     return response.data;
   }
 };

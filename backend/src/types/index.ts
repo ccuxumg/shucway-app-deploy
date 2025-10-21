@@ -15,7 +15,7 @@ export interface AuthRequest extends Request {
 }
 
 // Respuesta estándar de la API
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
@@ -77,7 +77,7 @@ export interface UsuarioConRol extends Omit<PerfilUsuario, 'password_hash'> {
 
 // Login
 export interface LoginCredentials {
-  email: string;
+  identifier: string;
   password: string;
 }
 
@@ -109,4 +109,43 @@ export interface UploadOptions {
 export interface UploadResponse {
   path: string;
   publicUrl: string;
+}
+
+// ==================== DASHBOARD ====================
+
+// Datos de estadísticas del dashboard
+export interface StatsData {
+  ventas: {
+    total: number;
+    change: number;
+  };
+  inventario: {
+    total: number;
+    change: number;
+  };
+  clientes: {
+    total: number;
+    change: number;
+  };
+  ganancias: {
+    total: number;
+    change: number;
+  };
+}
+
+export interface InventoryItem {
+  id?: number;
+  name: string;
+  qty?: string;
+  note?: string;
+}
+
+export interface Insumo {
+  id_insumo: number;
+  nombre_insumo: string;
+  id_categoria: number;
+  activo: boolean;
+  unidad_medida?: string;
+  stock_minimo?: number;
+  stock?: number;
 }

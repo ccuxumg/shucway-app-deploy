@@ -22,6 +22,25 @@ export interface Insumo {
   activo: boolean;
 }
 
+export interface CatalogoInsumo {
+  id_insumo: number;
+  nombre: string;
+  unidad_medida: string;
+  stock_actual: number;
+  stock_minimo: number;
+  stock_maximo: number;
+  costo_promedio: number;
+  imagen_url?: string;
+  activo: boolean;
+  fecha_creacion: Date;
+  id_categoria: number;
+  id_proveedor_principal?: number;
+  categoria: {
+    nombre: string;
+    tipo_categoria: 'perpetuo' | 'operativo';
+  };
+}
+
 export interface LoteInsumo {
   id_lote: number;
   id_insumo: number;

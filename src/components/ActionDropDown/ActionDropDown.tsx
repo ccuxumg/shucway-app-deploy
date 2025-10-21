@@ -23,7 +23,7 @@ const ActionDropDown = ({ data }: { data: UsuarioDataType }) => {
   });
 
   const handleEdit = () => {
-    toggleDrawer(true, "showDrawerEdit", data?.id_perfil);
+    toggleDrawer(true, "showDrawerEdit", data?.id_perfil?.toString());
   };
 
   const handleModalOpen = () => {
@@ -35,7 +35,7 @@ const ActionDropDown = ({ data }: { data: UsuarioDataType }) => {
   };
 
   const handleDelete = () => {
-    deleteUsuarioApi(data?.id_perfil);
+    deleteUsuarioApi(data?.id_perfil?.toString());
     handleModalClose();
   };
 

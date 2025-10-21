@@ -27,16 +27,15 @@ export const supabase: SupabaseClient = createClient(
 // Función para verificar la conexión a la base de datos
 export async function testDatabaseConnection(): Promise<boolean> {
   try {
-    // Intentar una consulta simple a rol_usuario (que debería tener datos)
+    // Verificación rápida: intentar obtener información de la conexión
+    // En lugar de hacer una consulta completa, solo verificamos que podemos conectar
     const { error } = await supabase
       .from('rol_usuario')
-      .select('id_rol')
-      .limit(1);
+      .select('count', { count: 'exact', head: true })
+      .limit(0);
 
     if (error) {
-      logger.error('Error al conectar con Supabase:', error);
-      logger.error('Mensaje:', error.message);
-      logger.error('Código:', error.code);
+      logger.error('Error al conectar con Supabase:', error.message);
       return false;
     }
 

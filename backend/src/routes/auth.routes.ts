@@ -20,7 +20,7 @@ const registerSchema = z.object({
 });
 
 const loginSchema = z.object({
-  email: z.string().min(1, 'Usuario o correo es requerido'), // Acepta email O username
+  identifier: z.string().min(1, 'Usuario o correo es requerido'), // Acepta email O username
   password: z.string().min(1, 'La contraseña es requerida')
 });
 
@@ -35,6 +35,7 @@ router.post('/refresh', validate(refreshTokenSchema), authController.refreshToke
 
 // Rutas protegidas (requieren token JWT)
 router.get('/validate', authenticateToken, authController.validateToken);
+router.get('/profile', authenticateToken, authController.profile);
 router.post('/logout', authenticateToken, authController.logout);
 
 export default router;

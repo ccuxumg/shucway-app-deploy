@@ -1,4 +1,4 @@
-import { Button, Dropdown, Switch } from "antd";
+import { Dropdown, Switch } from "antd";
 import ColumnsIcon from "../../assets/icons/columns.svg";
 import { IColumnsBtn } from "../../types";
 import { Key } from "react";
@@ -31,10 +31,10 @@ const ColumnsBtn = ({ columnsInfo, handleChangeColumns }: IColumnsBtn) => {
 
   return (
     <Dropdown menu={{ items }} trigger={["click"]} placement="bottomRight">
-      <Button className="!text-violet-700 border !border-violet-700 hover:opacity-80">
-        <img src={ColumnsIcon} alt="Columns" />
-        Columns
-      </Button>
+      <button className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+        <img src={ColumnsIcon} alt="Columns" className="w-4 h-4" />
+        Columnas
+      </button>
     </Dropdown>
   );
 };

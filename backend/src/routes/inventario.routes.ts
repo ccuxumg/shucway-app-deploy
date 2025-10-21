@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { inventarioController } from '../controllers/inventario.controller';
+import { ComprasController } from '../controllers/compras.controller';
 import { authenticateToken } from '../middlewares/auth.middleware';
 import {
   requireCajero,
@@ -7,6 +8,7 @@ import {
 } from '../middlewares/roleGuard.middleware';
 
 const router = Router();
+const comprasController = new ComprasController();
 
 // ================================================================
 // 📦 RUTAS DE INVENTARIO
@@ -14,6 +16,11 @@ const router = Router();
 
 // Todas las rutas requieren autenticación
 router.use(authenticateToken);
+
+// ================== PROVEEDORES ==================
+// Nivel mínimo: Cajero (30) para consultar
+
+router.get('/proveedores', requireCajero, comprasController.getProveedores.bind(comprasController));
 
 // ================== CATEGORÍAS DE INSUMOS ==================
 // Nivel mínimo: Cajero (30) para consultar, Administrador (80) para modificar
@@ -29,6 +36,9 @@ router.get('/insumos/:id', requireCajero, inventarioController.getInsumoById.bin
 router.post('/insumos', requireAdministrador, inventarioController.createInsumo.bind(inventarioController));
 router.put('/insumos/:id', requireAdministrador, inventarioController.updateInsumo.bind(inventarioController));
 router.delete('/insumos/:id', requireAdministrador, inventarioController.deleteInsumo.bind(inventarioController));
+
+// Ruta adicional para catálogo con joins
+router.get('/catalogo', requireCajero, inventarioController.getCatalogoInsumos.bind(inventarioController));
 
 // ================== LOTES ==================
 // Nivel mínimo: Cajero (30) para consultar, Administrador (80) para modificar

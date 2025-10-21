@@ -132,6 +132,20 @@ export class InventarioController {
     }
   }
 
+  // ================== CATÁLOGO ==================
+
+  async getCatalogoInsumos(_req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const insumos = await inventarioService.getCatalogoInsumos();
+      res.json({
+        success: true,
+        data: insumos,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   // ================== LOTES ==================
 
   async getLotesByInsumo(req: AuthRequest, res: Response, next: NextFunction) {

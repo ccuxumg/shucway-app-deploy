@@ -505,7 +505,8 @@ export default function IngresoCompra(): JSX.Element {
         throw insErr;
       }
       if (ins && Array.isArray(ins)) {
-        const newRow = ins[0] as Record<string, unknown>;
+        const rawRow = ins[0];
+        const newRow = (typeof rawRow === 'object' && rawRow !== null) ? rawRow as Record<string, unknown> : {};
         const provId = toStr(getVal(newRow, 'id_proveedor'));
         const provName = providers.find(x => String(x['id_proveedor'] ?? '') === String(provId))?.['nombre'];
         setRows((p) => [{ id_orden: String(getVal(newRow, 'id_orden') ?? `tmp-${Date.now()}`), numero_orden: toStr(getVal(newRow, 'numero_orden')), fecha: toStr(getVal(newRow, 'fecha')), id_proveedor: provId, proveedor: provName ? String(provName) : null, total: toNum(getVal(newRow, 'total')) ?? 0, estado: toStr(getVal(newRow, 'estado')) }, ...p]);

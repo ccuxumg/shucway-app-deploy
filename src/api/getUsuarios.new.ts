@@ -26,7 +26,7 @@ export const getUsuarios = async (
 
     // Obtener el rol del usuario actual
     const { data: roleData, error: roleError } = await supabase
-      .from('usuario_rol')
+      .from('perfil_usuario')
       .select(`
         id_rol,
         rol_usuario!inner(
@@ -34,7 +34,7 @@ export const getUsuarios = async (
           nivel_permisos
         )
       `)
-      .eq('id_perfil', authData.session.user.id)
+      .eq('email', authData.session.user.email)
       .single();
 
     if (roleError) {
@@ -49,10 +49,10 @@ export const getUsuarios = async (
     console.log('¿Es administrador?:', isAdmin);
 
     // Construir la consulta base
-    // Incluir join con usuario_rol -> rol_usuario para obtener el nombre del rol
+    // Incluir join con rol_usuario para obtener el nombre del rol
     let query = supabase
       .from("perfil_usuario")
-      .select(`*, usuario_rol!left(id_rol, rol_usuario!left(nombre))`, { count: 'exact' })
+      .select(`*, rol_usuario!inner(nombre)`, { count: 'exact' })
       .order('fecha_registro', { ascending: false });
 
     // Si no es admin, solo ver su propio perfil

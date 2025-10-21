@@ -6,6 +6,6 @@
 
 import { login } from './authService';
 
-export const handleLogin = async (email: string, password: string): Promise<boolean> => {
-  return await login({ email, password });
+export const handleLogin = async (identifier: string, password: string): Promise<boolean> => {
+  return await login({ identifier, password });
 };

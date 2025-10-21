@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../api/supabaseClient';
 import { UsuarioDataType } from '../../../types';
+import { getProfile } from '../../../api/authService';
 import { FaUser, FaEdit, FaSave, FaCamera, FaEnvelope, FaPhone, FaMapMarkerAlt, FaCalendarAlt, FaUserTag } from 'react-icons/fa';
 import { message } from 'antd';
 
@@ -12,60 +13,21 @@ const Perfil: React.FC = () => {
   const [formData, setFormData] = useState<Partial<UsuarioDataType>>({});
 
   useEffect(() => {
+    const fetchUserProfile = async () => {
+      try {
+        setLoading(true);
+        const profile = await getProfile();
+        setUserData(profile);
+        setFormData(profile);
+      } catch (error) {
+        console.error('Error fetching user profile:', error);
+        message.error('Error al cargar el perfil de usuario');
+      } finally {
+        setLoading(false);
+      }
+    };
     fetchUserProfile();
   }, []);
-
-  const fetchUserProfile = async () => {
-    try {
-      setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
-
-      if (user) {
-        // Obtener datos del perfil desde la tabla perfil_usuario
-        const { data: profile, error } = await supabase
-          .from('perfil_usuario')
-          .select('*')
-          .eq('id_perfil', user.id)
-          .single();
-
-        if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-          throw error;
-        }
-
-        if (profile) {
-          setUserData(profile);
-          setFormData(profile);
-        } else {
-          // Si no existe perfil, crear uno básico
-          const fullName = user.user_metadata?.full_name || '';
-          const names = fullName.split(' ');
-          // Reemplazar la creación de basicProfile para corregir errores de tipos
-          const basicProfile: UsuarioDataType = {
-            id_perfil: Number(user.id), // Convertir id a número
-            primer_nombre: names[0] || (user.email ? user.email : ''),
-            segundo_nombre: names.length > 2 ? names.slice(1, names.length - 1).join(' ') : null,
-            primer_apellido: names[names.length - 1] || '',
-            segundo_apellido: null,
-            telefono: null,
-            direccion: null,
-            fecha_nacimiento: null,
-            fecha_registro: user.created_at,
-            estado: 'activo',
-            username: user.email ? user.email : null, // Asegurar que no sea undefined
-            avatar_url: null,
-            ultimo_acceso: user.last_sign_in_at || null
-          };
-          setUserData(basicProfile);
-          setFormData(basicProfile);
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching user profile:', error);
-      message.error('Error al cargar el perfil de usuario');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleInputChange = (field: keyof UsuarioDataType, value: string) => {
     setFormData(prev => ({
@@ -76,21 +38,32 @@ const Perfil: React.FC = () => {
 
   const handleSave = async () => {
     if (!userData) return;
-
     try {
       setSaving(true);
-
-      const { error } = await supabase
-        .from('perfil_usuario')
-        .upsert({
-          ...formData,
-          id_perfil: userData.id_perfil,
-          ultimo_acceso: new Date().toISOString()
-        });
-
-      if (error) throw error;
-
-      setUserData(formData as UsuarioDataType);
+      // Normalizar los campos para que no haya null donde el backend espera string | undefined
+      const updatePayload = {
+        primer_nombre: formData.primer_nombre ?? '',
+        segundo_nombre: formData.segundo_nombre ?? undefined,
+        primer_apellido: formData.primer_apellido ?? '',
+        segundo_apellido: formData.segundo_apellido ?? undefined,
+        telefono: formData.telefono ?? undefined,
+        direccion: formData.direccion ?? undefined,
+        fecha_nacimiento: formData.fecha_nacimiento ?? undefined,
+        username: formData.username ?? undefined,
+        avatar_url: formData.avatar_url ?? undefined,
+      };
+      const { updateUsuario } = await import('../../../api/usuariosService');
+      const updated = await updateUsuario(userData.id_perfil, updatePayload);
+      // Normalizar fecha_registro y ultimo_acceso a string si vienen como Date
+      const fecha_registro = typeof updated.fecha_registro === 'string'
+        ? updated.fecha_registro
+        : (updated.fecha_registro instanceof Date ? updated.fecha_registro.toISOString() : userData.fecha_registro);
+      const ultimo_acceso =
+        typeof updated.ultimo_acceso === 'string' || updated.ultimo_acceso === null || updated.ultimo_acceso === undefined
+          ? updated.ultimo_acceso ?? null
+          : (updated.ultimo_acceso instanceof Date ? updated.ultimo_acceso.toISOString() : userData.ultimo_acceso ?? null);
+      setUserData({ ...userData, ...updated, fecha_registro: fecha_registro as string, ultimo_acceso: ultimo_acceso as string | null });
+      setFormData({ ...formData, ...updated, fecha_registro: fecha_registro as string, ultimo_acceso: ultimo_acceso as string | null });
       setEditing(false);
       message.success('Perfil actualizado correctamente');
     } catch (error) {
@@ -271,33 +244,9 @@ const Perfil: React.FC = () => {
                           console.debug('fetch(publicUrl) threw:', e, publicUrl);
                         }
 
-                        // Build a safe, complete profile payload (avoid NOT NULL violations)
-                        const payload = {
-                          id_perfil: userId,
-                          primer_nombre: formData.primer_nombre ?? '',
-                          segundo_nombre: formData.segundo_nombre ?? null,
-                          primer_apellido: formData.primer_apellido ?? '',
-                          segundo_apellido: formData.segundo_apellido ?? null,
-                          telefono: formData.telefono ?? null,
-                          direccion: formData.direccion ?? null,
-                          fecha_nacimiento: formData.fecha_nacimiento ?? null,
-                          fecha_registro: userInfo?.user?.created_at ?? new Date().toISOString(),
-                          estado: formData.estado ?? 'activo',
-                          username: formData.username ?? userInfo?.user?.email?.split('@')[0] ?? null,
-                          avatar_url: publicUrl,
-                          ultimo_acceso: new Date().toISOString()
-                        };
-
-                        // Use a single upsert with onConflict to avoid duplicate-key/409 errors
-                        const { error: upsertError } = await supabase
-                          .from('perfil_usuario')
-                          .upsert(payload, { onConflict: 'id_perfil' });
-
-                        if (upsertError) {
-                          console.error('Error upserting perfil after avatar upload:', upsertError);
-                          message.error('Error guardando avatar en perfil: ' + (upsertError.message || JSON.stringify(upsertError)));
-                          return;
-                        }
+                        // Usar el servicio del backend para actualizar el avatar en lugar de upsert directo
+                        const { updateUsuario } = await import('../../../api/usuariosService');
+                        await updateUsuario(userData.id_perfil, { avatar_url: publicUrl });
 
                         // Actualizar UI
                         setFormData(prev => ({ ...prev, avatar_url: publicUrl }));
@@ -322,7 +271,7 @@ const Perfil: React.FC = () => {
               </h2>
               <p className="text-gray-600 flex items-center gap-2">
                 <FaUserTag size={14} />
-                {userData?.estado === 'activo' ? 'Usuario Activo' : 'Usuario Inactivo'}
+                Estado: {userData?.estado || 'Desconocido'}
               </p>
               <p className="text-sm text-gray-500 mt-1">
                 Miembro desde {formatDate(userData?.fecha_registro || null)}
@@ -488,11 +437,13 @@ const Perfil: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Estado de la Cuenta</label>
                 <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                  userData?.estado === 'activo'
-                    ? 'bg-green-100 text-green-800'
-                    : 'bg-red-100 text-red-800'
+                  userData?.estado === 'activo' ? 'bg-green-100 text-green-800' :
+                  userData?.estado === 'inactivo' ? 'bg-yellow-100 text-yellow-800' :
+                  userData?.estado === 'suspendido' ? 'bg-orange-100 text-orange-800' :
+                  userData?.estado === 'eliminado' ? 'bg-red-100 text-red-800' :
+                  'bg-gray-100 text-gray-800'
                 }`}>
-                  {userData?.estado === 'activo' ? 'Activa' : 'Inactiva'}
+                  {userData?.estado || 'Desconocido'}
                 </span>
               </div>
             </div>

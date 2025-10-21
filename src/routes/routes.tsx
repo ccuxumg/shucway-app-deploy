@@ -4,6 +4,7 @@ import { Route, Routes } from "react-router-dom";
 const Dashboard = React.lazy(() => import("../views/Dashboard"));
 const Login = React.lazy(() => import("../views/Login"));
 const Usuarios = React.lazy(() => import("../features/Dashboard/Administracion"));
+const GestionRoles = React.lazy(() => import("../features/Dashboard/Administracion/GestionRoles"));
 const Configuracion = React.lazy(() => import("../features/Dashboard/Configuracion/Configuracion"));
 const Mantenimiento = React.lazy(() => import("../features/Dashboard/Configuracion/Mantenimiento"));
 const ConsultasSQL = React.lazy(() => import("../features/Dashboard/Configuracion/ConsultasSQL"));
@@ -72,6 +73,13 @@ const protectedRoutes: IRoute[] = [
   {
     path: "/administracion",
     element: Usuarios,
+    guard: AuthGuard,
+    layout: DashboardLayout,
+    requiredLevel: MODULE_PERMISSIONS.ADMINISTRACION,
+  },
+  {
+    path: "/administracion/roles",
+    element: GestionRoles,
     guard: AuthGuard,
     layout: DashboardLayout,
     requiredLevel: MODULE_PERMISSIONS.ADMINISTRACION,

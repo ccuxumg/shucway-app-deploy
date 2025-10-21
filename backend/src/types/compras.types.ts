@@ -62,21 +62,21 @@ export interface BitacoraOrdenesCompra {
 
 export interface CreateProveedorDTO {
   nombre_empresa: string;
-  contacto_principal?: string;
+  nombre_contacto?: string;
   telefono?: string;
-  email?: string;
+  correo?: string;
   direccion?: string;
-  nit?: string;
+  metodo_entrega?: 'Recepcion' | 'Recoger en tienda';
 }
 
 export interface UpdateProveedorDTO {
   nombre_empresa?: string;
-  contacto_principal?: string;
+  nombre_contacto?: string;
   telefono?: string;
-  email?: string;
+  correo?: string;
   direccion?: string;
-  nit?: string;
-  activo?: boolean;
+  estado?: boolean;
+  metodo_entrega?: 'Recepcion' | 'Recoger en tienda';
 }
 
 export interface CreateOrdenCompraDTO {

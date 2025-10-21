@@ -1,12 +1,6 @@
-import { supabase } from "./supabaseClient";
+import { api } from "./apiClient";
 
 export const deleteUsuario = async (usuarioId: string) => {
-  const { data, error } = await supabase
-    .from("perfil_usuario")
-    .delete()
-    .eq("id_perfil", usuarioId);
-  if (error) {
-    throw new Error(error.message);
-  }
-  return data;
+  const response = await api.delete(`/usuarios/${usuarioId}`);
+  return response.data;
 };

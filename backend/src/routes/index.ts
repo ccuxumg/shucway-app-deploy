@@ -2,9 +2,11 @@ import { Router } from 'express';
 import authRoutes from './auth.routes';
 import productosRoutes from './productos.routes';
 import inventarioRoutes from './inventario.routes';
+import comprasRoutes from './compras.routes';
 import clientesRoutes from './clientes.routes';
 import ventasRoutes from './ventas.routes';
 import usuariosRoutes from './usuarios.routes';
+import dashboardRoutes from './dashboard.routes';
 
 const router = Router();
 
@@ -12,9 +14,11 @@ const router = Router();
 router.use('/auth', authRoutes);
 router.use('/productos', productosRoutes);
 router.use('/inventario', inventarioRoutes);
+router.use('/compras', comprasRoutes);
 router.use('/clientes', clientesRoutes);
 router.use('/ventas', ventasRoutes);
 router.use('/usuarios', usuariosRoutes);
+router.use('/dashboard', dashboardRoutes);
 
 // Ruta de health check
 router.get('/health', (_req, res) => {

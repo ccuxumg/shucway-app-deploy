@@ -1,6 +1,7 @@
 import { supabase } from '../config/database';
 import {
   Insumo,
+  CatalogoInsumo,
   CategoriaInsumo,
   LoteInsumo,
   MovimientoInventario,
@@ -105,6 +106,46 @@ export class InventarioService {
       .eq('id_insumo', id);
 
     if (error) throw new Error(`Error al eliminar insumo: ${error.message}`);
+  }
+
+  // ================== CATÁLOGO ==================
+
+  async getCatalogoInsumos(): Promise<CatalogoInsumo[]> {
+    const { data, error } = await supabase
+      .from('insumo')
+      .select(`
+        id_insumo,
+        nombre_insumo,
+        unidad_medida,
+        stock_actual,
+        stock_minimo,
+        stock_maximo,
+        costo_promedio,
+        imagen_url,
+        activo,
+        fecha_registro,
+        id_categoria,
+        id_proveedor_principal,
+        categoria_insumo!inner(tipo_categoria, nombre)
+      `)
+      .order('nombre_insumo', { ascending: true });
+
+    if (error) throw new Error(`Error al obtener catálogo de insumos: ${error.message}`);
+    return (data || []).map((item: any) => ({
+      id_insumo: item.id_insumo,
+      nombre: item.nombre_insumo,
+      unidad_medida: item.unidad_medida,
+      stock_actual: item.stock_actual || 0,
+      stock_minimo: item.stock_minimo,
+      stock_maximo: item.stock_maximo,
+      costo_promedio: item.costo_promedio,
+      imagen_url: item.imagen_url,
+      activo: item.activo,
+      fecha_creacion: item.fecha_registro,
+      id_categoria: item.id_categoria,
+      id_proveedor_principal: item.id_proveedor_principal,
+      categoria: item.categoria_insumo as { nombre: string; tipo_categoria: 'perpetuo' | 'operativo' },
+    }));
   }
 
   // ================== LOTES ==================

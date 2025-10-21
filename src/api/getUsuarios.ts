@@ -24,12 +24,15 @@ export const getUsuarios = async (
     const offset = (currentPage > 0 ? currentPage - 1 : 0) * limit;
 
     // Consultar directamente desde tablas base para evitar problemas de permisos con vistas
-    console.log('🔁 Consultando desde tablas base (perfil_usuario + usuario_rol)');
+    console.log('🔁 Consultando desde tablas base (perfil_usuario + rol_usuario)');
 
-    // Construir consulta base para perfiles
+    // Construir consulta base para perfiles con join a rol_usuario
     let perfilQuery = supabase
       .from('perfil_usuario')
-      .select('*', { count: 'exact' })
+      .select(`
+        *,
+        rol_usuario!inner(nombre)
+      `, { count: 'exact' })
       .order('fecha_registro', { ascending: false });
 
     // Aplicar filtros si existen
@@ -70,37 +73,10 @@ export const getUsuarios = async (
       };
     }
 
-    // Obtener IDs de perfiles para consultar roles
-    const ids = perfiles.map((p) => p.id_perfil).filter(Boolean);
-
-    // Obtener roles para estos perfiles
-    const rolesMap: Record<string, string> = {};
-    if (ids.length > 0) {
-      const { data: rolesData, error: rolesError } = await supabase
-        .from('usuario_rol')
-        .select(`
-          id_perfil,
-          rol_usuario!inner(nombre)
-        `)
-        .in('id_perfil', ids);
-
-      if (!rolesError && rolesData) {
-        rolesData.forEach((r: { id_perfil: string; rol_usuario: { nombre: string }[] }) => {
-          const roleName = r.rol_usuario?.[0]?.nombre || 'Sin rol';
-          const idPerfil = r.id_perfil;
-          if (idPerfil) {
-            rolesMap[idPerfil] = rolesMap[idPerfil]
-              ? `${rolesMap[idPerfil]}, ${roleName}`
-              : roleName;
-          }
-        });
-      }
-    }
-
     // Combinar perfiles con roles
     const perfilesConRoles = perfiles.map((perfil) => ({
       ...perfil,
-      roles: rolesMap[perfil.id_perfil] || 'Sin rol',
+      roles: ((perfil as Record<string, unknown>)?.rol_usuario as Record<string, unknown>)?.nombre as string || 'Sin rol',
       // Agregar campos adicionales para compatibilidad
       email: perfil.email || null,
     }));

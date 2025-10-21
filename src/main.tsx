@@ -15,7 +15,17 @@ dayjs.updateLocale("es", {
   weekStart: 1,
 });
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // 5 minutos - los datos se consideran frescos por 5 minutos
+      gcTime: 10 * 60 * 1000, // 10 minutos - mantener en cache por 10 minutos
+      refetchOnWindowFocus: false, // Deshabilitar refetch automático al cambiar de ventana
+      refetchOnReconnect: true, // Solo refetch al reconectar
+      retry: 1, // Reintentar solo una vez en caso de error
+    },
+  },
+});
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

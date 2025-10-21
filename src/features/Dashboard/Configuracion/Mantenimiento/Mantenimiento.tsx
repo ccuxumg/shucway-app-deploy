@@ -87,59 +87,34 @@ const Mantenimiento: React.FC = () => {
     });
   };
 
-  const checkTableAccess = async (tableName: string) => {
-    try {
-      const { error } = await supabase
-        .from(tableName)
-        .select('*', { count: 'exact', head: true });
-      
-      if (error) {
-        console.log(`No hay acceso a la tabla ${tableName}:`, error.message);
-        if (error.code === '42501') {
-          return false; 
-        } else if (error.code === 'PGRST116') {
-          return false; 
-        }
-      }
-      return true;
-    } catch (error) {
-      console.error(`Error al verificar acceso a ${tableName}:`, error);
-      return false;
-    }
-  };
-
   useEffect(() => {
     const loadAvailableTables = async () => {
-      const allTables = [
-        'bitacora_sistema',
-        'categoria_producto',
-        'detalle_arqueo_caja',
-        'detalle_modificadores_venta',
-        'detalle_orden_compra',
-        'detalle_recepcion_mercaderia',
-        'detalle_solicitud_reposicion',
-        'forma_pago',
-        'historial_estado_venta',
-        'modificador_insumo',
-        'modificador_producto',
-        'movimiento_caja',
-        'pago_venta',
-        'reporte_generado',
-        'rol_usuario',
-        'sesion_caja',
-        'stock_actual',
-        'usuario_rol'
-      ];
+      try {
+        // Usar el nuevo endpoint optimizado que devuelve todas las tablas disponibles en una sola llamada
+        const response = await fetch('/api/dashboard/available-tables', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            'Content-Type': 'application/json'
+          }
+        });
 
-      const availableTables: string[] = [];
-      for (const table of allTables) {
-        const hasAccess = await checkTableAccess(table);
-        if (hasAccess) {
-          availableTables.push(table);
+        if (response.ok) {
+          const data = await response.json();
+          setTables(data.tables);
+        } else if (response.status === 401) {
+          message.error('Sesión expirada. Redirigiendo al login...');
+          // Limpiar tokens y redirigir
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('user');
+          window.location.href = '/login';
+        } else {
+          console.error('Error al obtener tablas disponibles:', response.statusText);
+          message.error('Error al cargar las tablas disponibles');
         }
+      } catch (error) {
+        console.error('Error al cargar tablas:', error);
+        message.error('Error al conectar con el servidor');
       }
-
-      setTables(availableTables);
     };
 
     loadAvailableTables();
@@ -209,18 +184,26 @@ const Mantenimiento: React.FC = () => {
 
   const fetchColumnNames = useCallback(async (tableName: string): Promise<string[]> => {
     try {
-      const { data: cols, error } = await supabase
-        .from('columns_meta')
-        .select('column_name,data_type,is_nullable,table_name,ordinal_position')
-        .eq('table_name', tableName)
-        .order('ordinal_position', { ascending: true });
+      const response = await fetch(`/api/dashboard/table-columns/${tableName}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Content-Type': 'application/json'
+        }
+      });
 
-      if (error) {
-        console.warn('No se pudieron obtener columnas desde columns_meta:', error.message || error);
+      if (response.ok) {
+        const data = await response.json();
+        return (data.columns || []).map((c: { column_name: string }) => c.column_name);
+      } else if (response.status === 401) {
+        message.error('Sesión expirada. Redirigiendo al login...');
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+        return [];
+      } else {
+        console.warn('No se pudieron obtener columnas desde el endpoint:', response.statusText);
         return [];
       }
-
-      return (cols || []).map((c: { column_name: string }) => c.column_name);
     } catch (err) {
       console.error('Error fetchColumnNames:', err);
       return [];
@@ -231,68 +214,73 @@ const Mantenimiento: React.FC = () => {
     if (!selectedTable) return;
     setLoading(true);
     try {
-      let query = supabase.from(selectedTable).select('*');
-      
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value) query = query.ilike(key, `%${value}%`);
+      const filtersParam = Object.keys(filters).length > 0 ? `?filters=${encodeURIComponent(JSON.stringify(filters))}` : '';
+      const response = await fetch(`/api/dashboard/table-data/${selectedTable}${filtersParam}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Content-Type': 'application/json'
+        }
       });
-      
-      const { data: result, error: dataError } = await query;
-      
-      if (dataError) {
-        console.error('Error fetching data:', dataError);
-        if (dataError.code === '42501') {
-          message.error(`No tienes permisos para acceder a la tabla ${selectedTable}`);
-        } else {
-          message.error('Error al obtener los datos');
-        }
-        return;
-      }
 
-      const rows = result || [];
-      if (rows.length > 0) {
-        setColumns(generateColumns(rows[0]));
+      if (response.ok) {
+        const result = await response.json();
+        const rows = result.data || [];
 
-        const detectedEstado = Object.keys(rows[0]).find(k => k.toLowerCase().includes('estado')) || null;
-        const detectedActivo = Object.keys(rows[0]).find(k => k.toLowerCase().includes('activo')) || null;
-        setEstadoField(detectedEstado);
-        setActivoField(detectedActivo);
+        if (rows.length > 0) {
+          setColumns(generateColumns(rows[0]));
 
-        let filtered = rows;
-        if (detectedEstado) {
-          if (showDeleted) {
-            filtered = rows.filter(r => String(r[detectedEstado]) === 'eliminado');
-          } else {
-            filtered = rows.filter(r => String(r[detectedEstado]) !== 'eliminado');
-          }
-        } else if (detectedActivo) {
-          if (showDeleted) {
-            filtered = rows.filter(r => r[detectedActivo] === false || String(r[detectedActivo]) === 'false');
-          } else {
-            filtered = rows.filter(r => !(r[detectedActivo] === false || String(r[detectedActivo]) === 'false'));
-          }
-        } else {
-          if (showDeleted) filtered = []; 
-          else filtered = rows;
-        }
-
-        setData(filtered);
-      } else {
-        const colNames = await fetchColumnNames(selectedTable);
-        if (colNames && colNames.length > 0) {
-          setColumns(generateColumnsFromNames(colNames));
-
-          const detectedEstado = colNames.find(k => k.toLowerCase().includes('estado')) || null;
-          const detectedActivo = colNames.find(k => k.toLowerCase().includes('activo')) || null;
+          const detectedEstado = Object.keys(rows[0]).find(k => k.toLowerCase().includes('estado')) || null;
+          const detectedActivo = Object.keys(rows[0]).find(k => k.toLowerCase().includes('activo')) || null;
           setEstadoField(detectedEstado);
           setActivoField(detectedActivo);
 
-          const emptyRow: TableRecord = colNames.reduce((acc, c) => ({ ...acc, [c]: null }), {} as TableRecord);
-          setData(showDeleted ? [] : [emptyRow]);
+          let filtered = rows;
+          if (detectedEstado) {
+            if (showDeleted) {
+              filtered = rows.filter((r: TableRecord) => String(r[detectedEstado]) === 'eliminado');
+            } else {
+              filtered = rows.filter((r: TableRecord) => String(r[detectedEstado]) !== 'eliminado');
+            }
+          } else if (detectedActivo) {
+            if (showDeleted) {
+              filtered = rows.filter((r: TableRecord) => r[detectedActivo] === false || String(r[detectedActivo]) === 'false');
+            } else {
+              filtered = rows.filter((r: TableRecord) => !(r[detectedActivo] === false || String(r[detectedActivo]) === 'false'));
+            }
+          } else {
+            if (showDeleted) filtered = [];
+            else filtered = rows;
+          }
+
+          setData(filtered);
         } else {
-          setColumns([]);
-          setData([]);
+          const colNames = await fetchColumnNames(selectedTable);
+          if (colNames && colNames.length > 0) {
+            setColumns(generateColumnsFromNames(colNames));
+
+            const detectedEstado = colNames.find(k => k.toLowerCase().includes('estado')) || null;
+            const detectedActivo = colNames.find(k => k.toLowerCase().includes('activo')) || null;
+            setEstadoField(detectedEstado);
+            setActivoField(detectedActivo);
+
+            const emptyRow: TableRecord = colNames.reduce((acc, c) => ({ ...acc, [c]: null }), {} as TableRecord);
+            setData(showDeleted ? [] : [emptyRow]);
+          } else {
+            setColumns([]);
+            setData([]);
+          }
         }
+      } else if (response.status === 401) {
+        message.error('Sesión expirada. Redirigiendo al login...');
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+      } else if (response.status === 403) {
+        const errorData = await response.json();
+        message.error(errorData.message || 'No tienes permisos para acceder a esta tabla');
+      } else {
+        console.error('Error fetching data:', response.statusText);
+        message.error('Error al obtener los datos');
       }
     } catch (error) {
       console.error('Error fetching data:', error);

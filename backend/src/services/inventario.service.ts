@@ -12,6 +12,27 @@ import {
   StockActual,
 } from '../types/inventario.types';
 
+// Interface for the raw query result from Supabase with joins
+interface CatalogoQueryResult {
+  id_insumo: number;
+  nombre_insumo: string;
+  unidad_medida: string;
+  stock_minimo: number;
+  stock_maximo: number;
+  costo_promedio: number;
+  activo: boolean;
+  fecha_registro: Date;
+  id_categoria: number;
+  id_proveedor_principal?: number;
+  categoria_insumo: Array<{
+    tipo_categoria: 'perpetuo' | 'operativo';
+    nombre: string;
+  }>;
+  lote_insumo: Array<{
+    cantidad_actual: number;
+  }>;
+}
+
 // ================================================================
 // 📦 SERVICIO DE INVENTARIO
 // ================================================================
@@ -47,7 +68,19 @@ export class InventarioService {
   async getInsumos(activos?: boolean): Promise<Insumo[]> {
     let query = supabase
       .from('insumo')
-      .select('*')
+      .select(`
+        id_insumo,
+        nombre_insumo,
+        id_categoria,
+        unidad_medida,
+        stock_minimo,
+        stock_maximo,
+        costo_promedio,
+        fecha_registro,
+        activo,
+        categoria_insumo(tipo_categoria),
+        lote_insumo(cantidad_actual)
+      `)
       .order('nombre_insumo');
 
     if (activos !== undefined) {
@@ -57,7 +90,41 @@ export class InventarioService {
     const { data, error } = await query;
 
     if (error) throw new Error(`Error al obtener insumos: ${error.message}`);
-    return data || [];
+
+    // Mapear resultado para sumar cantidad_actual y mostrar tipo_categoria
+    return (data || []).map((row: {
+      id_insumo: number;
+      nombre_insumo: string;
+      id_categoria: number;
+      unidad_medida: string;
+      stock_minimo: number;
+      stock_maximo: number;
+      costo_promedio: number;
+      fecha_registro: Date;
+      activo: boolean;
+      categoria_insumo?: Array<{ tipo_categoria: 'perpetuo' | 'operativo' }>;
+      lote_insumo?: Array<{ cantidad_actual: number }>;
+    }) => {
+      const lotes = Array.isArray(row.lote_insumo) ? row.lote_insumo : [];
+      const cantidad_actual = lotes.length > 0 ? lotes.reduce((sum: number, lote: { cantidad_actual: number }) => sum + (lote.cantidad_actual || 0), 0) : 0;
+      // Extraer tipo_categoria del primer elemento del array categoria_insumo
+      const tipo_categoria = Array.isArray(row.categoria_insumo) && row.categoria_insumo.length > 0
+        ? row.categoria_insumo[0].tipo_categoria
+        : '';
+      return {
+        id_insumo: row.id_insumo,
+        nombre_insumo: row.nombre_insumo,
+        id_categoria: row.id_categoria,
+        unidad_medida: row.unidad_medida,
+        stock_minimo: row.stock_minimo,
+        stock_maximo: row.stock_maximo,
+        costo_promedio: row.costo_promedio,
+        fecha_registro: row.fecha_registro,
+        activo: row.activo,
+        tipo_categoria,
+        cantidad_actual
+      };
+    });
   }
 
   async getInsumoById(id: number): Promise<Insumo | null> {
@@ -117,35 +184,39 @@ export class InventarioService {
         id_insumo,
         nombre_insumo,
         unidad_medida,
-        stock_actual,
         stock_minimo,
         stock_maximo,
         costo_promedio,
-        imagen_url,
         activo,
         fecha_registro,
         id_categoria,
         id_proveedor_principal,
-        categoria_insumo!inner(tipo_categoria, nombre)
+        categoria_insumo!inner(tipo_categoria, nombre),
+        lote_insumo!inner(cantidad_actual)
       `)
       .order('nombre_insumo', { ascending: true });
 
     if (error) throw new Error(`Error al obtener catálogo de insumos: ${error.message}`);
-    return (data || []).map((item: any) => ({
-      id_insumo: item.id_insumo,
-      nombre: item.nombre_insumo,
-      unidad_medida: item.unidad_medida,
-      stock_actual: item.stock_actual || 0,
-      stock_minimo: item.stock_minimo,
-      stock_maximo: item.stock_maximo,
-      costo_promedio: item.costo_promedio,
-      imagen_url: item.imagen_url,
-      activo: item.activo,
-      fecha_creacion: item.fecha_registro,
-      id_categoria: item.id_categoria,
-      id_proveedor_principal: item.id_proveedor_principal,
-      categoria: item.categoria_insumo as { nombre: string; tipo_categoria: 'perpetuo' | 'operativo' },
-    }));
+    
+    return (data || []).map((item: CatalogoQueryResult) => {
+      // Calcular stock total desde lotes
+      const stock_actual = item.lote_insumo ? item.lote_insumo.reduce((sum: number, lote: { cantidad_actual: number }) => sum + (lote.cantidad_actual || 0), 0) : 0;
+      
+      return {
+        id_insumo: item.id_insumo,
+        nombre: item.nombre_insumo,
+        unidad_medida: item.unidad_medida,
+        stock_actual,
+        stock_minimo: item.stock_minimo,
+        stock_maximo: item.stock_maximo,
+        costo_promedio: item.costo_promedio,
+        activo: item.activo,
+        fecha_creacion: item.fecha_registro,
+        id_categoria: item.id_categoria,
+        id_proveedor_principal: item.id_proveedor_principal,
+        categoria: item.categoria_insumo[0] as { nombre: string; tipo_categoria: 'perpetuo' | 'operativo' },
+      };
+    });
   }
 
   // ================== LOTES ==================

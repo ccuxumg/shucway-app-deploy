@@ -3,6 +3,16 @@ import { logger } from '../utils/logger';
 import { AppError } from '../middlewares/errorHandler.middleware';
 import { UploadOptions, UploadResponse } from '../types';
 
+// Tipo para archivos de Supabase Storage
+interface StorageFile {
+  name: string;
+  id: string;
+  updated_at: string;
+  created_at: string;
+  last_accessed_at: string;
+  metadata: Record<string, unknown>;
+}
+
 export class StorageService {
   // Subir archivo a Supabase Storage
   async uploadFile(
@@ -77,7 +87,7 @@ export class StorageService {
   }
 
   // Listar archivos en un bucket/carpeta
-  async listFiles(bucket: string, folder?: string): Promise<any[]> {
+  async listFiles(bucket: string, folder?: string): Promise<StorageFile[]> {
     try {
       const { data, error } = await supabase.storage
         .from(bucket)

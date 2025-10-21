@@ -3,7 +3,7 @@ import { z, ZodError } from 'zod';
 import { logger } from '../utils/logger';
 
 // Middleware genérico de validación
-export const validate = (schema: z.ZodType<any, any>) => {
+export const validate = (schema: z.ZodSchema) => {
   return (req: Request, res: Response, next: NextFunction): void => {
     try {
       schema.parse(req.body);
@@ -35,7 +35,7 @@ export const validate = (schema: z.ZodType<any, any>) => {
 };
 
 // Validación de parámetros de query
-export const validateQuery = (schema: z.ZodType<any, any>) => {
+export const validateQuery = (schema: z.ZodSchema) => {
   return (req: Request, res: Response, next: NextFunction): void => {
     try {
       schema.parse(req.query);
@@ -64,7 +64,7 @@ export const validateQuery = (schema: z.ZodType<any, any>) => {
 };
 
 // Validación de parámetros de ruta
-export const validateParams = (schema: z.ZodType<any, any>) => {
+export const validateParams = (schema: z.ZodSchema) => {
   return (req: Request, res: Response, next: NextFunction): void => {
     try {
       schema.parse(req.params);

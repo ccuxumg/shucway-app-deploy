@@ -91,7 +91,7 @@ const Mantenimiento: React.FC = () => {
     const loadAvailableTables = async () => {
       try {
         // Usar el nuevo endpoint optimizado que devuelve todas las tablas disponibles en una sola llamada
-        const response = await fetch('/api/dashboard/available-tables', {
+  const response = await fetch('/api/dashboard/available-tables', {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
             'Content-Type': 'application/json'
@@ -184,7 +184,7 @@ const Mantenimiento: React.FC = () => {
 
   const fetchColumnNames = useCallback(async (tableName: string): Promise<string[]> => {
     try {
-      const response = await fetch(`/api/dashboard/table-columns/${tableName}`, {
+  const response = await fetch(`/api/dashboard/table-columns/${tableName}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json'
@@ -215,7 +215,7 @@ const Mantenimiento: React.FC = () => {
     setLoading(true);
     try {
       const filtersParam = Object.keys(filters).length > 0 ? `?filters=${encodeURIComponent(JSON.stringify(filters))}` : '';
-      const response = await fetch(`/api/dashboard/table-data/${selectedTable}${filtersParam}`, {
+  const response = await fetch(`/api/dashboard/table-data/${selectedTable}${filtersParam}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json'

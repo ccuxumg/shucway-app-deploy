@@ -44,16 +44,14 @@ type CatalogoInsumoAPI = {
   stock_actual: number;
   stock_minimo: number;
   costo_promedio: number | null;
-  imagen_url: string | null;
   activo: boolean;
   fecha_creacion: string;
   id_categoria: number;
   id_proveedor_principal: number | null;
   categoria: {
-    id_categoria: number;
     nombre: string;
     tipo_categoria: string;
-  } | null;
+  };
 };
 
 /** Datos (serán cargados desde la BD) */
@@ -66,14 +64,13 @@ const TABS = [
  
 export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpetuos' | 'operativos' }) {
   // Valores y helpers mínimos necesarios para compilar y mantener funcionalidad básica
-  const CATEGORIAS = ["Todas las categorías", "Carnes", "Vegetales", "Bebidas"];
   const UNIDADES: UnidadMedida[] = ['kg', 'litros', 'unidades'];
   type SortKey = 'stock' | 'ultimaActualizacion' | 'nombre' | 'tipo' | 'estado' | 'categoria';
 
   const [q, setQ] = useState<string>('');
   const [debouncedQ, setDebouncedQ] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'todos' | 'perpetuos' | 'operativos'>(initialTab ?? 'todos');
-  const [categoria, setCategoria] = useState<string>(CATEGORIAS[0]);
+  const [categoria, setCategoria] = useState<string>("Todas las categorías");
   const [sortBy, setSortBy] = useState<SortKey>('nombre' as SortKey);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
@@ -100,7 +97,10 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Cargar datos desde Supabase (directamente desde insumo con join a categoria_insumo)
+  // Opciones de categorías para el filtro
+  const categoriasOptions = useMemo(() => ["Todas las categorías", ...categoriasBD.map(c => c.nombre)], [categoriasBD]);
+
+  // Cargar datos desde Supabase directamente
   useEffect(() => {
     let mounted = true;
 
@@ -108,50 +108,66 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
       setLoading(true);
       setError(null);
       try {
-        // Cargar desde el backend
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/inventario/catalogo`, {
+        // Cargar insumos desde la API de catálogo
+        const insumosResponse = await fetch(`${import.meta.env.VITE_API_URL}/inventario/catalogo`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
           },
         });
-        const result = await response.json();
-        if (!result.success) throw new Error(result.message || 'Error al cargar catálogo');
+        const insumosData = await insumosResponse.json();
+        const insumos = insumosData.data || [];
 
-        const data = result.data || [];
-        const mapped = data.map((i: CatalogoInsumoAPI) => {
-          const categoriaData = i.categoria;
-          const tipoCategoria = categoriaData?.tipo_categoria?.toLowerCase();
-          const nombreCategoria = categoriaData?.nombre;
+        console.log('Insumos cargados desde API:', insumos.length);
 
-          // Determinar estado del stock
-          const stockActual = i.stock_actual || 0;
-          const stockMinimo = i.stock_minimo;
+        const toStr = (v: unknown) => (v == null ? "" : String(v));
+        const toNum = (v: unknown) => {
+          const n = Number(String(v ?? "0"));
+          return Number.isFinite(n) ? n : 0;
+        };
+
+        const mapped = insumos.map((i: CatalogoInsumoAPI) => {
+          const tipoCategoria = toStr(i.categoria?.tipo_categoria).toLowerCase();
+          const nombreCategoria = toStr(i.categoria?.nombre);
+
+          // Usar stock que ya viene calculado desde la API
+          const stockLotes = toNum(i.stock_actual);
+          const stockMinimo = toNum(i.stock_minimo);
           let estado: EstadoStock = "OK";
-          if (stockActual <= stockMinimo * 0.5) estado = "Crítico";
-          else if (stockActual <= stockMinimo) estado = "Stock Bajo";
+          if (stockLotes <= stockMinimo * 0.5) estado = "Crítico";
+          else if (stockLotes <= stockMinimo) estado = "Stock Bajo";
+
+          // Última actualización (usar fecha_creacion por ahora)
+          const ultimaBitacora = toStr(i.fecha_creacion);
 
           return {
-            id: String(i.id_insumo),
-            nombre: i.nombre,
+            id: toStr(i.id_insumo),
+            nombre: toStr(i.nombre),
             tipo: (tipoCategoria === "operativo" ? ("Operativo" as TipoInsumo) : ("Perpetuo" as TipoInsumo)),
-            stockCantidad: stockActual,
-            unidad: (i.unidad_medida || "unidades") as UnidadMedida,
+            stockCantidad: stockLotes,
+            unidad: (toStr(i.unidad_medida) || "unidades") as UnidadMedida,
             estado,
-            ultimaActualizacion: i.fecha_creacion || new Date().toISOString(),
+            ultimaActualizacion: ultimaBitacora || new Date().toISOString(),
             categoria: nombreCategoria || "—",
             descripcion: "",
-            proveedor: undefined, // Se cargará después si es necesario
+            proveedor: (() => {
+              const idProv = i.id_proveedor_principal;
+              const found = proveedoresBD.find((p: { id_proveedor: number; nombre_empresa: string }) => p.id_proveedor === Number(idProv));
+              return found ? found.nombre_empresa : undefined;
+            })(),
             costo: i.costo_promedio != null ? Number(i.costo_promedio) : undefined,
             ubicacion: undefined,
             activo: Boolean(i.activo),
             automatica: false,
-            imagen: i.imagen_url || `/insumos/${slugify(i.nombre)}.png`,
-            categoriaId: i.id_categoria,
-            proveedorId: i.id_proveedor_principal,
+            imagen: `/insumos/${slugify(toStr(i.nombre))}.png`,
+            categoriaId: i.id_categoria != null ? Number(i.id_categoria) : undefined,
+            proveedorId: i.id_proveedor_principal != null ? Number(i.id_proveedor_principal) : undefined,
           } as Fila;
         });
 
-        if (mounted) setRows(mapped);
+        if (mounted) {
+          console.log('Datos cargados:', mapped.length, 'insumos');
+          setRows(mapped);
+        }
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : String(e);
         console.error("Error cargando catálogo:", message);
@@ -165,22 +181,22 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [proveedoresBD]);
 
-  // Cargar categorías y proveedores para los selects del formulario
+  // Cargar categorías y proveedores desde las APIs del backend
   useEffect(() => {
     let mounted = true;
     async function loadMeta() {
       try {
         const [catRes, provRes] = await Promise.all([
-          fetch(`${import.meta.env.VITE_API_URL}/api/inventario/categorias`, {
+          fetch(`${import.meta.env.VITE_API_URL}/inventario/categorias`, {
             headers: {
-              'Authorization': `Bearer ${localStorage.getItem('token')}`,
+              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
             },
           }).then(res => res.json()).then(data => data.data || []),
-          fetch(`${import.meta.env.VITE_API_URL}/api/inventario/proveedores`, {
+          fetch(`${import.meta.env.VITE_API_URL}/inventario/proveedores`, {
             headers: {
-              'Authorization': `Bearer ${localStorage.getItem('token')}`,
+              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
             },
           }).then(res => res.json()).then(data => data.data || []),
         ]);
@@ -204,10 +220,8 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
           id_insumo,
           nombre,
           unidad_medida,
-          stock_actual,
           stock_minimo,
           costo_promedio,
-          imagen_url,
           activo,
           fecha_creacion,
           id_categoria,
@@ -226,33 +240,36 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
         const tipoCategoria = toStr(categoriaData?.tipo_categoria).toLowerCase();
         const nombreCategoria = toStr(categoriaData?.nombre);
 
-        // Determinar estado del stock
-        const stockActual = toNum(i["stock_actual"]);
+        // Usar stock de lotes (temporalmente 0)
+        const stockLotes = 0;
         const stockMinimo = toNum(i["stock_minimo"]);
         let estado: EstadoStock = "OK";
-        if (stockActual <= stockMinimo * 0.5) estado = "Crítico";
-        else if (stockActual <= stockMinimo) estado = "Stock Bajo";
+        if (stockLotes <= stockMinimo * 0.5) estado = "Crítico";
+        else if (stockLotes <= stockMinimo) estado = "Stock Bajo";
+
+        // Última actualización (fecha_creacion)
+        const ultimaBitacora = toStr(i["fecha_creacion"]);
 
         return {
           id: toStr(i["id_insumo"]),
           nombre: toStr(i["nombre"]),
           tipo: (tipoCategoria === "operativo" ? ("Operativo" as TipoInsumo) : ("Perpetuo" as TipoInsumo)),
-          stockCantidad: stockActual,
+          stockCantidad: stockLotes,
           unidad: (toStr(i["unidad_medida"]) || "unidades") as UnidadMedida,
           estado,
-          ultimaActualizacion: toStr(i["fecha_creacion"]) || new Date().toISOString(),
+          ultimaActualizacion: ultimaBitacora || new Date().toISOString(),
           categoria: nombreCategoria || "—",
           descripcion: "",
           proveedor: (() => {
             const idProv = i["id_proveedor_principal"];
-            const found = proveedoresBD.find((p) => p.id_proveedor === Number(idProv));
+            const found = proveedoresBD.find((p: { id_proveedor: number; nombre_empresa: string }) => p.id_proveedor === Number(idProv));
             return found ? found.nombre_empresa : undefined;
           })(),
           costo: i["costo_promedio"] != null ? Number(i["costo_promedio"]) : undefined,
           ubicacion: undefined,
           activo: Boolean(i["activo"]),
           automatica: false,
-          imagen: toStr(i["imagen_url"]) || `/insumos/${slugify(toStr(i["nombre"]))}.png`,
+          imagen: `/insumos/${slugify(toStr(i["nombre"]))}.png`,
           categoriaId: i["id_categoria"] != null ? Number(i["id_categoria"]) : undefined,
           proveedorId: i["id_proveedor_principal"] != null ? Number(i["id_proveedor_principal"]) : undefined,
         } as Fila;
@@ -280,7 +297,7 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
     unidad: "kg",
     estado: "OK",
     ultimaActualizacion: new Date().toISOString(),
-    categoria: CATEGORIAS[1],
+    categoria: "",
     descripcion: "",
     proveedor: "",
     costo: undefined,
@@ -406,7 +423,6 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
       tipo_insumo: form.tipo.toLowerCase(),
       costo_promedio: form.costo ?? 0,
       activo: Boolean(form.activo),
-      imagen_url: form.imagen ?? null,
     };
   // usar ids seleccionados si existen
   if (form.categoriaId != null) payload.id_categoria = form.categoriaId;
@@ -503,9 +519,8 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
               onChange={(e) => setCategoria(e.target.value)}
               className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700"
             >
-              <option key="todas" value="Todas las categorías">Todas las categorías</option>
-              {categoriasBD.map((c) => (
-                <option key={c.id_categoria} value={c.nombre}>{c.nombre}</option>
+              {categoriasOptions.map((cat, index) => (
+                <option key={index} value={cat}>{cat}</option>
               ))}
             </select>
 
@@ -520,7 +535,7 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
             />
           </div>
 
-          <button onClick={() => { setActiveTab("todos"); setCategoria(CATEGORIAS[0]); setQ(""); }} className="h-10 rounded-lg border px-3 text-sm font-semibold hover:bg-gray-50">
+          <button onClick={() => { setActiveTab("todos"); setCategoria("Todas las categorías"); setQ(""); }} className="h-10 rounded-lg border px-3 text-sm font-semibold hover:bg-gray-50">
             Limpiar filtros
           </button>
 
@@ -587,7 +602,7 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
                       <div className="text-lg font-semibold text-gray-700">Sin resultados</div>
                       <p className="mt-1">Intenta ajustar los filtros o buscar otra palabra clave.</p>
                       <div className="mt-3">
-                        <button onClick={() => { setActiveTab("todos"); setCategoria(CATEGORIAS[0]); setQ(""); }} className="text-sm font-semibold text-emerald-700 hover:underline">
+                        <button onClick={() => { setActiveTab("todos"); setCategoria("Todas las categorías"); setQ(""); }} className="text-sm font-semibold text-emerald-700 hover:underline">
                           Restablecer filtros
                         </button>
                       </div>
@@ -661,7 +676,7 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
                         <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="categoriaSel">Categoría *</label>
                         <select id="categoriaSel" value={form.categoriaId ?? ""} onChange={(e) => setFormField("categoriaId", e.target.value === "" ? undefined : Number(e.target.value))} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300" required>
                           <option value="">Seleccione categoría</option>
-                          {categoriasBD.length > 0 ? categoriasBD.map((c) => <option key={c.id_categoria} value={c.id_categoria}>{c.nombre}</option>) : CATEGORIAS.filter((c) => c !== "Todas las categorías").map((c) => <option key={c} value={c}>{c}</option>)}
+                          {categoriasBD.length > 0 ? categoriasBD.map((c) => <option key={c.id_categoria} value={c.id_categoria}>{c.nombre}</option>) : <option disabled>No hay categorías disponibles</option>}
                         </select>
                       </div>
                       <div>

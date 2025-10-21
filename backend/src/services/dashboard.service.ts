@@ -143,21 +143,19 @@ export const dashboardService = {
   }> {
     try {
       // Primero obtener el mapeo de categorías
-      const { data: categorias, error: catError } = await supabase
-        .from('categoria_insumo')
-        .select('id_categoria, tipo_categoria');
-
-      if (catError) {
-        console.error('Error leyendo categorias:', catError);
-        throw catError;
-      }
-
-      const categoriaMap = new Map(categorias?.map(c => [c.id_categoria, c.tipo_categoria]) || []);
-
-      // Leer insumos con stock_actual incluido
+      // Leer insumos con stock calculado desde lotes y traer tipo_categoria por JOIN
       const { data: insumos, error } = await supabase
         .from('insumo')
-        .select('id_insumo, nombre_insumo, id_categoria, activo, stock_actual, unidad_medida, stock_minimo')
+        .select(`
+          id_insumo,
+          nombre_insumo,
+          id_categoria,
+          activo,
+          unidad_medida,
+          stock_minimo,
+          lote_insumo(cantidad_actual),
+          categoria_insumo(tipo_categoria)
+        `)
         .eq('activo', true)
         .order('nombre_insumo', { ascending: true });
 
@@ -177,26 +175,29 @@ export const dashboardService = {
         };
       }
 
-      // Clasificar insumos por tipo_categoria usando stock_actual directamente
+      // Clasificar insumos por tipo_categoria calculando stock desde lotes
       const mappedAll = insumos.map((row: Record<string, unknown>) => {
-        const stock = (row.stock_actual as number) || 0;
+        // Calcular stock sumando cantidades de lotes
+  const lotes = Array.isArray(row.lote_insumo) ? row.lote_insumo as { cantidad_actual?: number }[] : [];
+  const cantidad_actual = lotes.length > 0 ? lotes.reduce((sum, lote) => sum + (lote.cantidad_actual || 0), 0) : 0;
         const stockMinimo = (row.stock_minimo as number) || 0;
         let estado = 'Normal';
 
-        if (stock === 0) {
+        if (cantidad_actual === 0) {
           estado = 'Sin Stock';
-        } else if (stock <= stockMinimo) {
+        } else if (cantidad_actual <= stockMinimo) {
           estado = 'Stock Bajo';
-        } else if (stock > stockMinimo * 2) {
+        } else if (cantidad_actual > stockMinimo * 2) {
           estado = 'OK';
         }
 
         return {
           id: row.id_insumo as number,
           name: row.nombre_insumo as string,
-          qty: stock.toString(),
+          qty: cantidad_actual.toString(),
+          cantidad_actual,
           note: estado,
-          tipo_insumo: categoriaMap.get(row.id_categoria as number) || 'perpetuo'
+          tipo_insumo: (row.categoria_insumo as { tipo_categoria?: string })?.tipo_categoria || 'perpetuo'
         };
       });
 

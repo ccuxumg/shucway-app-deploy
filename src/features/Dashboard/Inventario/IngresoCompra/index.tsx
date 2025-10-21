@@ -76,7 +76,7 @@ export default function IngresoCompra(): JSX.Element {
 
   const loadCatalog = async (providerId?: string | undefined) => {
     try {
-      let q = supabase.from('insumo').select('id_insumo,nombre,unidad_medida,costo_promedio,imagen_url,id_proveedor_principal').order('nombre', { ascending: true }).limit(1000);
+      let q = supabase.from('insumo').select('id_insumo,nombre,unidad_medida,costo_promedio,id_proveedor_principal').order('nombre', { ascending: true }).limit(1000);
       if (providerId) {
         const pid = Number(providerId);
         if (Number.isFinite(pid)) q = q.eq('id_proveedor_principal', pid);

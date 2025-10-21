@@ -1,17 +1,32 @@
+
 import React, { useState, useEffect } from 'react';
-import './Inventario.css';
 import { MdInventory2, MdAddShoppingCart, MdAssignmentTurnedIn } from 'react-icons/md';
 import { motion, AnimatePresence } from 'framer-motion';
-import Catalogo from './Catalogo';
-import IngresoCompra from './IngresoCompra';
-import Auditoria from './Auditoria';
-import { dashboardService } from '../../../api/dashboardService';
-
 const primary = '#00B074';
 const mid = '#346C60';
 const dark = '#12443D';
 const yellow = '#FFD40D';
 
+type InventoryItem = { id?: number; name: string; qty?: string; note?: string };
+type RowForMapping = {
+  id_insumo?: number;
+  nombre_insumo?: string;
+  nombre?: string;
+  cantidad_actual?: number | null;
+  unidad_medida?: string;
+  tipo_categoria?: string;
+  estado?: string;
+};
+type Tab = 'overview'|'catalogo'|'ingreso'|'auditoria';
+
+const Inventario: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [perpetualData, setPerpetualData] = useState<InventoryItem[]>([]);
+  const [operationalData, setOperationalData] = useState<InventoryItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+// Componente InvActionCard (igual al ejemplo de shucway-web)
 const hexToRgba = (hex: string, alpha = 0.12) => {
   const clean = hex.replace('#', '');
   const r = parseInt(clean.substring(0, 2), 16);
@@ -50,41 +65,35 @@ const InvActionCard: React.FC<{ title: string; subtitle?: string; icon: React.Re
   );
 };
 
-// Los datos ahora se cargan desde Supabase. Mantener tipos mínimos para el front.
-type InventoryItem = { id?: number; name: string; qty?: string; note?: string };
-
-type Tab = 'overview'|'catalogo'|'ingreso'|'auditoria';
-
-const Inventario: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<Tab>('overview');
-
-  // Estado dinámico para reemplazar los arrays estáticos
-  const [perpetualData, setPerpetualData] = useState<InventoryItem[]>([]);
-  const [operationalData, setOperationalData] = useState<InventoryItem[]>([]);
-  const [totalPerpetualStock, setTotalPerpetualStock] = useState(0);
-  const [totalOperationalStock, setTotalOperationalStock] = useState(0);
-  const [totalPerpetualItems, setTotalPerpetualItems] = useState(0);
-  const [totalOperationalItems, setTotalOperationalItems] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
-  // sección objetivo para el catálogo: 'todos' | 'perpetuos' | 'operativos'
-  const [catalogTarget, setCatalogTarget] = useState<'todos'|'perpetuos'|'operativos'>('todos');
-  
-
-  // Carga inicial desde la base de datos (función reutilizable para reintento)
+  // Carga inicial desde el backend Node
   const load = async () => {
     setIsLoading(true);
     setFetchError(null);
     try {
-      const data = await dashboardService.getInventoryData();
-      setPerpetualData(data.perpetual);
-      setOperationalData(data.operational);
-      setTotalPerpetualStock(data.totalPerpetualStock);
-      setTotalOperationalStock(data.totalOperationalStock);
-      setTotalPerpetualItems(data.totalPerpetualItems);
-      setTotalOperationalItems(data.totalOperationalItems);
+      const response = await fetch('/api/inventario/insumos');
+      const result = await response.json();
+      let rowsForMapping: Array<RowForMapping> | null = null;
+      if (result && Array.isArray(result.insumos)) {
+        rowsForMapping = result.insumos;
+      }
+      if (Array.isArray(rowsForMapping)) {
+        // Mapear y separar perpetuos/operativos
+        const mappedAll = rowsForMapping.map((row: RowForMapping) => {
+          const tipo = row.tipo_categoria || 'perpetuo';
+          return {
+            id: row.id_insumo,
+            name: row.nombre_insumo ?? row.nombre ?? '—',
+            qty: row.cantidad_actual != null ? String(row.cantidad_actual) : '-',
+            note: row.estado || (row.cantidad_actual === 0 ? 'Crítico' : 'Normal'),
+            tipo_insumo: tipo
+          };
+        });
+        const perpetualItems = mappedAll.filter(m => m.tipo_insumo === 'perpetuo').map(({ id, name, qty, note }) => ({ id, name, qty, note }));
+        const operationalItems = mappedAll.filter(m => m.tipo_insumo === 'operativo').map(({ id, name, qty, note }) => ({ id, name, qty, note }));
+        setPerpetualData(perpetualItems as InventoryItem[]);
+        setOperationalData(operationalItems as InventoryItem[]);
+      }
     } catch (e) {
-      console.error('Error cargando datos de inventario:', e);
       setFetchError(String(e));
     } finally {
       setIsLoading(false);
@@ -95,7 +104,6 @@ const Inventario: React.FC = () => {
     load();
   }, []);
 
-  // No usar valores por defecto. Los arrays provienen exclusivamente de la BD.
   const perpetual = perpetualData;
   const operational = operationalData;
 
@@ -111,13 +119,12 @@ const Inventario: React.FC = () => {
           </div>
         </div>
       )}
-  {isLoading && <div className="max-w-6xl mx-auto mb-4 text-sm text-gray-500">Cargando datos de inventario...</div>}
+      {isLoading && <div className="max-w-6xl mx-auto mb-4 text-sm text-gray-500">Cargando datos de inventario...</div>}
       <div className="inv-container">
         <header className="mb-6">
           <h2 className="text-2xl font-bold text-gray-800">MÓDULO DE INVENTARIO</h2>
           <p className="text-sm text-gray-500 mt-1">Control de insumos, inventario operativo y alertas</p>
         </header>
-
         {/* Actions Cards (adaptado de Usuarios) - ocultas cuando se entra a un apartado */}
         {activeTab === 'overview' ? (
           <div className="w-full mb-6">
@@ -139,22 +146,20 @@ const Inventario: React.FC = () => {
                   {/* Summary cards */}
                   <div className="inv-overview">
                     <div className="inv-card">
-                      <h3>Stock Perpetuo Total</h3>
-                      <div className="number">{totalPerpetualStock.toFixed(2)}</div>
-                      <div className="text-xs text-gray-500">{totalPerpetualItems} productos</div>
+                      <h3>Productos Perpetuo</h3>
+                      <div className="number">{perpetual.length}</div>
                     </div>
 
                     <div className="inv-card">
-                      <h3>Stock Operativo Total</h3>
-                      <div className="number">{totalOperationalStock.toFixed(2)}</div>
-                      <div className="text-xs text-gray-500">{totalOperationalItems} productos</div>
+                      <h3>Productos Operativos</h3>
+                      <div className="number">{operational.length}</div>
                     </div>
 
                     {/* Alertas removidas: tarjeta eliminada para evitar referencias a estado inexistente */}
 
                     <div className="inv-card">
-                      <h3>Auditorías Pendientes</h3>
-                      <div className="number">0</div>
+                      <h3>Contactos Próximos</h3>
+                      <div className="number">1</div>
                     </div>
                   </div>
 
@@ -163,7 +168,7 @@ const Inventario: React.FC = () => {
                     <div className="inv-list">
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <h4>Inventario Perpetuo</h4>
-                        <button className="see-all" onClick={() => { setCatalogTarget('perpetuos'); setActiveTab('catalogo'); }}>Ver todos</button>
+                        <button className="see-all" onClick={() => setActiveTab('catalogo')}>Ver todos</button>
                       </div>
                       <table className="inv-table">
                         <thead>
@@ -190,7 +195,7 @@ const Inventario: React.FC = () => {
                     <div className="inv-list">
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <h4>Inventario Operativo</h4>
-                        <button className="see-all" onClick={() => { setCatalogTarget('operativos'); setActiveTab('catalogo'); }}>Ver todos</button>
+                        <button className="see-all" onClick={() => setActiveTab('catalogo')}>Ver todos</button>
                       </div>
                       <table className="inv-table">
                         <thead>
@@ -230,19 +235,20 @@ const Inventario: React.FC = () => {
 
               {activeTab === 'catalogo' && (
                 <motion.div key="catalogo" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.18 }}>
-                  <Catalogo initialTab={catalogTarget} />
+                  {/* Aquí iría el componente de catálogo si lo tienes implementado */}
+                  {/* <Catalogo initialTab={catalogTarget} /> */}
                 </motion.div>
               )}
 
               {activeTab === 'ingreso' && (
                 <motion.div key="ingreso" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.18 }}>
-                  <IngresoCompra />
+                  {/* <IngresoCompra /> */}
                 </motion.div>
               )}
 
               {activeTab === 'auditoria' && (
                 <motion.div key="auditoria" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.18 }}>
-                  <Auditoria />
+                  {/* <Auditoria /> */}
                 </motion.div>
               )}
             </AnimatePresence>

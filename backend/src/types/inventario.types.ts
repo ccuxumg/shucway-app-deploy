@@ -30,7 +30,6 @@ export interface CatalogoInsumo {
   stock_minimo: number;
   stock_maximo: number;
   costo_promedio: number;
-  imagen_url?: string;
   activo: boolean;
   fecha_creacion: Date;
   id_categoria: number;

@@ -68,19 +68,7 @@ export class InventarioService {
   async getInsumos(activos?: boolean): Promise<Insumo[]> {
     let query = supabase
       .from('insumo')
-      .select(`
-        id_insumo,
-        nombre_insumo,
-        id_categoria,
-        unidad_medida,
-        stock_minimo,
-        stock_maximo,
-        costo_promedio,
-        fecha_registro,
-        activo,
-        categoria_insumo(tipo_categoria),
-        lote_insumo(cantidad_actual)
-      `)
+      .select('*')
       .order('nombre_insumo');
 
     if (activos !== undefined) {
@@ -90,41 +78,7 @@ export class InventarioService {
     const { data, error } = await query;
 
     if (error) throw new Error(`Error al obtener insumos: ${error.message}`);
-
-    // Mapear resultado para sumar cantidad_actual y mostrar tipo_categoria
-    return (data || []).map((row: {
-      id_insumo: number;
-      nombre_insumo: string;
-      id_categoria: number;
-      unidad_medida: string;
-      stock_minimo: number;
-      stock_maximo: number;
-      costo_promedio: number;
-      fecha_registro: Date;
-      activo: boolean;
-      categoria_insumo?: Array<{ tipo_categoria: 'perpetuo' | 'operativo' }>;
-      lote_insumo?: Array<{ cantidad_actual: number }>;
-    }) => {
-      const lotes = Array.isArray(row.lote_insumo) ? row.lote_insumo : [];
-      const cantidad_actual = lotes.length > 0 ? lotes.reduce((sum: number, lote: { cantidad_actual: number }) => sum + (lote.cantidad_actual || 0), 0) : 0;
-      // Extraer tipo_categoria del primer elemento del array categoria_insumo
-      const tipo_categoria = Array.isArray(row.categoria_insumo) && row.categoria_insumo.length > 0
-        ? row.categoria_insumo[0].tipo_categoria
-        : '';
-      return {
-        id_insumo: row.id_insumo,
-        nombre_insumo: row.nombre_insumo,
-        id_categoria: row.id_categoria,
-        unidad_medida: row.unidad_medida,
-        stock_minimo: row.stock_minimo,
-        stock_maximo: row.stock_maximo,
-        costo_promedio: row.costo_promedio,
-        fecha_registro: row.fecha_registro,
-        activo: row.activo,
-        tipo_categoria,
-        cantidad_actual
-      };
-    });
+    return data || [];
   }
 
   async getInsumoById(id: number): Promise<Insumo | null> {
@@ -191,21 +145,35 @@ export class InventarioService {
         fecha_registro,
         id_categoria,
         id_proveedor_principal,
-        categoria_insumo!inner(tipo_categoria, nombre),
-        lote_insumo!inner(cantidad_actual)
+        categoria_insumo(tipo_categoria, nombre),
+        lote_insumo(cantidad_actual)
       `)
       .order('nombre_insumo', { ascending: true });
 
     if (error) throw new Error(`Error al obtener catálogo de insumos: ${error.message}`);
-    
+
+    // Mapeo igual que dashboard: incluye insumos sin lotes/categoría
     return (data || []).map((item: CatalogoQueryResult) => {
-      // Calcular stock total desde lotes
-      const stock_actual = item.lote_insumo ? item.lote_insumo.reduce((sum: number, lote: { cantidad_actual: number }) => sum + (lote.cantidad_actual || 0), 0) : 0;
-      
+      // Calcular stock total desde lotes (si no hay, 0)
+      const lotes = Array.isArray(item.lote_insumo) ? item.lote_insumo : [];
+      const stock_actual = lotes.length ? lotes.reduce((sum, lote) => sum + (lote.cantidad_actual || 0), 0) : 0;
+
+      // Si no hay categoría, asigna tipo 'perpetuo' y nombre '—'
+      let categoriaObj: { nombre: string; tipo_categoria: 'perpetuo' | 'operativo' };
+      if (Array.isArray(item.categoria_insumo) && item.categoria_insumo.length > 0) {
+        const raw = item.categoria_insumo[0];
+        categoriaObj = {
+          nombre: raw.nombre || '—',
+          tipo_categoria: raw.tipo_categoria === 'operativo' ? 'operativo' : 'perpetuo'
+        };
+      } else {
+        categoriaObj = { nombre: '—', tipo_categoria: 'perpetuo' };
+      }
+
       return {
         id_insumo: item.id_insumo,
         nombre: item.nombre_insumo,
-        unidad_medida: item.unidad_medida,
+        unidad_medida: item.unidad_medida || 'unidades',
         stock_actual,
         stock_minimo: item.stock_minimo,
         stock_maximo: item.stock_maximo,
@@ -214,7 +182,7 @@ export class InventarioService {
         fecha_creacion: item.fecha_registro,
         id_categoria: item.id_categoria,
         id_proveedor_principal: item.id_proveedor_principal,
-        categoria: item.categoria_insumo[0] as { nombre: string; tipo_categoria: 'perpetuo' | 'operativo' },
+        categoria: categoriaObj,
       };
     });
   }

@@ -37,39 +37,27 @@ type Fila = {
 };
 
 // Tipo para la respuesta de la API de catálogo
-type CatalogoInsumoAPI = {
-  id_insumo: number;
-  nombre: string;
-  unidad_medida: string;
-  stock_actual: number;
-  stock_minimo: number;
-  costo_promedio: number | null;
-  activo: boolean;
-  fecha_creacion: string;
-  id_categoria: number;
-  id_proveedor_principal: number | null;
-  categoria: {
-    nombre: string;
-    tipo_categoria: string;
-  };
-};
+// Eliminado tipo no usado CatalogoInsumoAPI
 
 /** Datos (serán cargados desde la BD) */
 
-const TABS = [
-  { id: "todos", label: "Todos" },
-  { id: "perpetuos", label: "Solo Perpetuos" },
-  { id: "operativos", label: "Solo Operativos" },
-] as const;
+
  
-export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpetuos' | 'operativos' }) {
+export default function Catalogo() {
+  // Estado para el modal de confirmación de eliminación
+  const [deleteModal, setDeleteModal] = useState<{ open: boolean; row: Fila | null }>({ open: false, row: null });
   // Valores y helpers mínimos necesarios para compilar y mantener funcionalidad básica
   const UNIDADES: UnidadMedida[] = ['kg', 'litros', 'unidades'];
-  type SortKey = 'stock' | 'ultimaActualizacion' | 'nombre' | 'tipo' | 'estado' | 'categoria';
+  const TABS = [
+    { id: "todos", label: "Todos" },
+    { id: "perpetuos", label: "Solo Perpetuos" },
+    { id: "operativos", label: "Solo Operativos" },
+  ] as const;
+  type SortKey = 'stock' | 'ultimaActualizacion' | 'nombre' | 'tipo' | 'estado' | 'categoria' | 'unidad';
 
   const [q, setQ] = useState<string>('');
   const [debouncedQ, setDebouncedQ] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'todos' | 'perpetuos' | 'operativos'>(initialTab ?? 'todos');
+  const [activeTab, setActiveTab] = useState<'todos' | 'perpetuos' | 'operativos'>('todos');
   const [categoria, setCategoria] = useState<string>("Todas las categorías");
   const [sortBy, setSortBy] = useState<SortKey>('nombre' as SortKey);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -92,7 +80,8 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
 
   // Datos (editable en memoria)
   const [rows, setRows] = useState<Fila[]>([]);
-  const [categoriasBD, setCategoriasBD] = useState<Array<{ id_categoria: number; nombre: string }>>([]);
+  const [rawInsumos, setRawInsumos] = useState<Record<string, unknown>[]>([]);
+  const [categoriasBD, setCategoriasBD] = useState<Array<{ id_categoria: number; nombre: string; tipo_categoria?: string }>>([]);
   const [proveedoresBD, setProveedoresBD] = useState<Array<{ id_proveedor: number; nombre_empresa: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -115,58 +104,13 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
           },
         });
         const insumosData = await insumosResponse.json();
-        const insumos = insumosData.data || [];
+  console.log('Respuesta completa de la API de catálogo:', JSON.stringify(insumosData, null, 2));
+        const insumos = Array.isArray(insumosData) ? insumosData : (insumosData.data || []);
 
         console.log('Insumos cargados desde API:', insumos.length);
 
-        const toStr = (v: unknown) => (v == null ? "" : String(v));
-        const toNum = (v: unknown) => {
-          const n = Number(String(v ?? "0"));
-          return Number.isFinite(n) ? n : 0;
-        };
-
-        const mapped = insumos.map((i: CatalogoInsumoAPI) => {
-          const tipoCategoria = toStr(i.categoria?.tipo_categoria).toLowerCase();
-          const nombreCategoria = toStr(i.categoria?.nombre);
-
-          // Usar stock que ya viene calculado desde la API
-          const stockLotes = toNum(i.stock_actual);
-          const stockMinimo = toNum(i.stock_minimo);
-          let estado: EstadoStock = "OK";
-          if (stockLotes <= stockMinimo * 0.5) estado = "Crítico";
-          else if (stockLotes <= stockMinimo) estado = "Stock Bajo";
-
-          // Última actualización (usar fecha_creacion por ahora)
-          const ultimaBitacora = toStr(i.fecha_creacion);
-
-          return {
-            id: toStr(i.id_insumo),
-            nombre: toStr(i.nombre),
-            tipo: (tipoCategoria === "operativo" ? ("Operativo" as TipoInsumo) : ("Perpetuo" as TipoInsumo)),
-            stockCantidad: stockLotes,
-            unidad: (toStr(i.unidad_medida) || "unidades") as UnidadMedida,
-            estado,
-            ultimaActualizacion: ultimaBitacora || new Date().toISOString(),
-            categoria: nombreCategoria || "—",
-            descripcion: "",
-            proveedor: (() => {
-              const idProv = i.id_proveedor_principal;
-              const found = proveedoresBD.find((p: { id_proveedor: number; nombre_empresa: string }) => p.id_proveedor === Number(idProv));
-              return found ? found.nombre_empresa : undefined;
-            })(),
-            costo: i.costo_promedio != null ? Number(i.costo_promedio) : undefined,
-            ubicacion: undefined,
-            activo: Boolean(i.activo),
-            automatica: false,
-            imagen: `/insumos/${slugify(toStr(i.nombre))}.png`,
-            categoriaId: i.id_categoria != null ? Number(i.id_categoria) : undefined,
-            proveedorId: i.id_proveedor_principal != null ? Number(i.id_proveedor_principal) : undefined,
-          } as Fila;
-        });
-
         if (mounted) {
-          console.log('Datos cargados:', mapped.length, 'insumos');
-          setRows(mapped);
+          setRawInsumos(insumos);
         }
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : String(e);
@@ -181,7 +125,82 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
     return () => {
       mounted = false;
     };
-  }, [proveedoresBD]);
+  }, []);
+
+  // Mapear insumos cuando se carguen las categorías
+  useEffect(() => {
+    console.log('Mapeando insumos. RawInsumos:', rawInsumos.length, 'CategoriasBD:', categoriasBD.length);
+    if (rawInsumos.length > 0 && categoriasBD.length > 0) {
+      const mapped = rawInsumos.map((i: Record<string, unknown>) => {
+        console.log(`Insumo: ${i.nombre_insumo || i.nombre}, id_categoria: ${i.id_categoria}`);
+        // Determinar el tipo basado en la categoría, no en tipo_categoria de la API
+        const categoriaObj = categoriasBD.find((c: { id_categoria: number; nombre: string; tipo_categoria?: string }) => c.id_categoria === i.id_categoria);
+        let tipo: TipoInsumo = "Operativo";
+        if (categoriaObj) {
+          // Si la categoría tiene tipo_categoria definido, úsalo
+          if (categoriaObj.tipo_categoria) {
+            tipo = categoriaObj.tipo_categoria.toLowerCase() === "perpetuo" ? "Perpetuo" : "Operativo";
+            console.log(`Categoría "${categoriaObj.nombre}" (tipo_categoria: ${categoriaObj.tipo_categoria}) -> Tipo determinado: ${tipo} (usando tipo_categoria)`);
+          } else {
+            // Si no tiene tipo_categoria, infiérelo del nombre
+            const nombreCat = categoriaObj.nombre.toLowerCase();
+            const perpetuoKeywords = ['perpetuo', 'perpetuos', 'eterno', 'eternos', 'pizza', 'pizzas', 'plato', 'platos', 'principal', 'principales', 'comida', 'menu', 'hamburguesa', 'hamburguesas', 'shuco', 'shucos'];
+            const operativoKeywords = ['ingrediente', 'ingredientes', 'verdura', 'verduras', 'carne', 'carnes', 'pan', 'harina', 'aceite', 'sal', 'azucar'];
+
+            const esPerpetuo = perpetuoKeywords.some(keyword => nombreCat.includes(keyword));
+            const esOperativo = operativoKeywords.some(keyword => nombreCat.includes(keyword));
+
+            if (esPerpetuo && !esOperativo) {
+              tipo = "Perpetuo";
+            } else if (esOperativo && !esPerpetuo) {
+              tipo = "Operativo";
+            } else if (esPerpetuo && esOperativo) {
+              // Si contiene ambas, asumir perpetuo
+              tipo = "Perpetuo";
+            }
+            // Si no contiene ninguna, queda como "Operativo" por defecto
+
+            console.log(`Categoría "${categoriaObj.nombre}" (tipo_categoria: no definido) -> Tipo determinado: ${tipo} (inferido del nombre)`);
+            console.log(`  - Nombre categoría: "${nombreCat}"`);
+            console.log(`  - Es perpetuo por keywords: ${esPerpetuo} (${perpetuoKeywords.filter(k => nombreCat.includes(k)).join(', ') || 'ninguno'})`);
+            console.log(`  - Es operativo por keywords: ${esOperativo} (${operativoKeywords.filter(k => nombreCat.includes(k)).join(', ') || 'ninguno'})`);
+          }
+        } else {
+          console.log(`Insumo sin categoría asignada: ${i.nombre_insumo || i.nombre}, id_categoria: ${i.id_categoria}`);
+        }
+
+        const nombreCategoria = categoriaObj?.nombre ?? '—';
+
+        // Stock: usa 0 si no tienes stock_actual
+        const stockLotes = Number(i.stock_actual ?? 0);
+        const stockMinimo = Number(i.stock_minimo ?? 0);
+        let estado: EstadoStock = "OK";
+        if (stockLotes <= stockMinimo * 0.5) estado = "Crítico";
+        else if (stockLotes <= stockMinimo) estado = "Stock Bajo";
+
+        return {
+          id: String(i.id_insumo),
+          nombre: i.nombre_insumo || i.nombre, // fallback por si el campo es diferente
+          tipo,
+          stockCantidad: stockLotes,
+          unidad: i.unidad_medida || "unidades",
+          estado,
+          ultimaActualizacion: i.fecha_registro || i.fecha_creacion || new Date().toISOString(),
+          categoria: nombreCategoria,
+          descripcion: "",
+          proveedor: undefined,
+          costo: i.costo_promedio ? Number(i.costo_promedio) : undefined,
+          ubicacion: undefined,
+          activo: Boolean(i.activo ?? true),
+          automatica: false,
+          imagen: `/insumos/${slugify(String(i.nombre_insumo || i.nombre))}.png`,
+          categoriaId: i.id_categoria,
+          proveedorId: i.id_proveedor_principal,
+        } as Fila;
+      });
+      setRows(mapped);
+    }
+  }, [rawInsumos, categoriasBD]);
 
   // Cargar categorías y proveedores desde las APIs del backend
   useEffect(() => {
@@ -201,7 +220,8 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
           }).then(res => res.json()).then(data => data.data || []),
         ]);
         if (!mounted) return;
-        setCategoriasBD((catRes ?? []) as Array<{ id_categoria: number; nombre: string }>);
+        console.log('Categorías cargadas:', catRes);
+        setCategoriasBD((catRes ?? []) as Array<{ id_categoria: number; nombre: string; tipo_categoria?: string }>);
         setProveedoresBD((provRes ?? []) as Array<{ id_proveedor: number; nombre_empresa: string }>);
       } catch (e) {
         console.error("Error cargando metadatos:", e);
@@ -237,8 +257,13 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
       };
       const mapped = (insData ?? []).map((i: Record<string, unknown>) => {
         const categoriaData = i["categoria_insumo"] as { tipo_categoria?: string; nombre?: string } | null;
-        const tipoCategoria = toStr(categoriaData?.tipo_categoria).toLowerCase();
         const nombreCategoria = toStr(categoriaData?.nombre);
+
+        // Determinar tipo basado en el nombre de la categoría (consistente con el mapeo principal)
+        let tipo: TipoInsumo = "Operativo";
+        if (nombreCategoria && nombreCategoria.toLowerCase().includes("perpetuo")) {
+          tipo = "Perpetuo";
+        }
 
         // Usar stock de lotes (temporalmente 0)
         const stockLotes = 0;
@@ -253,7 +278,7 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
         return {
           id: toStr(i["id_insumo"]),
           nombre: toStr(i["nombre"]),
-          tipo: (tipoCategoria === "operativo" ? ("Operativo" as TipoInsumo) : ("Perpetuo" as TipoInsumo)),
+          tipo,
           stockCantidad: stockLotes,
           unidad: (toStr(i["unidad_medida"]) || "unidades") as UnidadMedida,
           estado,
@@ -354,14 +379,7 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
     setPage(1);
   }, [activeTab, categoria, debouncedQ, perPage]);
 
-  // Aplicar initialTab solo una vez (no debe sobrescribir cambios del usuario)
-  const initialApplied = useRef(false);
-  useEffect(() => {
-    if (!initialApplied.current && initialTab) {
-      setActiveTab(initialTab);
-      initialApplied.current = true;
-    }
-  }, [initialTab]);
+
 
   const toggleSort = (key: SortKey) => {
     if (sortBy === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -386,21 +404,24 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
     setOpenDrawer(true);
   };
   const deleteRow = async (row: Fila) => {
-    const ok = window.confirm(`¿Eliminar "${row.nombre}"? Esta acción no se puede deshacer.`);
-    if (!ok) return;
-    // Intentar borrar en la BD para mantener consistencia.
-    // Nota: si la tabla tiene RLS/policies y la sesión no tiene permisos, la operación fallará.
+    setDeleteModal({ open: true, row });
+  };
+
+  // Acción real de eliminación tras confirmar en el modal
+  const confirmDeleteRow = async () => {
+    if (!deleteModal.row) return;
     setLoading(true);
     setError(null);
     try {
-      const { error: delErr } = await supabase.from('insumo').delete().eq('id_insumo', Number(row.id));
+      const { error: delErr } = await supabase.from('insumo').delete().eq('id_insumo', Number(deleteModal.row.id));
       if (delErr) throw delErr;
-      // recargar
       await fetchInsumosFromTable();
+      setDeleteModal({ open: false, row: null });
     } catch (e: unknown) {
       console.error('Error eliminando insumo:', e);
       const message = e instanceof Error ? e.message : String(e);
       setError(message);
+      setDeleteModal({ open: false, row: null });
       if (message.toLowerCase().includes('permission') || message.toLowerCase().includes('forbidden') || message.toLowerCase().includes('policy')) {
         alert('Error eliminando insumo: permiso denegado. Si quieres que CRUD sea público, revisa las políticas RLS en Supabase o marca la tabla como accesible para el rol `authenticated`/público.\nDetalles: ' + message);
       } else {
@@ -479,84 +500,104 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
   };
 
   const setFormField = useCallback(<K extends keyof Fila>(key: K, value: Fila[K]) => {
-    setForm((f) => ({ ...f, [key]: value }));
-  }, []);
+    // Si se cambia la categoría, ajusta el tipo automáticamente
+    if (key === "categoriaId") {
+      let tipo: TipoInsumo = "Operativo";
+      const categoriaObj = categoriasBD.find(c => c.id_categoria === value);
+      if (categoriaObj && categoriaObj.nombre && categoriaObj.nombre.toLowerCase().includes("perpetuo")) {
+        tipo = "Perpetuo";
+      }
+      setForm((f) => ({ ...f, [key]: value, tipo }));
+    } else {
+      setForm((f) => ({ ...f, [key]: value }));
+    }
+  }, [categoriasBD]);
 
   /** Render */
   return (
     <div className="w-full">
-      {/* Header */}
-      <div className="mb-4">
-        <h2 className="text-2xl font-bold text-gray-800">CATÁLOGO DE INSUMOS</h2>
-        <p className="text-sm text-gray-500">Vista completa de todos los insumos con diferenciación por tipo de control</p>
-      </div>
+      {/* Modal de confirmación de eliminación */}
+      <AnimatePresence>
+        {deleteModal.open && deleteModal.row && (
+          <motion.div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <div className="bg-white rounded-xl shadow-xl p-7 max-w-md w-full border">
+              <div className="text-lg font-bold mb-2 text-gray-800">¿Eliminar insumo?</div>
+              <div className="mb-4 text-gray-700">Esta acción no se puede deshacer.<br />¿Seguro que deseas eliminar <span className="font-semibold">{deleteModal.row.nombre}</span>?</div>
+              <div className="flex gap-3 justify-end">
+                <button className="h-10 px-4 rounded-lg border text-sm font-semibold hover:bg-gray-50" onClick={() => setDeleteModal({ open: false, row: null })}>Cancelar</button>
+                <button className="h-10 px-4 rounded-lg bg-rose-600 text-white font-semibold hover:bg-rose-700" onClick={confirmDeleteRow} disabled={loading}>{loading ? "Eliminando..." : "Eliminar"}</button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Filtros y acciones */}
-      <div className="bg-white rounded-xl shadow p-4 mb-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2" role="tablist" aria-label="Filtros por tipo">
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                role="tab"
-                aria-selected={activeTab === t.id}
-                onClick={() => setActiveTab(t.id)}
-                className={`px-3 py-2 rounded-lg text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
-                  activeTab === t.id ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex-1" />
-
-          <label className="sr-only" htmlFor="categoria">Categoría</label>
-          <select
-              id="categoria"
-              value={categoria}
-              onChange={(e) => setCategoria(e.target.value)}
-              className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700"
+      <div className="mb-4 flex flex-wrap gap-3 items-center">
+        {/* Pestañas de filtro por tipo */}
+        <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                activeTab === tab.id
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
             >
-              {categoriasOptions.map((cat, index) => (
-                <option key={index} value={cat}>{cat}</option>
-              ))}
-            </select>
-
-          <div className="relative">
-            <label className="sr-only" htmlFor="search">Buscar</label>
-            <input
-              id="search"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Buscar insumos…"
-              className="h-10 w-64 rounded-lg border border-gray-200 bg-white pl-3 pr-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-            />
-          </div>
-
-          <button onClick={() => { setActiveTab("todos"); setCategoria("Todas las categorías"); setQ(""); }} className="h-10 rounded-lg border px-3 text-sm font-semibold hover:bg-gray-50">
-            Limpiar filtros
-          </button>
-
-          <button onClick={openCreate} className="h-10 rounded-lg bg-emerald-500 px-4 text-sm font-semibold text-white hover:bg-emerald-600">
-            Agregar Insumo
-          </button>
+              {tab.label}
+            </button>
+          ))}
         </div>
+
+        <label className="sr-only" htmlFor="categoria">Categoría</label>
+        <select
+          id="categoria"
+          value={categoria}
+          onChange={(e) => setCategoria(e.target.value)}
+          className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700"
+        >
+          {categoriasOptions.map((cat, index) => (
+            <option key={index} value={cat}>{cat}</option>
+          ))}
+        </select>
+        <div className="relative">
+          <label className="sr-only" htmlFor="search">Buscar</label>
+          <input
+            id="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Buscar insumos…"
+            className="h-10 w-64 rounded-lg border border-gray-200 bg-white pl-3 pr-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+          />
+        </div>
+        <button onClick={() => { setActiveTab("todos"); setCategoria("Todas las categorías"); setQ(""); }} className="h-10 rounded-lg border px-3 text-sm font-semibold hover:bg-gray-50">
+          Limpiar filtros
+        </button>
+        <button onClick={openCreate} className="h-10 rounded-lg bg-emerald-500 px-4 text-sm font-semibold text-white hover:bg-emerald-600">
+          Agregar Insumo
+        </button>
       </div>
 
-      {/* Tabla */}
+      {/* Tabla principal del catálogo de insumos */}
       <div className="bg-white rounded-xl shadow overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-sm text-gray-500">
               <tr className="border-b">
                 <Th label="Nombre" onSort={() => toggleSort("nombre")} active={sortBy === "nombre"} dir={sortDir} />
-                <Th label="Tipo" onSort={() => toggleSort("tipo")} active={sortBy === "tipo"} dir={sortDir} />
+                <Th label="Categoría" onSort={() => toggleSort("categoria")} active={sortBy === "categoria"} dir={sortDir} />
+                <Th label="Tipo de Categoría" onSort={() => toggleSort("tipo")} active={sortBy === "tipo"} dir={sortDir} />
                 <Th label="Stock Actual" onSort={() => toggleSort("stock")} active={sortBy === "stock"} dir={sortDir} />
+                <Th label="Unidad" onSort={() => toggleSort("unidad")} active={sortBy === "unidad"} dir={sortDir} />
                 <Th label="Estado" onSort={() => toggleSort("estado")} active={sortBy === "estado"} dir={sortDir} />
                 <Th label="Última Actualización" onSort={() => toggleSort("ultimaActualizacion")} active={sortBy === "ultimaActualizacion"} dir={sortDir} />
-                <Th label="Categoría" onSort={() => toggleSort("categoria")} active={sortBy === "categoria"} dir={sortDir} />
                 <th className="px-4 py-3 font-medium text-right">Acciones</th>
               </tr>
             </thead>
@@ -565,12 +606,12 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
                 <tr key={r.id} className="border-b last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
-                        <img
-                          src={r.imagen || "/img/icon.png"}
-                          alt={r.nombre || "imagen de insumo"}
-                          className="w-8 h-8 rounded-lg object-cover bg-emerald-100"
-                          onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/img/icon.png"; }}
-                        />
+                      <img
+                        src={r.imagen || "/img/icon.png"}
+                        alt={r.nombre || "imagen de insumo"}
+                        className="w-8 h-8 rounded-lg object-cover bg-emerald-100"
+                        onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/img/icon.png"; }}
+                      />
                       <div>
                         <div className="font-semibold leading-5 line-clamp-2">{r.nombre}</div>
                         <div className="text-xs text-gray-500 flex items-center gap-2 mt-0.5">
@@ -581,11 +622,12 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3 align-top"><span className="whitespace-nowrap">{r.tipo}</span></td>
-                  <td className="px-4 py-3 align-top"><span className="font-medium">{formatStock(r.stockCantidad, r.unidad)}</span></td>
-                  <td className="px-4 py-3 align-top"><EstadoPill estado={r.estado} /></td>
-                  <td className="px-4 py-3 align-top"><span>{formatDateHuman(r.ultimaActualizacion)}</span></td>
                   <td className="px-4 py-3 align-top">{r.categoria}</td>
+                  <td className="px-4 py-3 align-top">{r.tipo}</td>
+                  <td className="px-4 py-3 align-top">{formatStock(r.stockCantidad, r.unidad)}</td>
+                  <td className="px-4 py-3 align-top">{r.unidad}</td>
+                  <td className="px-4 py-3 align-top"><EstadoPill estado={r.estado} /></td>
+                  <td className="px-4 py-3 align-top">{formatDateHuman(r.ultimaActualizacion)}</td>
                   <td className="px-4 py-3 align-top">
                     <div className="flex items-center gap-2 justify-end">
                       <IconBtn title="Ver" onClick={() => { setDetail(r); }}><PiEyeBold /></IconBtn>
@@ -597,7 +639,7 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
               ))}
               {pageData.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
                     <div className="max-w-md mx-auto">
                       <div className="text-lg font-semibold text-gray-700">Sin resultados</div>
                       <p className="mt-1">Intenta ajustar los filtros o buscar otra palabra clave.</p>
@@ -687,41 +729,37 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Stock Actual</label>
-                        <div className="flex gap-2">
-                          <input type="number" inputMode="decimal" id="stockCantidad" value={form.stockCantidad} onChange={(e) => setFormField("stockCantidad", Number(e.target.value))} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300" />
-                          <select value={form.unidad} onChange={(e) => setFormField("unidad", e.target.value as UnidadMedida)} className="h-11 rounded-lg border border-gray-200 px-2 text-sm">
-                            {UNIDADES.map((u) => <option key={u}>{u}</option>)}
+                    {/* Campos adicionales que solo aparecen al editar */}
+                    {editingId && (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Stock Actual</label>
+                          <div className="flex gap-2">
+                            <input type="number" inputMode="decimal" id="stockCantidad" value={form.stockCantidad} onChange={(e) => setFormField("stockCantidad", Number(e.target.value))} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300" />
+                            <select value={form.unidad} onChange={(e) => setFormField("unidad", e.target.value as UnidadMedida)} className="h-11 rounded-lg border border-gray-200 px-2 text-sm">
+                              {UNIDADES.map((u) => <option key={u}>{u}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Estado</label>
+                          <select value={form.estado} onChange={(e) => setFormField("estado", e.target.value as EstadoStock)} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300">
+                            {(["OK", "Stock Bajo", "Crítico"] as EstadoStock[]).map((s) => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Actualización</label>
+                          <select value={form.automatica ? "auto" : "manual"} onChange={(e) => setFormField("automatica", e.target.value === "auto")} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300">
+                            <option value="manual">Conteo manual</option>
+                            <option value="auto">Actualización automática</option>
                           </select>
                         </div>
                       </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Estado</label>
-                        <select value={form.estado} onChange={(e) => setFormField("estado", e.target.value as EstadoStock)} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300">
-                          {(["OK", "Stock Bajo", "Crítico"] as EstadoStock[]).map((s) => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Actualización</label>
-                        <select value={form.automatica ? "auto" : "manual"} onChange={(e) => setFormField("automatica", e.target.value === "auto")} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300">
-                          <option value="manual">Conteo manual</option>
-                          <option value="auto">Actualización automática</option>
-                        </select>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </section>
 
-                {/* Tipo de Insumo */}
-                <section className="bg-white rounded-xl border border-gray-200/70 shadow-sm p-4 md:p-5">
-                  <div className="text-sm font-bold text-gray-800 mb-4">Tipo de Insumo</div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <TipoCard title="Operativo" desc="Insumo básico que se compra y consume directamente. No requiere preparación adicional." examples="Ejemplos: Pan, Verduras, Aceite" active={form.tipo === "Operativo"} onClick={() => setFormField("tipo", "Operativo")} />
-                    <TipoCard title="Perpetuo"  desc="Producto elaborado que se fabrica usando otros insumos. Requiere receta para su preparación." examples="Ejemplos: Shuco, Hamburguesa, Salsa Especial" active={form.tipo === "Perpetuo"}  onClick={() => setFormField("tipo", "Perpetuo")} />
-                  </div>
-                </section>
+                {/* El tipo de insumo se selecciona automáticamente según la categoría */}
 
                 {/* Información Adicional */}
                 <section className="bg-white rounded-xl border border-gray-200/70 shadow-sm p-4 md:p-5">
@@ -749,22 +787,13 @@ export default function Catalogo({ initialTab }: { initialTab?: 'todos' | 'perpe
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Ubicación</label>
-                        <select value={form.ubicacion ?? ""} onChange={(e) => setFormField("ubicacion", e.target.value)} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300">
-                          <option>Seleccionar ubicación</option>
-                          <option>Bodega Principal</option>
-                          <option>Cocina</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Estado</label>
-                        <select value={form.activo ? "Activo" : "Inactivo"} onChange={(e) => setFormField("activo", e.target.value === "Activo")} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300">
-                          <option>Activo</option>
-                          <option>Inactivo</option>
-                        </select>
-                      </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Ubicación</label>
+                      <select value={form.ubicacion ?? ""} onChange={(e) => setFormField("ubicacion", e.target.value)} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300">
+                        <option>Seleccionar ubicación</option>
+                        <option>Bodega Principal</option>
+                        <option>Cocina</option>
+                      </select>
                     </div>
 
                     <div>
@@ -976,15 +1005,7 @@ function ResumenRow({ label, children }: { label: string; children: React.ReactN
     </div>
   );
 }
-function TipoCard({ title, desc, examples, active, onClick }: { title: string; desc: string; examples: string; active?: boolean; onClick?: () => void }) {
-  return (
-    <button type="button" onClick={onClick} className={`text-left rounded-xl p-4 border transition w-full ${active ? "border-emerald-400 ring-2 ring-emerald-100 bg-emerald-50/40" : "border-gray-200 hover:border-gray-300"}`}>
-      <div className="font-semibold text-gray-800 mb-1">{title}</div>
-      <p className="text-sm text-gray-600 mb-2">{desc}</p>
-      <span className="inline-block rounded bg-emerald-50 px-2 py-1 text-xs text-emerald-700">{examples}</span>
-    </button>
-  );
-}
+
 function IconBtn({ title, children, onClick }: { title: string; children: React.ReactNode; onClick?: () => void }) {
   return (
     <button title={title} onClick={onClick} className="p-2 rounded-lg hover:bg-gray-100 text-gray-700" type="button" aria-label={title}>

@@ -142,8 +142,7 @@ export const dashboardService = {
     totalOperationalItems: number; 
   }> {
     try {
-      // Primero obtener el mapeo de categorías
-      // Leer insumos con stock calculado desde lotes y traer tipo_categoria por JOIN
+      // Obtener todos los insumos y su categoría
       const { data: insumos, error } = await supabase
         .from('insumo')
         .select(`
@@ -153,11 +152,12 @@ export const dashboardService = {
           activo,
           unidad_medida,
           stock_minimo,
-          lote_insumo(cantidad_actual),
-          categoria_insumo(tipo_categoria)
+          stock_maximo,
+          categoria_insumo(tipo_categoria),
+          lote_insumo(cantidad_actual)
         `)
-        .eq('activo', true)
         .order('nombre_insumo', { ascending: true });
+
 
       if (error) {
         console.error('Error leyendo insumo:', error);
@@ -175,14 +175,13 @@ export const dashboardService = {
         };
       }
 
-      // Clasificar insumos por tipo_categoria calculando stock desde lotes
+      // Mapear todos los insumos, aunque no tengan lotes
       const mappedAll = insumos.map((row: Record<string, unknown>) => {
-        // Calcular stock sumando cantidades de lotes
-  const lotes = Array.isArray(row.lote_insumo) ? row.lote_insumo as { cantidad_actual?: number }[] : [];
-  const cantidad_actual = lotes.length > 0 ? lotes.reduce((sum, lote) => sum + (lote.cantidad_actual || 0), 0) : 0;
-        const stockMinimo = (row.stock_minimo as number) || 0;
+        // Calcular stock sumando cantidades de lotes (si existen)
+        const lotes = Array.isArray(row.lote_insumo) ? row.lote_insumo as { cantidad_actual?: number }[] : [];
+        const cantidad_actual = lotes.length ? lotes.reduce((sum, lote) => sum + (lote.cantidad_actual || 0), 0) : 0;
+        const stockMinimo = Number(row.stock_minimo) || 0;
         let estado = 'Normal';
-
         if (cantidad_actual === 0) {
           estado = 'Sin Stock';
         } else if (cantidad_actual <= stockMinimo) {
@@ -190,7 +189,6 @@ export const dashboardService = {
         } else if (cantidad_actual > stockMinimo * 2) {
           estado = 'OK';
         }
-
         return {
           id: row.id_insumo as number,
           name: row.nombre_insumo as string,
@@ -201,28 +199,23 @@ export const dashboardService = {
         };
       });
 
-        const perpetualItems = mappedAll
-          .filter(m => m.tipo_insumo === 'perpetuo')
-          .map(({ id, name, qty, note }) => ({ id, name, qty, note }));
+      const perpetualItems = mappedAll.filter(m => m.tipo_insumo === 'perpetuo');
+      const operationalItems = mappedAll.filter(m => m.tipo_insumo === 'operativo');
 
-        const operationalItems = mappedAll
-          .filter(m => m.tipo_insumo === 'operativo')
-          .map(({ id, name, qty, note }) => ({ id, name, qty, note }));
+      // Calcular totales
+      const totalPerpetualStock = perpetualItems.reduce((sum, item) => sum + (parseFloat(item.qty || '0') || 0), 0);
+      const totalOperationalStock = operationalItems.reduce((sum, item) => sum + (parseFloat(item.qty || '0') || 0), 0);
+      const totalPerpetualItems = perpetualItems.length;
+      const totalOperationalItems = operationalItems.length;
 
-        // Calcular totales
-        const totalPerpetualStock = perpetualItems.reduce((sum, item) => sum + (parseFloat(item.qty || '0') || 0), 0);
-        const totalOperationalStock = operationalItems.reduce((sum, item) => sum + (parseFloat(item.qty || '0') || 0), 0);
-        const totalPerpetualItems = perpetualItems.length;
-        const totalOperationalItems = operationalItems.length;
-
-        return { 
-          perpetual: perpetualItems, 
-          operational: operationalItems, 
-          totalPerpetualStock, 
-          totalOperationalStock, 
-          totalPerpetualItems, 
-          totalOperationalItems 
-        };
+      return { 
+        perpetual: perpetualItems, 
+        operational: operationalItems, 
+        totalPerpetualStock, 
+        totalOperationalStock, 
+        totalPerpetualItems, 
+        totalOperationalItems 
+      };
     } catch (error) {
       console.error('Error cargando datos de inventario:', error);
       throw error;

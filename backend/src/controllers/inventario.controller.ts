@@ -276,6 +276,44 @@ export class InventarioController {
       next(error);
     }
   }
+
+  // ================== KARDEX ==================
+
+  async getKardexInsumo(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const idInsumo = parseInt(req.params.id);
+      const { fechaDesde, fechaHasta } = req.query;
+
+      const kardex = await inventarioService.getKardexInsumo(
+        idInsumo,
+        fechaDesde as string | undefined,
+        fechaHasta as string | undefined
+      );
+
+      res.json({
+        success: true,
+        data: kardex,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // ================== DETALLES DE INSUMO ==================
+
+  async getInsumoDetails(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const id = parseInt(req.params.id);
+      const insumoDetails = await inventarioService.getInsumoDetails(id);
+
+      res.json({
+        success: true,
+        data: insumoDetails,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const inventarioController = new InventarioController();

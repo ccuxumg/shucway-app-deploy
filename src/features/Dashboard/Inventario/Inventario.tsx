@@ -113,10 +113,12 @@ const Inventario: React.FC = () => {
       )}
   {isLoading && <div className="max-w-6xl mx-auto mb-4 text-sm text-gray-500">Cargando datos de inventario...</div>}
       <div className="inv-container">
-        <header className="mb-6">
-          <h2 className="text-2xl font-bold text-gray-800">MÓDULO DE INVENTARIO</h2>
-          <p className="text-sm text-gray-500 mt-1">Control de insumos, inventario operativo y alertas</p>
-        </header>
+        {activeTab === 'overview' && (
+          <header className="mb-6">
+            <h2 className="text-2xl font-bold text-gray-800">MÓDULO DE INVENTARIO</h2>
+            <p className="text-sm text-gray-500 mt-1">Control de insumos, inventario operativo y alertas</p>
+          </header>
+        )}
 
         {/* Actions Cards (adaptado de Usuarios) - ocultas cuando se entra a un apartado */}
         {activeTab === 'overview' ? (
@@ -140,13 +142,13 @@ const Inventario: React.FC = () => {
                   <div className="inv-overview">
                     <div className="inv-card">
                       <h3>Stock Perpetuo Total</h3>
-                      <div className="number">{totalPerpetualStock.toFixed(2)}</div>
+                      <div className="number">{Math.round(Number(totalPerpetualStock))}</div>
                       <div className="text-xs text-gray-500">{totalPerpetualItems} productos</div>
                     </div>
 
                     <div className="inv-card">
                       <h3>Stock Operativo Total</h3>
-                      <div className="number">{totalOperationalStock.toFixed(2)}</div>
+                      <div className="number">{Math.round(Number(totalOperationalStock))}</div>
                       <div className="text-xs text-gray-500">{totalOperationalItems} productos</div>
                     </div>
 

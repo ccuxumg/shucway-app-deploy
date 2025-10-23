@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { handleLogin } from "../../api/handleLogin";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
+import { useAuth } from "../../hooks/useAuth";
 
 import './Login.css';
 
@@ -12,6 +13,7 @@ const Login = () => {
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const { refreshUser } = useAuth();
   const {
     handleSubmit,
     formState: { errors },
@@ -31,10 +33,8 @@ const Login = () => {
       const success = await handleLogin(identifier, password);
       
       if (success) {
-        // Esperar un momento para que el token se guarde
-        setTimeout(() => {
-          window.location.href = '/dashboard';
-        }, 100);
+        await refreshUser();
+        navigate('/dashboard');
         return;
       }
     } catch (error) {

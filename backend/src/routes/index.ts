@@ -7,6 +7,8 @@ import clientesRoutes from './clientes.routes';
 import ventasRoutes from './ventas.routes';
 import usuariosRoutes from './usuarios.routes';
 import dashboardRoutes from './dashboard.routes';
+import proveedorRoutes from './proveedor.routes';
+import ordenCompraRoutes from './orden_compra.routes';
 
 const router = Router();
 
@@ -19,6 +21,8 @@ router.use('/clientes', clientesRoutes);
 router.use('/ventas', ventasRoutes);
 router.use('/usuarios', usuariosRoutes);
 router.use('/dashboard', dashboardRoutes);
+router.use('/proveedores', proveedorRoutes);
+router.use('/ordenes-compra', ordenCompraRoutes);
 
 // Ruta de health check
 router.get('/health', (_req, res) => {

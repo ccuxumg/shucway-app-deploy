@@ -8,8 +8,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import "dayjs/locale/es";
 import updateLocale from "dayjs/plugin/updateLocale";
+import { ConfigProvider } from "antd";
+import esES from "antd/locale/es_ES";
 
-// Configurar dayjs para Antd
 dayjs.extend(updateLocale);
 dayjs.updateLocale("es", {
   weekStart: 1,
@@ -18,11 +19,11 @@ dayjs.updateLocale("es", {
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutos - los datos se consideran frescos por 5 minutos
-      gcTime: 10 * 60 * 1000, // 10 minutos - mantener en cache por 10 minutos
-      refetchOnWindowFocus: false, // Deshabilitar refetch automático al cambiar de ventana
-      refetchOnReconnect: true, // Solo refetch al reconectar
-      retry: 1, // Reintentar solo una vez en caso de error
+      staleTime: 5 * 60 * 1000,
+      gcTime: 10 * 60 * 1000,
+      refetchOnWindowFocus: false, 
+      refetchOnReconnect: true, 
+      retry: 1, 
     },
   },
 });
@@ -31,9 +32,11 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
       <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
+        <ConfigProvider locale={esES}>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </ConfigProvider>
       </QueryClientProvider>
     </BrowserRouter>
   </StrictMode>

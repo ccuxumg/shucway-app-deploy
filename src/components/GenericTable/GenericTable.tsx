@@ -51,7 +51,6 @@ export const GenericTable: React.FC<GenericTableProps> = ({
 
   // Estados para búsqueda y filtros
   const [searchValue, setSearchValue] = useState('');
-  const [filters, setFilters] = useState<Record<string, unknown>>({});
 
   // Estados para modales
   const [createModalVisible, setCreateModalVisible] = useState(false);
@@ -84,7 +83,6 @@ export const GenericTable: React.FC<GenericTableProps> = ({
         page: params.page || pagination.current,
         pageSize: params.pageSize || pagination.pageSize,
         searchValue: searchValue || undefined,
-        ...filters,
         ...params
       };
 
@@ -103,7 +101,7 @@ export const GenericTable: React.FC<GenericTableProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [metadata, searchValue, filters, tableName, pagination]);
+  }, [metadata, searchValue, tableName, pagination]);
 
   // ================================================================
   // 🎯 FUNCIONES CRUD
@@ -238,7 +236,7 @@ export const GenericTable: React.FC<GenericTableProps> = ({
             inputComponent = (
               <Select placeholder={`Seleccione ${field.displayName.toLowerCase()}`}>
                 {field.options?.map(option => (
-                  <Select.Option key={option.value} value={option.value}>
+                  <Select.Option key={String(option.value)} value={option.value}>
                     {option.label}
                   </Select.Option>
                 ))}
@@ -277,9 +275,9 @@ export const GenericTable: React.FC<GenericTableProps> = ({
             label={field.displayName}
             rules={[
               { required: field.required, message: `El campo ${field.displayName} es requerido` },
-              field.maxLength && { max: field.maxLength, message: `Máximo ${field.maxLength} caracteres` },
-              field.minLength && { min: field.minLength, message: `Mínimo ${field.minLength} caracteres` },
-              field.pattern && { pattern: new RegExp(field.pattern), message: `Formato inválido` }
+              ...(field.maxLength ? [{ max: field.maxLength, message: `Máximo ${field.maxLength} caracteres` }] : []),
+              ...(field.minLength ? [{ min: field.minLength, message: `Mínimo ${field.minLength} caracteres` }] : []),
+              ...(field.pattern ? [{ pattern: new RegExp(field.pattern), message: `Formato inválido` }] : [])
             ]}
           >
             {inputComponent}

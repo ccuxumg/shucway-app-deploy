@@ -344,6 +344,44 @@ export class InventarioService {
       // No lanzar error, solo log
     }
   }
+
+  // ================== KARDEX ==================
+
+  async getKardexInsumo(idInsumo: number, fechaDesde?: string, fechaHasta?: string) {
+    const { data, error } = await supabase
+      .rpc('fn_kardex_insumo', {
+        p_id_insumo: idInsumo,
+        p_fecha_desde: fechaDesde || null,
+        p_fecha_hasta: fechaHasta || null,
+      });
+
+    if (error) throw new Error(`Error al obtener kardex del insumo: ${error.message}`);
+    return data || [];
+  }
+
+  // ================== DETALLES DE INSUMO ==================
+
+  async getInsumoDetails(idInsumo: number) {
+    const { data, error } = await supabase
+      .from('insumo')
+      .select(`
+        id_insumo,
+        nombre_insumo,
+        unidad_medida,
+        stock_minimo,
+        stock_maximo,
+        costo_promedio,
+        activo,
+        fecha_registro,
+        categoria_insumo:categoria_insumo(nombre, tipo_categoria),
+        proveedor:proveedor(nombre_proveedor, metodo_entrega)
+      `)
+      .eq('id_insumo', idInsumo)
+      .single();
+
+    if (error) throw new Error(`Error al obtener detalles del insumo: ${error.message}`);
+    return data;
+  }
 }
 
 export const inventarioService = new InventarioService();

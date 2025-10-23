@@ -84,7 +84,7 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
       direccion: data?.direccion || null,
       fecha_nacimiento: data?.fecha_nacimiento ? dayjs(data.fecha_nacimiento) : null,
       avatar_url: data?.avatar_url || '',
-      estado: (data?.estado as 'activo' | 'desactivado' | 'eliminado') || 'activo',
+      estado: (data?.estado as 'activo' | 'eliminado' | 'inactivo') || 'activo',
       username: data?.username || null,
       rol: 'user'
     },
@@ -211,7 +211,7 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
         direccion: data?.direccion || null,
         fecha_nacimiento: data?.fecha_nacimiento ? dayjs(data.fecha_nacimiento) : null,
         avatar_url: data?.avatar_url || '',
-        estado: (data?.estado as 'activo' | 'desactivado' | 'eliminado') || 'activo',
+        estado: (data?.estado as 'activo' | 'eliminado' | 'inactivo') || 'activo',
         username: data?.username || null,
         rol: 'user'
       });
@@ -283,6 +283,9 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
                   src={avatar || ImportAvatar}
                   alt="avatar"
                   className="w-20 h-20 rounded-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.src = ImportAvatar;
+                  }}
                 />
                 <Dragger {...uploadProps} className="flex-1">
                   <div className="flex items-center gap-5">

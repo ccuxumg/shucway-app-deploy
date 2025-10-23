@@ -25,10 +25,11 @@ export default function Kardex({ id_insumo, onClose }: { id_insumo: number | str
       try {
         // Manejar id_insumo nulo o no numérico: intentar pasarlo como string si Number() es NaN
         const idNum = Number(id_insumo);
-        const query = supabase.from('vw_kardex').select('id_movimiento, fecha_movimiento, clase, tipo_movimiento, id_lote, cantidad, costo_unitario_real, costo_total');
-        const { data, error } = Number.isFinite(idNum)
-          ? await query.eq('id_insumo', idNum).order('fecha_movimiento', { ascending: true })
-          : await query.eq('id_insumo', String(id_insumo)).order('fecha_movimiento', { ascending: true });
+        const { data, error } = await supabase.rpc('fn_kardex_insumo', {
+          p_id_insumo: idNum,
+          p_fecha_desde: null,
+          p_fecha_hasta: null,
+        });
         if (!mounted) return;
         if (error) throw error;
         setRows(Array.isArray(data) ? data as Movimiento[] : []);

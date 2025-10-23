@@ -10,7 +10,11 @@ const Mantenimiento = React.lazy(() => import("../features/Dashboard/Configuraci
 const ConsultasSQL = React.lazy(() => import("../features/Dashboard/Configuracion/ConsultasSQL"));
 const Backup = React.lazy(() => import("../features/Dashboard/Configuracion/Backup"));
 const Ventas = React.lazy(() => import("../features/Dashboard/Ventas"));
+const VentasPuntoVenta = React.lazy(() => import("../features/Dashboard/Ventas/Ventas"));
+const VentasProducto = React.lazy(() => import("../features/Dashboard/Ventas/Ventas/Producto"));
+const VentasCierreCaja = React.lazy(() => import("../features/Dashboard/Ventas/Ventas/CierreCaja"));
 const Inventario = React.lazy(() => import("../features/Dashboard/Inventario"));
+const GestionCategorias = React.lazy(() => import("../features/Dashboard/Inventario/Categorias"));
 const Reportes = React.lazy(() => import("../features/Dashboard/Reportes"));
 const Perfil = React.lazy(() => import("../features/Dashboard/Perfil"));
 import AuthGuard from "../guards/AuthGuard";
@@ -92,8 +96,36 @@ const protectedRoutes: IRoute[] = [
     requiredLevel: MODULE_PERMISSIONS.VENTAS,
   },
   {
+    path: "/ventas/ventas",
+    element: VentasPuntoVenta,
+    guard: AuthGuard,
+    layout: DashboardLayout,
+    requiredLevel: MODULE_PERMISSIONS.VENTAS,
+  },
+  {
+    path: "/ventas/producto",
+    element: VentasProducto,
+    guard: AuthGuard,
+    layout: DashboardLayout,
+    requiredLevel: MODULE_PERMISSIONS.VENTAS,
+  },
+  {
+    path: "/ventas/cierre-caja",
+    element: VentasCierreCaja,
+    guard: AuthGuard,
+    layout: DashboardLayout,
+    requiredLevel: MODULE_PERMISSIONS.VENTAS,
+  },
+  {
     path: "/inventario",
     element: Inventario,
+    guard: AuthGuard,
+    layout: DashboardLayout,
+    requiredLevel: MODULE_PERMISSIONS.INVENTARIO,
+  },
+  {
+    path: "/inventario/categorias",
+    element: GestionCategorias,
     guard: AuthGuard,
     layout: DashboardLayout,
     requiredLevel: MODULE_PERMISSIONS.INVENTARIO,

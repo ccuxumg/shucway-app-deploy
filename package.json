@@ -14,7 +14,7 @@
     "build": "vite build",
     "build:backend": "cd backend && npm run build",
     "build:all": "npm run build:backend && npm run build",
-    "lint": "eslint .",
+    "lint": "eslint src backend",
     "preview": "vite preview"
   },
   "dependencies": {

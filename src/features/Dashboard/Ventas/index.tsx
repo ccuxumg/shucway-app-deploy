@@ -1,1 +1,1 @@
-export { default } from './Ventas';
+export { default } from './Ventas/index';

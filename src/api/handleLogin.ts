@@ -1,11 +1,24 @@
 // ================================================================
-// 🔐 HANDLE LOGIN (USANDO BACKEND JWT)
+// 🔐 HANDLE LOGIN (USANDO SUPABASE)
 // ================================================================
-// Este archivo mantiene compatibilidad con el código existente
-// pero ahora usa el nuevo servicio de autenticación
 
-import { login } from './authService';
+import { message } from "antd";
+import { supabase } from "./supabaseClient";
 
 export const handleLogin = async (identifier: string, password: string): Promise<boolean> => {
-  return await login({ identifier, password });
+  const { data: session, error } = await supabase.auth.signInWithPassword({
+    email: identifier,
+    password,
+  });
+  if (error) {
+    message.error(error.message);
+    return false;
+  } else {
+    const token = session?.session?.access_token;
+    if (token) {
+      message.success("¡Sesión iniciada correctamente!");
+      return true;
+    }
+  }
+  return false;
 };

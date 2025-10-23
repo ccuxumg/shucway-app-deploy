@@ -89,8 +89,22 @@ CREATE TABLE proveedor (
     correo VARCHAR(100),
     direccion TEXT,
     estado BOOLEAN DEFAULT TRUE,
-    metodo_entrega VARCHAR(50) CHECK (metodo_entrega IN ('Recepcion', 'Recoger en tienda'))
+    metodo_entrega VARCHAR(50) CHECK (metodo_entrega IN ('Recepcion', 'Recoger en tienda')),
+    es_preferido BOOLEAN DEFAULT FALSE
 );
+
+-- Agregar campo es_preferido si no existe (para migraciones)
+ALTER TABLE proveedor ADD COLUMN IF NOT EXISTS es_preferido BOOLEAN DEFAULT FALSE;
+
+-- Insertar datos de proveedores de ejemplo
+INSERT INTO proveedor (nombre_empresa, nombre_contacto, telefono, correo, direccion, estado, metodo_entrega, es_preferido) VALUES
+('Distribuidora de Alimentos La Central', 'Juan Pérez', '555-1234', 'ventas@lacentral.com', 'Av. Principal #123, Zona Industrial', true, 'Recepcion', false),
+('Carnes Premium S.A.', 'María González', '555-5678', 'pedidos@carnespremium.com', 'Calle 10 #45, Sector Norte', true, 'Recepcion', false),
+('Verduras Frescas del Campo', 'Pedro Martínez', '555-9012', 'info@verdurasdelcampo.com', 'Km 5 Carretera Sur', true, 'Recepcion', false),
+('Lácteos y Derivados El Rancho', 'Ana López', '555-3456', 'contacto@lacteosrancho.com', 'Zona Franca, Bodega 7', true, 'Recoger en tienda', false),
+('Distribuidora de Bebidas RefrescoMax', 'Carlos Rodríguez', '555-7890', 'ventas@refrescomax.com', 'Av. Industrial #890', true, 'Recepcion', false),
+('Productos de Limpieza HigieneTotal', 'Laura Sánchez', '555-2345', 'pedidos@higienetotal.com', 'Calle Comercio #234', true, 'Recoger en tienda', false)
+ON CONFLICT DO NOTHING;
 
 CREATE TABLE insumo (
     id_insumo SERIAL PRIMARY KEY,
@@ -1345,9 +1359,9 @@ BEGIN
             mi.tipo_movimiento,
             CASE 
                 WHEN mi.tipo_movimiento IN ('entrada_compra', 'salida_venta') THEN 
-                    'Ref: #' || COALESCE(mi.id_referencia::TEXT, 'N/A')
+                    CAST('Ref: #' || COALESCE(mi.id_referencia::TEXT, 'N/A') AS VARCHAR(100))
                 ELSE 
-                    'Ajuste manual'
+                    CAST('Ajuste manual' AS VARCHAR(100))
             END as referencia,
             CASE 
                 WHEN mi.tipo_movimiento IN ('entrada_compra', 'entrada_ajuste', 'devolucion') THEN mi.cantidad
@@ -1358,7 +1372,7 @@ BEGIN
                 ELSE 0
             END as salida,
             mi.costo_unitario_momento,
-            CONCAT(pu.primer_nombre, ' ', pu.primer_apellido) as usuario_nombre,
+            CAST(CONCAT(pu.primer_nombre, ' ', pu.primer_apellido) AS VARCHAR(100) ) as usuario_nombre,
             mi.descripcion
         FROM movimiento_inventario mi
         LEFT JOIN perfil_usuario pu ON mi.id_perfil = pu.id_perfil
@@ -1381,6 +1395,25 @@ BEGIN
     FROM movimientos_ordenados mo;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ===============================================================
+-- VISTA: vw_kardex
+-- ===============================================================
+CREATE OR REPLACE VIEW vw_kardex AS
+SELECT 
+    mi.id_movimiento,
+    mi.fecha_movimiento,
+    mi.tipo_movimiento,
+    mi.id_lote,
+    mi.cantidad,
+    mi.costo_unitario_momento AS costo_unitario_real,
+    (mi.cantidad * mi.costo_unitario_momento) AS costo_total,
+    l.ubicacion,
+    i.nombre_insumo,
+    i.unidad_medida
+FROM movimiento_inventario mi
+LEFT JOIN lote_insumo l ON mi.id_lote = l.id_lote
+LEFT JOIN insumo i ON mi.id_insumo = i.id_insumo;
 
 -- ===============================================================
 -- TRIGGERS CRÍTICOS
@@ -1826,204 +1859,92 @@ EXECUTE FUNCTION fn_actualizar_ultima_compra_cliente();
 -- FUNCIONES TRIGGER PARA BITÁCORAS AUTOMÁTICAS
 -- ===============================================================
 
--- FUNCIÓN TRIGGER PARA BITÁCORA DE INVENTARIO (INSUMOS)
-CREATE OR REPLACE FUNCTION fn_bitacora_insumo()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_accion VARCHAR(50);
-    v_campo VARCHAR(100);
-    v_valor_anterior TEXT;
-    v_valor_nuevo TEXT;
-BEGIN
-    IF TG_OP = 'INSERT' THEN
-        INSERT INTO bitacora_inventario (id_insumo, accion, descripcion)
-        VALUES (NEW.id_insumo, 'creacion', 'Insumo creado: ' || NEW.nombre_insumo);
-        RETURN NEW;
-    
-    ELSIF TG_OP = 'UPDATE' THEN
-        -- Detectar qué campo cambió
-        IF OLD.nombre_insumo != NEW.nombre_insumo THEN
-            INSERT INTO bitacora_inventario (id_insumo, accion, campo_modificado, valor_anterior, valor_nuevo)
-            VALUES (NEW.id_insumo, 'actualizacion', 'nombre_insumo', OLD.nombre_insumo, NEW.nombre_insumo);
-        END IF;
-        
-        IF OLD.costo_promedio != NEW.costo_promedio THEN
-            INSERT INTO bitacora_inventario (id_insumo, accion, campo_modificado, valor_anterior, valor_nuevo)
-            VALUES (NEW.id_insumo, 'cambio_precio', 'costo_promedio', OLD.costo_promedio::TEXT, NEW.costo_promedio::TEXT);
-        END IF;
-        
-        IF OLD.id_proveedor_principal IS DISTINCT FROM NEW.id_proveedor_principal THEN
-            INSERT INTO bitacora_inventario (id_insumo, accion, campo_modificado, valor_anterior, valor_nuevo)
-            VALUES (NEW.id_insumo, 'cambio_proveedor', 'id_proveedor_principal', 
-                    COALESCE(OLD.id_proveedor_principal::TEXT, 'NULL'), 
-                    COALESCE(NEW.id_proveedor_principal::TEXT, 'NULL'));
-        END IF;
-        
-        IF OLD.stock_minimo != NEW.stock_minimo OR OLD.stock_maximo != NEW.stock_maximo THEN
-            INSERT INTO bitacora_inventario (id_insumo, accion, campo_modificado, valor_anterior, valor_nuevo)
-            VALUES (NEW.id_insumo, 'cambio_stock_limites', 'stock_minimo/maximo', 
-                    'Min: ' || OLD.stock_minimo || ' Max: ' || OLD.stock_maximo,
-                    'Min: ' || NEW.stock_minimo || ' Max: ' || NEW.stock_maximo);
-        END IF;
-        
-        IF OLD.activo != NEW.activo THEN
-            INSERT INTO bitacora_inventario (id_insumo, accion, campo_modificado, valor_anterior, valor_nuevo)
-            VALUES (NEW.id_insumo, 'actualizacion', 'activo', OLD.activo::TEXT, NEW.activo::TEXT);
-        END IF;
-        
-        RETURN NEW;
-    
-    ELSIF TG_OP = 'DELETE' THEN
-        INSERT INTO bitacora_inventario (id_insumo, accion, descripcion)
-        VALUES (OLD.id_insumo, 'eliminacion', 'Insumo eliminado: ' || OLD.nombre_insumo);
-        RETURN OLD;
-    END IF;
-    
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- TRIGGERS PARA BITÁCORA DE INVENTARIO (INSUMOS)
+CREATE TRIGGER trg_bitacora_insumo_insert
+AFTER INSERT ON insumo
+FOR EACH ROW
+EXECUTE FUNCTION fn_bitacora_insumo();
 
--- FUNCIÓN TRIGGER PARA BITÁCORA DE MOVIMIENTOS DE INVENTARIO
-CREATE OR REPLACE FUNCTION fn_bitacora_movimiento_inventario()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'INSERT' THEN
-        INSERT INTO bitacora_inventario (id_insumo, accion, descripcion, id_perfil)
-        VALUES (
-            NEW.id_insumo, 
-            'ajuste_manual', 
-            'Movimiento: ' || NEW.tipo_movimiento || ' - Cantidad: ' || NEW.cantidad || ' - ' || COALESCE(NEW.descripcion, ''),
-            NEW.id_perfil
-        );
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+CREATE TRIGGER trg_bitacora_insumo_update
+AFTER UPDATE ON insumo
+FOR EACH ROW
+EXECUTE FUNCTION fn_bitacora_insumo();
 
--- FUNCIÓN TRIGGER PARA BITÁCORA DE PRODUCTOS
-CREATE OR REPLACE FUNCTION fn_bitacora_producto()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'INSERT' THEN
-        INSERT INTO bitacora_productos (id_producto, accion, descripcion)
-        VALUES (NEW.id_producto, 'creacion', 'Producto creado: ' || NEW.nombre_producto);
-        RETURN NEW;
-    
-    ELSIF TG_OP = 'UPDATE' THEN
-        IF OLD.nombre_producto != NEW.nombre_producto THEN
-            INSERT INTO bitacora_productos (id_producto, accion, campo_modificado, valor_anterior, valor_nuevo)
-            VALUES (NEW.id_producto, 'actualizacion', 'nombre_producto', OLD.nombre_producto, NEW.nombre_producto);
-        END IF;
-        
-        IF OLD.precio_venta != NEW.precio_venta THEN
-            INSERT INTO bitacora_productos (id_producto, accion, campo_modificado, valor_anterior, valor_nuevo)
-            VALUES (NEW.id_producto, 'cambio_precio', 'precio_venta', OLD.precio_venta::TEXT, NEW.precio_venta::TEXT);
-        END IF;
-        
-        IF OLD.estado != NEW.estado THEN
-            INSERT INTO bitacora_productos (id_producto, accion, campo_modificado, valor_anterior, valor_nuevo)
-            VALUES (NEW.id_producto, 'cambio_estado', 'estado', OLD.estado, NEW.estado);
-        END IF;
-        
-        RETURN NEW;
-    
-    ELSIF TG_OP = 'DELETE' THEN
-        INSERT INTO bitacora_productos (id_producto, accion, descripcion)
-        VALUES (OLD.id_producto, 'eliminacion', 'Producto eliminado: ' || OLD.nombre_producto);
-        RETURN OLD;
-    END IF;
-    
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+CREATE TRIGGER trg_bitacora_insumo_delete
+AFTER DELETE ON insumo
+FOR EACH ROW
+EXECUTE FUNCTION fn_bitacora_insumo();
 
--- FUNCIÓN TRIGGER PARA BITÁCORA DE RECETAS
-CREATE OR REPLACE FUNCTION fn_bitacora_receta()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'INSERT' THEN
-        INSERT INTO bitacora_productos (id_producto, accion, descripcion)
-        VALUES (NEW.id_producto, 'cambio_receta', 'Ingrediente agregado a receta - ID Insumo: ' || NEW.id_insumo || ' - Cantidad: ' || NEW.cantidad);
-    ELSIF TG_OP = 'UPDATE' THEN
-        INSERT INTO bitacora_productos (id_producto, accion, descripcion)
-        VALUES (NEW.id_producto, 'cambio_receta', 'Ingrediente modificado - ID Insumo: ' || NEW.id_insumo || ' - Cantidad anterior: ' || OLD.cantidad || ' - Nueva cantidad: ' || NEW.cantidad);
-    ELSIF TG_OP = 'DELETE' THEN
-        INSERT INTO bitacora_productos (id_producto, accion, descripcion)
-        VALUES (OLD.id_producto, 'cambio_receta', 'Ingrediente eliminado de receta - ID Insumo: ' || OLD.id_insumo);
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- TRIGGER PARA BITÁCORA DE MOVIMIENTOS DE INVENTARIO
+CREATE TRIGGER trg_bitacora_movimiento_inventario
+AFTER INSERT ON movimiento_inventario
+FOR EACH ROW
+WHEN (NEW.tipo_movimiento IN ('entrada_ajuste', 'salida_ajuste'))
+EXECUTE FUNCTION fn_bitacora_movimiento_inventario();
 
--- FUNCIÓN TRIGGER PARA BITÁCORA DE VENTAS
-CREATE OR REPLACE FUNCTION fn_bitacora_venta()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'INSERT' THEN
-        INSERT INTO bitacora_ventas (id_venta, accion, estado_nuevo, descripcion)
-        VALUES (NEW.id_venta, 'creacion', NEW.estado, 'Venta creada - Ticket #' || NEW.id_venta);
-        RETURN NEW;
-    
-    ELSIF TG_OP = 'UPDATE' THEN
-        IF OLD.estado != NEW.estado THEN
-            INSERT INTO bitacora_ventas (id_venta, accion, estado_anterior, estado_nuevo, descripcion)
-            VALUES (NEW.id_venta, 'cambio_estado', OLD.estado, NEW.estado, 'Estado de venta modificado');
-        END IF;
-        RETURN NEW;
-    
-    ELSIF TG_OP = 'DELETE' THEN
-        INSERT INTO bitacora_ventas (id_venta, accion, estado_anterior, descripcion)
-        VALUES (OLD.id_venta, 'cancelacion', OLD.estado, 'Venta eliminada');
-        RETURN OLD;
-    END IF;
-    
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- TRIGGERS PARA BITÁCORA DE PRODUCTOS
+CREATE TRIGGER trg_bitacora_producto_insert
+AFTER INSERT ON producto
+FOR EACH ROW
+EXECUTE FUNCTION fn_bitacora_producto();
 
--- FUNCIÓN TRIGGER PARA BITÁCORA DE ÓRDENES DE COMPRA
-CREATE OR REPLACE FUNCTION fn_bitacora_orden_compra()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'INSERT' THEN
-        INSERT INTO bitacora_ordenes_compra (id_orden, accion, estado_nuevo, descripcion)
-        VALUES (
-            NEW.id_orden, 
-            CASE WHEN NEW.tipo_orden = 'automatica' THEN 'creacion_automatica' ELSE 'creacion_manual' END,
-            NEW.estado, 
-            COALESCE(NEW.motivo_generacion, 'Orden creada manualmente')
-        );
-        RETURN NEW;
-    
-    ELSIF TG_OP = 'UPDATE' THEN
-        IF OLD.estado != NEW.estado THEN
-            INSERT INTO bitacora_ordenes_compra (id_orden, accion, estado_anterior, estado_nuevo, descripcion, id_perfil)
-            VALUES (
-                NEW.id_orden,
-                CASE 
-                    WHEN NEW.estado = 'aprobada' THEN 'aprobacion'
-                    WHEN NEW.estado = 'cancelada' THEN 'cancelacion'
-                    WHEN NEW.estado = 'recibida' THEN 'recepcion_completa'
-                    WHEN NEW.estado = 'parcial' THEN 'recepcion_parcial'
-                    ELSE 'modificacion'
-                END,
-                OLD.estado,
-                NEW.estado,
-                'Cambio de estado en orden de compra',
-                NEW.aprobado_por
-            );
-        END IF;
-        RETURN NEW;
-    
-    ELSIF TG_OP = 'DELETE' THEN
-        INSERT INTO bitacora_ordenes_compra (id_orden, accion, estado_anterior, descripcion)
-        VALUES (OLD.id_orden, 'cancelacion', OLD.estado, 'Orden de compra eliminada');
-        RETURN OLD;
-    END IF;
-    
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+CREATE TRIGGER trg_bitacora_producto_update
+AFTER UPDATE ON producto
+FOR EACH ROW
+EXECUTE FUNCTION fn_bitacora_producto();
+
+CREATE TRIGGER trg_bitacora_producto_delete
+AFTER DELETE ON producto
+FOR EACH ROW
+EXECUTE FUNCTION fn_bitacora_producto();
+
+-- TRIGGERS PARA BITÁCORA DE RECETAS
+CREATE TRIGGER trg_bitacora_receta_insert
+AFTER INSERT ON receta_detalle
+FOR EACH ROW
+EXECUTE FUNCTION fn_bitacora_receta();
+
+CREATE TRIGGER trg_bitacora_receta_update
+AFTER UPDATE ON receta_detalle
+FOR EACH ROW
+EXECUTE FUNCTION fn_bitacora_receta();
+
+CREATE TRIGGER trg_bitacora_receta_delete
+AFTER DELETE ON receta_detalle
+FOR EACH ROW
+EXECUTE FUNCTION fn_bitacora_receta();
+
+-- TRIGGERS PARA BITÁCORA DE VENTAS
+CREATE TRIGGER trg_bitacora_venta_insert
+AFTER INSERT ON venta
+FOR EACH ROW
+EXECUTE FUNCTION fn_bitacora_venta();
+
+CREATE TRIGGER trg_bitacora_venta_update
+AFTER UPDATE ON venta
+FOR EACH ROW
+EXECUTE FUNCTION fn_bitacora_venta();
+
+CREATE TRIGGER trg_bitacora_venta_delete
+AFTER DELETE ON venta
+FOR EACH ROW
+EXECUTE FUNCTION fn_bitacora_venta();
+
+-- TRIGGERS PARA BITÁCORA DE ÓRDENES DE COMPRA
+CREATE TRIGGER trg_bitacora_orden_insert
+AFTER INSERT ON orden_compra
+FOR EACH ROW
+EXECUTE FUNCTION fn_bitacora_orden_compra();
+
+CREATE TRIGGER trg_bitacora_orden_update
+AFTER UPDATE ON orden_compra
+FOR EACH ROW
+EXECUTE FUNCTION fn_bitacora_orden_compra();
+
+CREATE TRIGGER trg_bitacora_orden_delete
+AFTER DELETE ON orden_compra
+FOR EACH ROW
+EXECUTE FUNCTION fn_bitacora_orden_compra();
 
 -- ===============================================================
 -- TRIGGERS PARA BITÁCORA DE SEGURIDAD

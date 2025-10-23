@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from "framer-motion";
 import {
   PiEyeBold,
@@ -6,6 +7,8 @@ import {
   PiTrashBold,
   PiArrowDownBold,
   PiArrowUpBold,
+  PiPlusBold,
+  PiBroomBold,
 } from "react-icons/pi";
 import { MdClose } from "react-icons/md";
 import Kardex from './Kardex';
@@ -104,10 +107,8 @@ export default function Catalogo() {
           },
         });
         const insumosData = await insumosResponse.json();
-  console.log('Respuesta completa de la API de catálogo:', JSON.stringify(insumosData, null, 2));
         const insumos = Array.isArray(insumosData) ? insumosData : (insumosData.data || []);
 
-        console.log('Insumos cargados desde API:', insumos.length);
 
         if (mounted) {
           setRawInsumos(insumos);
@@ -129,10 +130,8 @@ export default function Catalogo() {
 
   // Mapear insumos cuando se carguen las categorías
   useEffect(() => {
-    console.log('Mapeando insumos. RawInsumos:', rawInsumos.length, 'CategoriasBD:', categoriasBD.length);
     if (rawInsumos.length > 0 && categoriasBD.length > 0) {
       const mapped = rawInsumos.map((i: Record<string, unknown>) => {
-        console.log(`Insumo: ${i.nombre_insumo || i.nombre}, id_categoria: ${i.id_categoria}`);
         // Determinar el tipo basado en la categoría, no en tipo_categoria de la API
         const categoriaObj = categoriasBD.find((c: { id_categoria: number; nombre: string; tipo_categoria?: string }) => c.id_categoria === i.id_categoria);
         let tipo: TipoInsumo = "Operativo";
@@ -140,7 +139,6 @@ export default function Catalogo() {
           // Si la categoría tiene tipo_categoria definido, úsalo
           if (categoriaObj.tipo_categoria) {
             tipo = categoriaObj.tipo_categoria.toLowerCase() === "perpetuo" ? "Perpetuo" : "Operativo";
-            console.log(`Categoría "${categoriaObj.nombre}" (tipo_categoria: ${categoriaObj.tipo_categoria}) -> Tipo determinado: ${tipo} (usando tipo_categoria)`);
           } else {
             // Si no tiene tipo_categoria, infiérelo del nombre
             const nombreCat = categoriaObj.nombre.toLowerCase();
@@ -160,14 +158,8 @@ export default function Catalogo() {
             }
             // Si no contiene ninguna, queda como "Operativo" por defecto
 
-            console.log(`Categoría "${categoriaObj.nombre}" (tipo_categoria: no definido) -> Tipo determinado: ${tipo} (inferido del nombre)`);
-            console.log(`  - Nombre categoría: "${nombreCat}"`);
-            console.log(`  - Es perpetuo por keywords: ${esPerpetuo} (${perpetuoKeywords.filter(k => nombreCat.includes(k)).join(', ') || 'ninguno'})`);
-            console.log(`  - Es operativo por keywords: ${esOperativo} (${operativoKeywords.filter(k => nombreCat.includes(k)).join(', ') || 'ninguno'})`);
           }
-        } else {
-          console.log(`Insumo sin categoría asignada: ${i.nombre_insumo || i.nombre}, id_categoria: ${i.id_categoria}`);
-        }
+  }
 
         const nombreCategoria = categoriaObj?.nombre ?? '—';
 
@@ -220,7 +212,6 @@ export default function Catalogo() {
           }).then(res => res.json()).then(data => data.data || []),
         ]);
         if (!mounted) return;
-        console.log('Categorías cargadas:', catRes);
         setCategoriasBD((catRes ?? []) as Array<{ id_categoria: number; nombre: string; tipo_categoria?: string }>);
         setProveedoresBD((provRes ?? []) as Array<{ id_proveedor: number; nombre_empresa: string }>);
       } catch (e) {
@@ -308,6 +299,7 @@ export default function Catalogo() {
   // Drawer
   const [openDrawer, setOpenDrawer] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   // MODAL de detalle
   const [detail, setDetail] = useState<Fila | null>(null);
@@ -538,9 +530,11 @@ export default function Catalogo() {
       </AnimatePresence>
 
       {/* Filtros y acciones */}
-      <div className="mb-4 flex flex-wrap gap-3 items-center">
-        {/* Pestañas de filtro por tipo */}
-        <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
+      <div className="mb-4">
+        <div className="flex items-center justify-between gap-3 bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
+          {/* Izquierda: pestañas, select, búsqueda */}
+          <div className="flex items-center gap-3">
+            <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
           {TABS.map((tab) => (
             <button
               key={tab.id}
@@ -554,35 +548,51 @@ export default function Catalogo() {
               {tab.label}
             </button>
           ))}
-        </div>
+            </div>
 
-        <label className="sr-only" htmlFor="categoria">Categoría</label>
-        <select
-          id="categoria"
-          value={categoria}
-          onChange={(e) => setCategoria(e.target.value)}
-          className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700"
-        >
-          {categoriasOptions.map((cat, index) => (
-            <option key={index} value={cat}>{cat}</option>
-          ))}
-        </select>
-        <div className="relative">
-          <label className="sr-only" htmlFor="search">Buscar</label>
-          <input
-            id="search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar insumos…"
-            className="h-10 w-64 rounded-lg border border-gray-200 bg-white pl-3 pr-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-          />
+            <label className="sr-only" htmlFor="categoria">Categoría</label>
+            <select
+              id="categoria"
+              value={categoria}
+              onChange={(e) => setCategoria(e.target.value)}
+              className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700"
+            >
+              {categoriasOptions.map((cat, index) => (
+                <option key={index} value={cat}>{cat}</option>
+              ))}
+            </select>
+            <div className="relative">
+              <label className="sr-only" htmlFor="search">Buscar</label>
+              <input
+                id="search"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Buscar insumos…"
+                className="h-10 w-64 rounded-lg border border-gray-200 bg-white pl-3 pr-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              />
+            </div>
+          </div>
+
+          {/* Derecha: botones en la esquina (Limpiar, Gestión, Agregar) */}
+          <div className="flex items-center gap-2">
+            <button onClick={() => { setActiveTab("todos"); setCategoria("Todas las categorías"); setQ(""); }} className="h-10 rounded-lg border px-3 text-sm font-semibold hover:bg-gray-50 flex items-center gap-2">
+              <PiBroomBold />
+              Limpiar filtros
+            </button>
+            <button onClick={() => { navigate('/inventario/categorias'); }} className="h-10 rounded-lg border px-3 text-sm font-semibold hover:bg-gray-50 flex items-center gap-2 text-gray-800">
+              {/* SVG inline de icono de categorías (etiqueta/list) */}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="opacity-90">
+                <path d="M3 7.5L11 3l10 6.5-8 6.5L3 7.5z" stroke="#12443D" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                <circle cx="9.5" cy="7" r="0.8" fill="#12443D" />
+              </svg>
+              Gestión de Categorías
+            </button>
+            <button onClick={openCreate} className="h-10 rounded-lg px-4 text-sm font-semibold text-white flex items-center gap-2" style={{ backgroundColor: '#12443D' }}>
+              <PiPlusBold />
+              Agregar Insumo
+            </button>
+          </div>
         </div>
-        <button onClick={() => { setActiveTab("todos"); setCategoria("Todas las categorías"); setQ(""); }} className="h-10 rounded-lg border px-3 text-sm font-semibold hover:bg-gray-50">
-          Limpiar filtros
-        </button>
-        <button onClick={openCreate} className="h-10 rounded-lg bg-emerald-500 px-4 text-sm font-semibold text-white hover:bg-emerald-600">
-          Agregar Insumo
-        </button>
       </div>
 
       {/* Tabla principal del catálogo de insumos */}

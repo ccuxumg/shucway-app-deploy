@@ -1,258 +1,335 @@
 import { Button, Drawer, Input, Spin, Upload, UploadProps, DatePicker, Select, message } from "antd";
-
 import { CgClose } from "react-icons/cg";
-import { BiPhone, BiUser, BiMap, BiUserPlus } from "react-icons/bi";
+import { BiPhone, BiUser, BiMap, BiUserPlus, BiLock } from "react-icons/bi";
+import { FaEye, FaEyeSlash } from "react-icons/fa";
 import { Controller, useForm } from "react-hook-form";
 import { supabase } from "../../api/supabaseClient";
 import { useEffect, useState } from "react";
-import { getRoles } from "../../api/getRoles";
-import { getUsuarioRoles } from "../../api/getUsuarioRoles";
-import { setUsuarioRol } from "../../api/setUsuarioRol";
+import { getRoles } from "../../api/rolesService";
+import { getRolesByUsuario, updateUsuario, UpdateUsuarioDTO, asignarRol, removerRol } from "../../api/usuariosService";
+import { Rol } from "../../api/rolesService";
 import { useLocation } from "react-router-dom";
 
 import AddNewUserIcon from "../../assets/icons/AddNewUser.svg";
 import ImportAvatar from "../../assets/icons/importAvatar.svg";
 import UploadIcon from "../../assets/icons/uploadIcon.svg";
 import { useToggleDrawer } from "../../hooks/usetoggleDrawer";
-import { uploadFile } from "../../api/uploadFIle";
 import { useQueryClient } from "@tanstack/react-query";
 import { UsuarioDataType, UsuarioFormData } from "../../types";
-import dayjs from "dayjs";
+import dayjs, { Dayjs } from "dayjs";
+import { useAuth } from "../../hooks/useAuth";
 
 const { Dragger } = Upload;
 
+/* ────────────────────────────────────────────────────────────
+Helpers de Storage (bucket: user-img)
+   ──────────────────────────────────────────────────────────── */
+function slugify(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/[^\w-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+async function uploadAvatarToUserBucket(
+  file: File,
+  id_perfil?: number | string
+): Promise<string> {
+  const bucket = "user-img"; // según tu configuración
+  const ext = file.name.split(".").pop() || "jpg";
+  const base = file.name.replace(/\.[^/.]+$/, "");
+  const dir = `avatars/${id_perfil ?? "temp"}`;
+  const path = `${dir}/${Date.now()}-${slugify(base)}.${ext}`;
+
+  const { error: upErr } = await supabase.storage
+    .from(bucket)
+    .upload(path, file, { upsert: true, cacheControl: "3600", contentType: file.type });
+
+  if (upErr) throw new Error(upErr.message);
+
+  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+  const publicUrl = data?.publicUrl;
+  if (!publicUrl) throw new Error("No se pudo obtener la URL pública del archivo");
+  return publicUrl;
+}
+
+/** Normalizador SOLO para el formulario
+ *  (tu tipo de UsuarioFormData.estado no acepta "suspendido").
+ *  Como el campo está deshabilitado, es suficiente con mapear a
+ *  un valor permitido para que TS no marque error.
+ */
+function toFormEstado(raw?: string | null): Exclude<UsuarioFormData["estado"], undefined> {
+  if (raw === "suspendido") return "inactivo"; // evita error de tipos
+  if (raw === "activo" || raw === "inactivo" || raw === "eliminado") return raw;
+  return "activo";
+}
+
 const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
   const [avatar, setAvatar] = useState<string | null>(data?.avatar_url || null);
-  const [isLoadingUpload, setIsLoadingUplaod] = useState<boolean>(false);
+  const [isLoadingUpload, setIsLoadingUpload] = useState<boolean>(false);
   const [editDrawer, setEditDrawer] = useState(false);
   const [roles, setRoles] = useState<Array<{ id_rol: number; nombre: string }>>([]);
   const [selectedRoleId, setSelectedRoleId] = useState<number | null>(null);
+  const [passwordVisible, setPasswordVisible] = useState<boolean>(false);
+  const [isEditingPassword, setIsEditingPassword] = useState<boolean>(false);
+  const [isViewMode, setIsViewMode] = useState<boolean>(false);
 
   const location = useLocation();
   const toggleDrawer = useToggleDrawer();
+  const queryClient = useQueryClient();
+  const { user: currentUser } = useAuth();
 
- const uploadProps: UploadProps = {
+  const uploadProps: UploadProps = {
   name: "file",
   multiple: false,
   async onChange(info) {
     const { status } = info.file;
-    setIsLoadingUplaod(true);
 
-    if (status === "done") {
-      const file = info.file.originFileObj;
-
-      
-      const fileUrl = await uploadFile(file);
-      if (!fileUrl) {
-        message.error("No se pudo obtener la URL del archivo");
-        setIsLoadingUplaod(false);
-        return;
+    if (status === "uploading") {
+      const f = info.file.originFileObj as File | undefined;
+      if (f) {
+        setAvatar(URL.createObjectURL(f)); // preview instantáneo
       }
-
-      setAvatar(fileUrl); 
-      message.success(`${info.file.name} se subió correctamente`);
-    } else if (status === "error") {
-      message.error(`Error al subir el archivo ${info.file.name}`);
+      setIsLoadingUpload(true);
+      return;
     }
 
-    setIsLoadingUplaod(false);
+    try {
+      if (status === "done") {
+        const file = info.file.originFileObj as File | undefined;
+        if (!file) {
+          message.error("No se obtuvo el archivo a subir");
+          return;
+        }
+        const url = await uploadAvatarToUserBucket(file, data?.id_perfil);
+        setAvatar(url);                         // URL pública de Supabase
+        message.success(`${info.file.name} se subió correctamente`);
+      } else if (status === "error") {
+        message.error(`Error al subir el archivo ${info.file.name}`);
+      }
+    } catch (e) {
+      message.error((e as Error).message || "Error subiendo el avatar");
+    } finally {
+      setIsLoadingUpload(false);
+    }
   },
-  customRequest: ({ onSuccess }) => {
-    setTimeout(() => {
-      onSuccess?.("ok");
-    }, 0);
-  },
+  customRequest: ({ onSuccess }) => setTimeout(() => onSuccess?.("ok"), 0),
 };
 
-
-  const queryClient = useQueryClient();
 
   const {
     handleSubmit,
     formState: { errors },
     control,
     reset,
+    setValue,
   } = useForm<UsuarioFormData>({
     defaultValues: {
-      email: data?.email || '',
-      password: '',
-      primer_nombre: data?.primer_nombre || '',
+      email: data?.email || "",
+      password: "",
+      primer_nombre: data?.primer_nombre || "",
       segundo_nombre: data?.segundo_nombre || null,
-      primer_apellido: data?.primer_apellido || '',
+      primer_apellido: data?.primer_apellido || "",
       segundo_apellido: data?.segundo_apellido || null,
       telefono: data?.telefono || null,
       direccion: data?.direccion || null,
       fecha_nacimiento: data?.fecha_nacimiento ? dayjs(data.fecha_nacimiento) : null,
-      avatar_url: data?.avatar_url || '',
-      estado: (data?.estado as 'activo' | 'eliminado' | 'inactivo') || 'activo',
+      avatar_url: data?.avatar_url || "",
+      // 👇 sin error de tipos
+      estado: toFormEstado(data?.estado),
       username: data?.username || null,
-      rol: 'user'
+      rol: "user",
     },
   });
 
   const onClose = () => {
-    toggleDrawer(false, "showDrawerEdit");
+    toggleDrawer(false, isViewMode ? "showDrawerView" : "showDrawerEdit");
   };
 
   const onSubmit = async (updatedData: UsuarioFormData) => {
+    if (isViewMode) return; // No hacer nada en modo vista
+
     try {
       if (avatar) updatedData.avatar_url = avatar;
 
-      // Preparar datos para la API convirtiendo fecha dayjs a string
-      const apiData: Partial<UsuarioDataType> = {
+      const fechaNacimientoISO =
+        updatedData.fecha_nacimiento && dayjs.isDayjs(updatedData.fecha_nacimiento as Dayjs)
+          ? (updatedData.fecha_nacimiento as Dayjs).format("YYYY-MM-DD")
+          : (updatedData.fecha_nacimiento as unknown as string | null) || null;
+
+      // El estado NO se edita aquí: usamos el original del usuario (evita cambio accidental + evita TS conflict)
+      const bodyPartial: Partial<UsuarioDataType> = {
         primer_nombre: updatedData.primer_nombre,
         segundo_nombre: updatedData.segundo_nombre,
         primer_apellido: updatedData.primer_apellido,
         segundo_apellido: updatedData.segundo_apellido,
         telefono: updatedData.telefono,
         direccion: updatedData.direccion,
-        fecha_nacimiento: updatedData.fecha_nacimiento && dayjs.isDayjs(updatedData.fecha_nacimiento)
-          ? updatedData.fecha_nacimiento.format('YYYY-MM-DD')
-          : updatedData.fecha_nacimiento || null,
+        fecha_nacimiento: fechaNacimientoISO,
         avatar_url: updatedData.avatar_url,
-        estado: updatedData.estado,
-        username: updatedData.username,
+        // estado y username se excluyen porque el DTO del endpoint no los contiene
       };
 
-      // Intentar update-first; si no existe fila, insertar una nueva (campos mínimos) y fallback a update en caso de race condition
-      const upsertPerfilFromAdmin = async (idPerfil: string | undefined, body: Partial<UsuarioDataType>) => {
-        if (!idPerfil) throw new Error('Falta id_perfil');
-        const numericId = parseInt(idPerfil);
-        try {
-          // intentar UPDATE
-          const { data: uData, error: uErr } = await supabase
-            .from('perfil_usuario')
-            .update(body)
-            .eq('id_perfil', idPerfil)
-            .select();
-          if (uErr) throw uErr;
-          if (Array.isArray(uData) && uData.length > 0) return uData;
-
-          // no se actualizó: intentar INSERT con campos obligatorios
-          const base: Partial<UsuarioDataType> = {
-            id_perfil: numericId,
-            primer_nombre: body.primer_nombre || 'Usuario',
-            primer_apellido: body.primer_apellido || 'SinApellido',
-            email: (body.email as string | undefined) || undefined,
-            avatar_url: body.avatar_url || null,
-            telefono: body.telefono || null,
-            estado: body.estado || 'activo',
-          };
-
-          const { data: insData, error: insErr } = await supabase
-            .from('perfil_usuario')
-            .insert(base)
-            .select();
-          if (insErr) {
-            // si hay duplicate key, intentar update de nuevo
-            if (insErr?.message && insErr.message.includes('duplicate key')) {
-              const { data: retry, error: retryErr } = await supabase
-                .from('perfil_usuario')
-                .update(body)
-                .eq('id_perfil', idPerfil)
-                .select();
-              if (retryErr) throw retryErr;
-              return retry;
-            }
-            throw insErr;
-          }
-          return insData;
-        } catch (err) {
-          console.error('upsertPerfilFromAdmin error', err);
-          throw err;
-        }
+      // Normalizar valores null -> undefined para cumplir UpdateUsuarioDTO
+      const normalizeToUpdateDto = (p: Partial<UsuarioDataType>): UpdateUsuarioDTO => {
+        const out: UpdateUsuarioDTO = {};
+        if (p.primer_nombre !== null && p.primer_nombre !== undefined) out.primer_nombre = String(p.primer_nombre);
+        if (p.segundo_nombre !== null && p.segundo_nombre !== undefined) out.segundo_nombre = String(p.segundo_nombre);
+        if (p.primer_apellido !== null && p.primer_apellido !== undefined) out.primer_apellido = String(p.primer_apellido);
+        if (p.segundo_apellido !== null && p.segundo_apellido !== undefined) out.segundo_apellido = String(p.segundo_apellido);
+        if (p.telefono !== null && p.telefono !== undefined) out.telefono = String(p.telefono);
+        if (p.direccion !== null && p.direccion !== undefined) out.direccion = String(p.direccion);
+        if (p.fecha_nacimiento !== null && p.fecha_nacimiento !== undefined) out.fecha_nacimiento = String(p.fecha_nacimiento);
+        if (p.avatar_url !== null && p.avatar_url !== undefined) out.avatar_url = String(p.avatar_url);
+  // notas: username y estado no forman parte de UpdateUsuarioDTO en frontend
+        return out;
       };
-      await upsertPerfilFromAdmin(data?.id_perfil?.toString(), apiData as Partial<UsuarioDataType>);
-      // invalidar cache
-  queryClient.invalidateQueries({ queryKey: ['usuarios'] });
 
-      // Actualizar rol si cambió
-      if (data?.id_perfil) {
-        await setUsuarioRol(data.id_perfil.toString(), selectedRoleId).catch((err) => {
-          console.error('Error actualizando rol del usuario:', err);
-          throw err;
-        });
+      // Si se está cambiando la contraseña
+      if (isEditingPassword && updatedData.password && updatedData.password.trim()) {
+        // Nota: Cambiar contraseña requiere configuración adicional en el backend
+        // Por ahora, mostrar mensaje informativo
+        message.info("La funcionalidad de cambio de contraseña requiere configuración adicional en el backend");
+        // const { error } = await supabase.auth.admin.updateUserById(userId, { password: updatedData.password });
       }
 
-      message.success('Usuario actualizado correctamente');
+      // Usar el endpoint backend (recomendado) en vez de acceder directamente a Supabase desde el cliente.
+      // Esto evita errores de RLS/permiso al usar la anon key desde el front.
+      if (!data?.id_perfil) throw new Error('Falta id_perfil');
+  const updateDto = normalizeToUpdateDto(bodyPartial);
+  await updateUsuario(Number(data.id_perfil), updateDto);
+
+      // Cache off
+      queryClient.invalidateQueries({ queryKey: ["usuarios"] });
+
+      // Rol: usar endpoint backend para asignar/remover rol (evita permission denied desde anon key)
+      if (data?.id_perfil) {
+        if (selectedRoleId !== null && selectedRoleId !== undefined) {
+          await asignarRol(Number(data.id_perfil), selectedRoleId);
+        } else {
+          await removerRol(Number(data.id_perfil));
+        }
+      }
+
+      message.success("Usuario actualizado correctamente");
       reset();
+      // Resetear estados de contraseña
+      setPasswordVisible(false);
+      setIsEditingPassword(false);
       onClose();
     } catch (err) {
-      message.error('Error al actualizar el usuario: ' + ((err as Error)?.message || String(err)));
+      message.error("Error al actualizar el usuario: " + ((err as Error)?.message || String(err)));
     }
   };
 
+  // Abrir/cerrar drawer por querystring
   useEffect(() => {
     const queryParams = new URLSearchParams(location.search);
-    const showDrawerParam = queryParams.get("showDrawerEdit");
+    const showDrawerEditParam = queryParams.get("showDrawerEdit");
+    const showDrawerViewParam = queryParams.get("showDrawerView");
 
-    // El parámetro viene como "true-<id>". No usar split('-') porque el id contiene '-' (UUID).
-    if (showDrawerParam && showDrawerParam.startsWith("true-")) {
-      const idFromParam = showDrawerParam.slice(5); // toma todo después de "true-"
+    if (showDrawerEditParam && showDrawerEditParam.startsWith("true-")) {
+      const idFromParam = showDrawerEditParam.slice(5);
       if (String(data?.id_perfil) === idFromParam) {
         setEditDrawer(true);
+        setIsViewMode(false);
         return;
       }
     }
+
+    if (showDrawerViewParam && showDrawerViewParam.startsWith("true-")) {
+      const idFromParam = showDrawerViewParam.slice(5);
+      if (String(data?.id_perfil) === idFromParam) {
+        setEditDrawer(true);
+        setIsViewMode(true);
+        return;
+      }
+    }
+
     setEditDrawer(false);
+    setIsViewMode(false);
   }, [location.search, data?.id_perfil]);
 
-  // Cuando se abre el drawer, resetear el formulario con los datos actuales
+  // Reset con datos cuando se abre
   useEffect(() => {
-    if (editDrawer) {
-      reset({
-        email: data?.email || '',
-        password: '',
-        primer_nombre: data?.primer_nombre || '',
-        segundo_nombre: data?.segundo_nombre || null,
-        primer_apellido: data?.primer_apellido || '',
-        segundo_apellido: data?.segundo_apellido || null,
-        telefono: data?.telefono || null,
-        direccion: data?.direccion || null,
-        fecha_nacimiento: data?.fecha_nacimiento ? dayjs(data.fecha_nacimiento) : null,
-        avatar_url: data?.avatar_url || '',
-        estado: (data?.estado as 'activo' | 'eliminado' | 'inactivo') || 'activo',
-        username: data?.username || null,
-        rol: 'user'
-      });
-      setAvatar(data?.avatar_url || null);
+    if (!editDrawer) {
+      // Resetear estados de contraseña cuando se cierra
+      setPasswordVisible(false);
+      setIsEditingPassword(false);
+      return;
     }
+
+    reset({
+      email: data?.email || "",
+      password: "",
+      primer_nombre: data?.primer_nombre || "",
+      segundo_nombre: data?.segundo_nombre || null,
+      primer_apellido: data?.primer_apellido || "",
+      segundo_apellido: data?.segundo_apellido || null,
+      telefono: data?.telefono || null,
+      direccion: data?.direccion || null,
+      fecha_nacimiento: data?.fecha_nacimiento ? dayjs(data.fecha_nacimiento) : null,
+      avatar_url: data?.avatar_url || "",
+      estado: toFormEstado(data?.estado), // 👈 sin error de tipos
+      username: data?.username || null,
+      rol: "user",
+    });
+    setAvatar(data?.avatar_url || null);
   }, [editDrawer, data, reset]);
 
-  // Cargar roles y rol actual cuando se abre
+  // Cargar roles y rol actual
   useEffect(() => {
     if (!editDrawer) return;
-
     let mounted = true;
 
-    type Role = { id_rol: number; nombre: string };
+    // Verificar sesión usando el contexto de autenticación
+    const checkSessionAndLoadData = async () => {
+      try {
+        // Verificar si hay un usuario autenticado usando el contexto
+        if (!currentUser) {
+          console.warn('No hay usuario autenticado');
+          return;
+        }
 
-    getRoles()
-      .then((r: unknown) => {
-        if (!mounted) return;
-        const list = (r as Role[]) || [];
-        setRoles(list);
-      })
-      .catch(() => {});
+        // Cargar roles
+        getRoles(1, 100, { estado: 'activo' })
+          .then((response) => {
+            if (mounted) {
+              const rolesData = response.data.map((rol: Rol) => ({
+                id_rol: rol.id_rol,
+                nombre: rol.nombre_rol
+              }));
+              setRoles(rolesData);
+            }
+          })
+          .catch((error) => {
+            console.error('Error cargando roles:', error);
+          });
 
-    if (data?.id_perfil) {
-      getUsuarioRoles(data.id_perfil.toString())
-        .then((ur: unknown) => {
-          if (!mounted) return;
-          const list = (ur as Array<{ id_rol?: number }>) || [];
-          const first = list[0];
-          const idRol = first?.id_rol;
-          setSelectedRoleId(typeof idRol === 'number' ? idRol : null);
-        })
-        .catch(() => {
-          setSelectedRoleId(null);
-        });
-    }
+        // Cargar rol del usuario si hay id_perfil
+        if (data?.id_perfil) {
+          getRolesByUsuario(Number(data.id_perfil))
+            .then((ur: Array<{ id_rol?: number }>) => {
+              if (!mounted) return;
+              const first = ur?.[0];
+              setSelectedRoleId(typeof first?.id_rol === "number" ? first.id_rol : null);
+            })
+            .catch((error) => {
+              console.error('Error cargando rol del usuario:', error);
+            });
+        }
+      } catch (error) {
+        console.error('Error verificando sesión:', error);
+      }
+    };
+
+    checkSessionAndLoadData();
 
     return () => {
       mounted = false;
     };
-  }, [editDrawer, data?.id_perfil]);
+  }, [editDrawer, data?.id_perfil, currentUser]);
 
   return (
     <Drawer
@@ -260,7 +337,7 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
         <div className="flex items-center gap-4">
           <img src={AddNewUserIcon} alt="add user icon" />
           <div>
-            <p className="text-[1.6rem] font-semibold">Editar Usuario</p>
+            <p className="text-[1.6rem] font-semibold">{isViewMode ? "Ver Usuario" : "Editar Usuario"}</p>
             <p className="text-sm text-gray-500">Modifica los datos del usuario seleccionado</p>
           </div>
         </div>
@@ -274,36 +351,26 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
     >
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col h-full">
         <div className="flex-1">
-          {/* Avatar Upload Section */}
-          <div className="mt-6 px-6 py-4">
-            <div className="flex flex-col gap-4">
-              <label className="text-gray-700 font-medium">Avatar</label>
-              <div className="flex items-center gap-6">
-                <img
-                  src={avatar || ImportAvatar}
-                  alt="avatar"
-                  className="w-20 h-20 rounded-full object-cover"
-                  onError={(e) => {
-                    e.currentTarget.src = ImportAvatar;
-                  }}
-                />
-                <Dragger {...uploadProps} className="flex-1">
-                  <div className="flex items-center gap-5">
-                    {isLoadingUpload ? (
-                      <Spin />
-                    ) : (
-                      <img src={UploadIcon} alt="upload icon" />
-                    )}
-                    <p className="text-[1.4rem] font-extralight w-8/12">
-                      <strong>Click to upload</strong> or drag and drop SVG, PNG,
-                      JPG or GIF
-                    </p>
-                  </div>
-                </Dragger>
+          {/* Avatar - Solo en modo edición */}
+          {!isViewMode && (
+            <div className="mt-6 px-6 py-4">
+              <div className="flex flex-col gap-4">
+                <label className="text-gray-700 font-medium">Avatar</label>
+                <div className="flex items-center gap-6">
+                  <img src={avatar || ImportAvatar} alt="avatar" className="w-20 h-20 rounded-full object-cover" />
+                  <Dragger {...uploadProps} showUploadList={false} className="flex-1">
+                    <div className="flex items-center gap-5">
+                      {isLoadingUpload ? <Spin /> : <img src={UploadIcon} alt="upload icon" />}
+                      <p className="text-[1.4rem] font-extralight w-8/12">
+                        <strong>Click to upload</strong> or drag and drop SVG, PNG, JPG or GIF
+                      </p>
+                    </div>
+                  </Dragger>
+                </div>
               </div>
             </div>
-          </div>
-          <hr />
+          )}
+          {!isViewMode && <hr />}
 
           <div className="mt-6 flex flex-col">
             <div
@@ -316,7 +383,7 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
               Information
             </div>
 
-            {/* Primer Nombre Field */}
+            {/* Primer Nombre */}
             <div className="mt-6 px-6 py-4 flex flex-col gap-4">
               <label htmlFor="primer_nombre" className="text-gray-700">
                 Primer Nombre <span className="text-red-500">*</span>
@@ -324,24 +391,17 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
               <Controller
                 name="primer_nombre"
                 control={control}
-                rules={{ required: 'El primer nombre es requerido' }}
+                rules={{ required: isViewMode ? false : "El primer nombre es requerido" }}
                 render={({ field }) => (
-                  <Input
-                    {...field}
-                    value={field.value || ""}
-                    prefix={<BiUser />}
-                    placeholder="Ingrese primer nombre"
-                  />
+                  <Input {...field} value={field.value || ""} prefix={<BiUser />} placeholder="Ingrese primer nombre" disabled={isViewMode} />
                 )}
               />
               {errors.primer_nombre && (
-                <p className="text-red-500 text-[1.2rem]">
-                  {errors.primer_nombre.message as string}
-                </p>
+                <p className="text-red-500 text-[1.2rem]">{errors.primer_nombre.message as string}</p>
               )}
             </div>
 
-            {/* Segundo Nombre Field */}
+            {/* Segundo Nombre */}
             <div className="px-6 py-4 flex flex-col gap-4">
               <label htmlFor="segundo_nombre" className="text-gray-700">
                 Segundo Nombre
@@ -350,22 +410,12 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
                 name="segundo_nombre"
                 control={control}
                 render={({ field }) => (
-                  <Input
-                    {...field}
-                    value={field.value || ""}
-                    prefix={<BiUser />}
-                    placeholder="Ingrese segundo nombre"
-                  />
+                  <Input {...field} value={field.value || ""} prefix={<BiUser />} placeholder="Ingrese segundo nombre" disabled={isViewMode} />
                 )}
               />
-              {errors.segundo_nombre && (
-                <p className="text-red-500 text-[1.2rem]">
-                  {errors.segundo_nombre.message as string}
-                </p>
-              )}
             </div>
 
-            {/* Primer Apellido Field */}
+            {/* Primer Apellido */}
             <div className="px-6 py-4 flex flex-col gap-4">
               <label htmlFor="primer_apellido" className="text-gray-700">
                 Primer Apellido <span className="text-red-500">*</span>
@@ -373,24 +423,17 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
               <Controller
                 name="primer_apellido"
                 control={control}
-                rules={{ required: 'El primer apellido es requerido' }}
+                rules={{ required: isViewMode ? false : "El primer apellido es requerido" }}
                 render={({ field }) => (
-                  <Input
-                    {...field}
-                    value={field.value || ""}
-                    prefix={<BiUser />}
-                    placeholder="Ingrese primer apellido"
-                  />
+                  <Input {...field} value={field.value || ""} prefix={<BiUser />} placeholder="Ingrese primer apellido" disabled={isViewMode} />
                 )}
               />
               {errors.primer_apellido && (
-                <p className="text-red-500 text-[1.2rem]">
-                  {errors.primer_apellido.message as string}
-                </p>
+                <p className="text-red-500 text-[1.2rem]">{errors.primer_apellido.message as string}</p>
               )}
             </div>
 
-            {/* Segundo Apellido Field */}
+            {/* Segundo Apellido */}
             <div className="px-6 py-4 flex flex-col gap-4">
               <label htmlFor="segundo_apellido" className="text-gray-700">
                 Segundo Apellido
@@ -404,17 +447,13 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
                     value={field.value || ""}
                     prefix={<BiUser />}
                     placeholder="Ingrese segundo apellido"
+                    disabled={isViewMode}
                   />
                 )}
               />
-              {errors.segundo_apellido && (
-                <p className="text-red-500 text-[1.2rem]">
-                  {errors.segundo_apellido.message as string}
-                </p>
-              )}
             </div>
 
-            {/* Teléfono Field */}
+            {/* Teléfono */}
             <div className="px-6 py-4 flex flex-col gap-4">
               <label htmlFor="telefono" className="text-gray-700">
                 Teléfono
@@ -422,29 +461,15 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
               <Controller
                 name="telefono"
                 control={control}
-                rules={{
-                  pattern: {
-                    value: /^\d{8,}$/,
-                    message: "El teléfono debe tener al menos 8 dígitos",
-                  },
-                }}
+                rules={{ pattern: isViewMode ? undefined : { value: /^\d{8,}$/, message: "El teléfono debe tener al menos 8 dígitos" } }}
                 render={({ field }) => (
-                  <Input
-                    {...field}
-                    value={field.value || ""}
-                    prefix={<BiPhone />}
-                    placeholder="Ingrese teléfono"
-                  />
+                  <Input {...field} value={field.value || ""} prefix={<BiPhone />} placeholder="Ingrese teléfono" disabled={isViewMode} />
                 )}
               />
-              {errors.telefono && (
-                <p className="text-red-500 text-[1.2rem]">
-                  {errors.telefono.message as string}
-                </p>
-              )}
+              {errors.telefono && <p className="text-red-500 text-[1.2rem]">{errors.telefono.message as string}</p>}
             </div>
 
-            {/* Dirección Field */}
+            {/* Dirección */}
             <div className="px-6 py-4 flex flex-col gap-4">
               <label htmlFor="direccion" className="text-gray-700">
                 Dirección
@@ -453,22 +478,12 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
                 name="direccion"
                 control={control}
                 render={({ field }) => (
-                  <Input
-                    {...field}
-                    value={field.value || ""}
-                    prefix={<BiMap />}
-                    placeholder="Ingrese dirección"
-                  />
+                  <Input {...field} value={field.value || ""} prefix={<BiMap />} placeholder="Ingrese dirección" disabled={isViewMode} />
                 )}
               />
-              {errors.direccion && (
-                <p className="text-red-500 text-[1.2rem]">
-                  {errors.direccion.message as string}
-                </p>
-              )}
             </div>
 
-            {/* Fecha Nacimiento Field */}
+            {/* Fecha Nacimiento */}
             <div className="px-6 py-4 flex flex-col gap-4">
               <label htmlFor="fecha_nacimiento" className="text-gray-700">
                 Fecha de Nacimiento
@@ -478,21 +493,18 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
                 control={control}
                 render={({ field }) => (
                   <DatePicker
-                    {...field}
+                    value={field.value ?? null}
+                    onChange={(date) => field.onChange(date)}
                     placeholder="Seleccione fecha de nacimiento"
                     format="DD/MM/YYYY"
-                    style={{ width: '100%' }}
+                    style={{ width: "100%" }}
+                    disabled={isViewMode}
                   />
                 )}
               />
-              {errors.fecha_nacimiento && (
-                <p className="text-red-500 text-[1.2rem]">
-                  {errors.fecha_nacimiento.message as string}
-                </p>
-              )}
             </div>
 
-            {/* Username Field */}
+            {/* Username */}
             <div className="px-6 py-4 flex flex-col gap-4">
               <label htmlFor="username" className="text-gray-700">
                 Username
@@ -501,22 +513,12 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
                 name="username"
                 control={control}
                 render={({ field }) => (
-                  <Input
-                    {...field}
-                    value={field.value || ""}
-                    prefix={<BiUserPlus />}
-                    placeholder="Ingrese username"
-                  />
+                  <Input {...field} value={field.value || ""} prefix={<BiUserPlus />} placeholder="Ingrese username" disabled={isViewMode} />
                 )}
               />
-              {errors.username && (
-                <p className="text-red-500 text-[1.2rem]">
-                  {errors.username.message as string}
-                </p>
-              )}
             </div>
 
-            {/* Email Field */}
+            {/* Email (solo lectura) */}
             <div className="px-6 py-4 flex flex-col gap-4">
               <label htmlFor="email" className="text-gray-700">
                 Correo Electrónico
@@ -525,24 +527,77 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
                 name="email"
                 control={control}
                 render={({ field }) => (
-                  <Input
-                    {...field}
-                    value={field.value || ""}
-                    prefix={<BiUser />}
-                    placeholder="Ingrese correo electrónico"
-                    disabled
-                  />
+                  <Input {...field} value={field.value || ""} prefix={<BiUser />} placeholder="Ingrese correo electrónico" disabled />
                 )}
               />
-              {errors.email && (
-                <p className="text-red-500 text-[1.2rem]">
-                  {errors.email.message as string}
-                </p>
-              )}
               <p className="text-sm text-gray-500">El correo electrónico no puede modificarse</p>
             </div>
 
-            {/* Estado Field */}
+            {/* Contraseña - Solo en modo edición */}
+            {!isViewMode && (
+              <div className="px-6 py-4 flex flex-col gap-4">
+                <label htmlFor="password" className="text-gray-700">
+                  Contraseña
+                </label>
+                <div className="flex gap-2">
+                  <Controller
+                    name="password"
+                    control={control}
+                    rules={{
+                      required: isEditingPassword ? "La contraseña es requerida" : false,
+                      minLength: isEditingPassword ? {
+                        value: 6,
+                        message: "La contraseña debe tener al menos 6 caracteres"
+                      } : undefined
+                    }}
+                    render={({ field }) => (
+                      <Input
+                        {...field}
+                        type={passwordVisible ? "text" : "password"}
+                        value={field.value || ""}
+                        prefix={<BiLock />}
+                        placeholder={isEditingPassword ? "Ingrese nueva contraseña" : "••••••••"}
+                        disabled={!isEditingPassword}
+                        className="flex-1"
+                      />
+                    )}
+                  />
+                  {isEditingPassword && (
+                    <Button
+                      type="text"
+                      icon={passwordVisible ? <FaEyeSlash /> : <FaEye />}
+                      onClick={() => setPasswordVisible(!passwordVisible)}
+                      title={passwordVisible ? "Ocultar contraseña" : "Mostrar contraseña"}
+                    />
+                  )}
+                  <Button
+                    type="default"
+                    onClick={() => {
+                      setIsEditingPassword(!isEditingPassword);
+                      if (isEditingPassword) {
+                        // Si se está cancelando, resetear el campo password
+                        setValue("password", "");
+                        setPasswordVisible(false);
+                      }
+                    }}
+                    className={isEditingPassword ? "bg-red-500 hover:bg-red-600 text-white" : ""}
+                  >
+                    {isEditingPassword ? "Cancelar" : "Cambiar"}
+                  </Button>
+                </div>
+                {errors.password && isEditingPassword && (
+                  <p className="text-red-500 text-[1.2rem]">{errors.password.message as string}</p>
+                )}
+                {!isEditingPassword && (
+                  <p className="text-sm text-gray-500">La contraseña está oculta por seguridad</p>
+                )}
+                {isEditingPassword && (
+                  <p className="text-sm text-blue-600">Ingrese la nueva contraseña</p>
+                )}
+              </div>
+            )}
+
+            {/* Estado (deshabilitado para este drawer) */}
             <div className="px-6 py-4 flex flex-col gap-4">
               <label htmlFor="estado" className="text-gray-700">
                 Estado
@@ -552,26 +607,22 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
                 control={control}
                 render={({ field }) => (
                   <Select
-                    {...field}
+                    value={field.value}
+                    onChange={(val) => field.onChange(val)}
                     placeholder="Seleccione estado"
                     options={[
                       { value: "activo", label: "Activo" },
-                      { value: "desactivado", label: "Desactivado" },
+                      { value: "inactivo", label: "Inactivo" },
                       { value: "eliminado", label: "Eliminado" },
                     ]}
                     disabled
                   />
                 )}
               />
-              {errors.estado && (
-                <p className="text-red-500 text-[1.2rem]">
-                  {errors.estado.message as string}
-                </p>
-              )}
-              <p className="text-sm text-gray-500">El estado no puede modificarse desde aquí</p>
+              <p className="text-sm text-gray-500">{isViewMode ? "Estado del usuario" : "El estado no puede modificarse desde aquí"}</p>
             </div>
 
-            {/* Rol Field */}
+            {/* Rol */}
             <div className="px-6 py-4 flex flex-col gap-4">
               <label htmlFor="rol" className="text-gray-700">
                 Rol <span className="text-red-500">*</span>
@@ -581,20 +632,41 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
                 value={selectedRoleId}
                 onChange={(val: number) => setSelectedRoleId(val)}
                 options={roles.map((r) => ({ value: r.id_rol, label: r.nombre }))}
+                disabled={isViewMode}
               />
-              <p className="text-sm text-gray-500">Asigna un rol al usuario</p>
+              <p className="text-sm text-gray-500">{isViewMode ? "Rol asignado al usuario" : "Asigna un rol al usuario"}</p>
             </div>
           </div>
         </div>
+
         <div className="sticky bottom-6 bg-white py-4">
           <div className="max-w-full px-6">
-            <Button
-              type="primary"
-              className="py-3 text-[1.4rem] w-full !bg-blue-700 transition-all duration-200 hover:opacity-80"
-              htmlType="submit"
-            >
-              Guardar cambios
-            </Button>
+            {isViewMode ? (
+              <Button
+                type="default"
+                className="py-3 text-[1.4rem] w-full transition-all duration-200"
+                onClick={onClose}
+              >
+                Cerrar
+              </Button>
+            ) : (
+              <div className="flex gap-3">
+                <Button
+                  type="default"
+                  className="py-3 text-[1.4rem] flex-1 transition-all duration-200"
+                  onClick={onClose}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="primary"
+                  className="py-3 text-[1.4rem] flex-1 !bg-blue-700 transition-all duration-200 hover:opacity-80"
+                  htmlType="submit"
+                >
+                  Guardar cambios
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </form>

@@ -6,10 +6,9 @@ export interface Cliente {
   id_cliente: number;
   nombre: string;
   telefono?: string;
-  email?: string;
   direccion?: string;
-  fecha_registro: Date;
   puntos_acumulados: number;
+  fecha_registro: Date;
   ultima_compra?: Date;
 }
 
@@ -87,14 +86,12 @@ export interface CreateDetalleVentaDTO {
 export interface CreateClienteDTO {
   nombre: string;
   telefono?: string;
-  email?: string;
   direccion?: string;
 }
 
 export interface UpdateClienteDTO {
   nombre?: string;
   telefono?: string;
-  email?: string;
   direccion?: string;
 }
 
@@ -111,4 +108,13 @@ export interface VentaCompleta extends Venta {
     id_perfil: number;
     nombre: string;
   };
+}
+
+export interface ProductoPopular {
+  id_producto: number;
+  nombre_producto: string;
+  total_vendido: number;
+  veces_vendido: number;
+  categoria: string;
+  imagen_url?: string;
 }

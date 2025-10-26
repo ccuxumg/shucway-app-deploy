@@ -4,6 +4,7 @@
  * - ESLint/TS OK (sin any, sin hooks condicionales)
  * =============================================== */
 import React, { useMemo, useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   PiEyeBold,
@@ -12,6 +13,7 @@ import {
   PiSpinnerBold,
   PiFloppyDiskBold,
   PiPlusBold,
+  PiArrowLeftBold,
 } from "react-icons/pi";
 
 /* ============================================================
@@ -146,6 +148,7 @@ const INSUMOS_SEED: Insumo[] = [
  * COMPONENTE PRINCIPAL
  * ============================================================ */
 export default function Productos() {
+  const navigate = useNavigate();
   const [rows, setRows] = useState<Producto[]>(SEED);
   const [categorias] = useState<CategoriaProducto[]>(CATEGORIAS_SEED);
   const [loading] = useState(false);
@@ -331,6 +334,13 @@ export default function Productos() {
             <p className="text-sm text-gray-500">Catálogo de venta con filtros por categoría y estado</p>
           </div>
           <div className="flex gap-2">
+            <button
+              onClick={() => navigate(-1)}
+              className="h-11 rounded-xl px-4 text-base font-semibold text-gray-700 hover:bg-gray-100 flex items-center gap-2 border border-gray-300"
+            >
+              <PiArrowLeftBold />
+              Regresar
+            </button>
             {/* Verde oscuro SOLO este botón */}
             <button
               onClick={() => setOpenRecetario({ open: true })}

@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { MdReceiptLong, MdInventory2, MdAccountBalance } from "react-icons/md";
 import { Banknote, Landmark, CreditCard } from "lucide-react";
+import { ventasService, Venta, ProductoPopular } from "../../../../api/ventasService";
 
 
 // ====== Tipos ======
@@ -127,6 +128,59 @@ const endOfWeek = () => {
 const VentasDashboard: React.FC = () => {
   const navigate = useNavigate();
 
+  // Estado para datos del backend
+  const [ventasData, setVentasData] = useState<Venta[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Estado para productos populares
+  const [productosPopulares, setProductosPopulares] = useState<ProductoPopular[]>([]);
+  const [isLoadingPopulares, setIsLoadingPopulares] = useState(false);
+
+  // Cargar ventas del backend
+  useEffect(() => {
+    const loadVentas = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        // Obtener ventas de los últimos 30 días por defecto
+        const fechaFin = new Date().toISOString().split('T')[0];
+        const fechaInicio = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+        const ventas = await ventasService.getVentas('confirmada', fechaInicio, fechaFin);
+        setVentasData(ventas);
+      } catch (err) {
+        console.error('Error cargando ventas:', err);
+        setError('Error al cargar las ventas');
+        // En caso de error, usar array vacío para que la interfaz se muestre
+        setVentasData([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadVentas();
+  }, []);
+
+  // Cargar productos populares
+  useEffect(() => {
+    const loadProductosPopulares = async () => {
+      try {
+        setIsLoadingPopulares(true);
+        const populares = await ventasService.getProductosPopulares(4);
+        setProductosPopulares(populares);
+      } catch (err) {
+        console.error('Error cargando productos populares:', err);
+        // En caso de error, mantener array vacío
+        setProductosPopulares([]);
+      } finally {
+        setIsLoadingPopulares(false);
+      }
+    };
+
+    loadProductosPopulares();
+  }, []);
+
   // Botones con mismo look & feel que Inventario
   const cards = [
   {
@@ -153,22 +207,42 @@ const VentasDashboard: React.FC = () => {
 ];
 
 
-  // Datos de ejemplo. Nota: conservamos `fecha` para permitir filtros aunque no se muestre en la tabla
-  const ventas = useMemo(() => [
-    { id: "#1023", productos: "Shuco Mixto / 1, Coca-Cola / 1", total: 30, metodo: "Efectivo", fecha: "2025-11-10T14:53:00" },
-    { id: "#1022", productos: "Shuco Salami / 1, Pepsi / 1", total: 17, metodo: "Tarjeta", fecha: "2025-11-10T13:11:00" },
-    { id: "#1021", productos: "Shuco Mixto / 2", total: 36, metodo: "Transferencia", fecha: "2025-11-10T12:32:00" },
-    { id: "#1020", productos: "Shuco Chorizo / 1, French Fries / 1", total: 27, metodo: "Efectivo", fecha: "2025-11-10T11:35:00" },
-    { id: "#1019", productos: "Gringa Adobada / 1", total: 20, metodo: "Tarjeta", fecha: "2025-11-10T10:56:00" },
-  ], []);
+  // Convertir datos del backend al formato esperado por el componente
+  const ventas = useMemo(() => {
+    return ventasData.map(venta => ({
+      id: `#${venta.id_venta}`,
+      productos: venta.productos || 'Productos varios', // Si no hay descripción, usar genérica
+      total: venta.total_venta,
+      metodo: venta.tipo_pago === 'Cash' ? 'Efectivo' :
+              venta.tipo_pago === 'Tarjeta' ? 'Tarjeta' :
+              venta.tipo_pago === 'Transferencia' ? 'Transferencia' : 'Otro',
+      fecha: venta.fecha_venta,
+    }));
+  }, [ventasData]);
 
-  // 🔹 Populares (mock)
-  const populares = [
-    { id: "pp1", nombre: "Gringa Mixta", tag: "Gringa", icon: "🌯", rating: 4.9 },
-    { id: "pp2", nombre: "Shuco de Salami", tag: "Shuco", icon: "🌭", rating: 4.8 },
-    { id: "pp3", nombre: "Hamburguesa de Pollo", tag: "Hamburguesa", icon: "🍔", rating: 4.9 },
-    { id: "pp4", nombre: "Shuco Mixto", tag: "Shuco", icon: "🌭", rating: 4.7 },
-  ];
+  // Convertir productos populares del backend al formato del componente
+  const populares = useMemo(() => {
+    return productosPopulares.map((producto) => ({
+      id: `pp${producto.id_producto}`,
+      nombre: producto.nombre_producto,
+      tag: producto.categoria || 'Producto',
+      icon: getProductIcon(producto.nombre_producto),
+      rating: producto.rating_promedio || 4.5 + Math.random() * 0.4, // Rating simulado si no existe
+      totalVendido: producto.total_vendido,
+      vecesVendido: producto.veces_vendido,
+    }));
+  }, [productosPopulares]);
+
+  // Función auxiliar para asignar íconos según el nombre del producto
+  const getProductIcon = (nombre: string): string => {
+    const nombreLower = nombre.toLowerCase();
+    if (nombreLower.includes('gringa')) return '🌯';
+    if (nombreLower.includes('shuco') || nombreLower.includes('salami')) return '🌭';
+    if (nombreLower.includes('hamburguesa')) return '🍔';
+    if (nombreLower.includes('papas') || nombreLower.includes('fritas')) return '🍟';
+    if (nombreLower.includes('bebida') || nombreLower.includes('refresco')) return '🥤';
+    return '🍽️'; // Ícono genérico para comida
+  };
 
   // ------- Estado de filtros -------
   const [search, setSearch] = useState("");
@@ -265,6 +339,17 @@ const VentasDashboard: React.FC = () => {
       >
         MÓDULO DE VENTAS
       </motion.h1>
+
+      {/* Mostrar error si existe */}
+      {error && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800"
+        >
+          <strong>Error:</strong> {error}
+        </motion.div>
+      )}
 
       {/* Cards principales (mismo diseño/animación que Inventario) */}
       <motion.div
@@ -468,7 +553,16 @@ const VentasDashboard: React.FC = () => {
           </div>
 
           {/* Tabla */}
-          <table className="w-full border-collapse">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mx-auto mb-4"></div>
+                <p className="text-gray-500">Cargando ventas...</p>
+              </div>
+            </div>
+          ) : (
+            <>
+            <table className="w-full border-collapse">
             <thead>
               <tr className="text-left border-b">
                 <th className="p-3 text-sm"># Venta</th>
@@ -511,6 +605,8 @@ const VentasDashboard: React.FC = () => {
           <div className="text-gray-500 text-sm mt-4">
             Mostrando {filteredVentas.length} registro(s)
           </div>
+          </>
+          )}
         </motion.div>
 
         {/* DERECHA: Panel de Ventas Populares */}
@@ -526,7 +622,19 @@ const VentasDashboard: React.FC = () => {
           </div>
 
           <div className="space-y-3">
-            {populares.map((p) => (
+            {isLoadingPopulares ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-600 mx-auto mb-2"></div>
+                  <p className="text-gray-500 text-xs">Cargando productos...</p>
+                </div>
+              </div>
+            ) : populares.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-500 text-sm">No hay productos populares</p>
+              </div>
+            ) : (
+              populares.map((p) => (
               <div
                 key={p.id}
                 className="flex items-center gap-3 p-2 rounded-xl border border-gray-100 hover:border-emerald-200 hover:shadow-sm transition"
@@ -557,7 +665,8 @@ const VentasDashboard: React.FC = () => {
                   +
                 </button>
               </div>
-            ))}
+            ))
+            )}
           </div>
         </motion.aside>
       </div>

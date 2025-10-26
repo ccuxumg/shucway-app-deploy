@@ -10,13 +10,14 @@ const Mantenimiento = React.lazy(() => import("../features/Dashboard/Configuraci
 const ConsultasSQL = React.lazy(() => import("../features/Dashboard/Configuracion/ConsultasSQL"));
 const Backup = React.lazy(() => import("../features/Dashboard/Configuracion/Backup"));
 const Ventas = React.lazy(() => import("../features/Dashboard/Ventas"));
-const VentasPuntoVenta = React.lazy(() => import("../features/Dashboard/Ventas/Ventas"));
+const VentasPuntoVenta = React.lazy(() => import("../features/Dashboard/Ventas/Ventas/Ventas"));
 const VentasProducto = React.lazy(() => import("../features/Dashboard/Ventas/Ventas/Producto"));
 const VentasCierreCaja = React.lazy(() => import("../features/Dashboard/Ventas/Ventas/CierreCaja"));
 const Inventario = React.lazy(() => import("../features/Dashboard/Inventario"));
 const GestionCategorias = React.lazy(() => import("../features/Dashboard/Inventario/Categorias"));
 const Reportes = React.lazy(() => import("../features/Dashboard/Reportes"));
 const Perfil = React.lazy(() => import("../features/Dashboard/Perfil"));
+const Soporte = React.lazy(() => import("../views/Soporte"));
 import AuthGuard from "../guards/AuthGuard";
 import RoleGuard from "../guards/RoleGuard";
 import GuestGuard from "../guards/GuestGuard";
@@ -143,6 +144,13 @@ const protectedRoutes: IRoute[] = [
     guard: AuthGuard,
     layout: DashboardLayout,
     requiredLevel: MODULE_PERMISSIONS.PERFIL,
+  },
+  {
+    path: "/soporte",
+    element: Soporte,
+    guard: AuthGuard,
+    layout: DashboardLayout,
+    requiredLevel: MODULE_PERMISSIONS.DASHBOARD, // Accesible para todos los usuarios autenticados
   },
 ];
 

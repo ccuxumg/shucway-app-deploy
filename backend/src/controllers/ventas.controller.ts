@@ -32,6 +32,15 @@ export class VentasController {
   async getVentaById(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const id = parseInt(req.params.id);
+
+      if (isNaN(id) || id <= 0) {
+        res.status(400).json({
+          success: false,
+          message: 'ID de venta inválido',
+        });
+        return;
+      }
+
       const completa = req.query.completa === 'true';
 
       let venta;
@@ -226,6 +235,31 @@ export class VentasController {
           total_ventas: totalVentas,
           ventas,
         },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getProductosPopulares(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const limitParam = req.query.limit as string;
+      const limit = limitParam ? parseInt(limitParam) : 5;
+
+      if (isNaN(limit) || limit < 1 || limit > 20) {
+        res.status(400).json({
+          success: false,
+          message: 'El límite debe ser un número entre 1 y 20',
+        });
+        return;
+      }
+
+      const productos = await ventasService.getProductosPopulares(limit);
+
+      res.json({
+        success: true,
+        data: productos,
+        count: productos.length,
       });
     } catch (error) {
       next(error);

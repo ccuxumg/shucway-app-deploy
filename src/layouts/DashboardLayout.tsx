@@ -268,7 +268,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
                 {profileOpen && (
                   <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-100 py-2 z-50">
                     <button onClick={() => { navigate('/perfil'); setProfileOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Mi perfil</button>
-                    <button className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Configuración</button>
+                    <button onClick={() => { navigate('/soporte'); setProfileOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Soporte</button>
                     <div className="border-t border-gray-100 my-1" />
                     <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-50 flex items-center gap-2">
                       <CgLogOut /> Cerrar sesión

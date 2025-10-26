@@ -6,6 +6,7 @@ import { testDatabaseConnection } from './config/database';
 // Iniciar servidor
 async function startServer() {
   try {
+    console.log('🔄 Iniciando función startServer...');
     logger.info('🚀 Iniciando servidor Shucway Backend...');
 
     // Verificar conexión a Supabase PostgreSQL (solo si no se salta)
@@ -13,6 +14,7 @@ async function startServer() {
 
     if (!skipDbCheck) {
       if (config.env === 'development') {
+        console.log('🔍 Verificando conexión a BD...');
         logger.info('🔍 Verificando conexión a Supabase PostgreSQL...');
         const isConnected = await testDatabaseConnection();
 
@@ -36,8 +38,10 @@ async function startServer() {
       logger.info('⚡ Saltando verificación de base de datos (modo rápido)');
     }
 
+    console.log('🔄 Creando servidor HTTP...');
     // Iniciar servidor HTTP
     const server = app.listen(config.port, () => {
+      console.log('✅ Servidor HTTP creado exitosamente');
       logger.info('✅ Servidor iniciado exitosamente');
       logger.info(`🌐 Servidor corriendo en http://localhost:${config.port}`);
       logger.info(`🌍 Entorno: ${config.env}`);
@@ -48,10 +52,13 @@ async function startServer() {
       logger.info('📝 Logs guardados en: ./logs/');
     });
 
+    console.log('🔄 Configurando graceful shutdown...');
     // Graceful shutdown
     const gracefulShutdown = () => {
+      console.log('🔄 Iniciando graceful shutdown...');
       logger.info('⚠️  Iniciando apagado graceful...');
       server.close(() => {
+        console.log('✅ Servidor cerrado correctamente');
         logger.info('✅ Servidor cerrado correctamente');
         process.exit(0);
       });
@@ -61,6 +68,7 @@ async function startServer() {
     process.on('SIGTERM', gracefulShutdown);
     process.on('SIGINT', gracefulShutdown);
 
+    console.log('🔄 Servidor configurado completamente');
     return server;
   } catch (error) {
     logger.error('❌ Error al iniciar el servidor:', error);

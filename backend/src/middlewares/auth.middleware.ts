@@ -39,8 +39,18 @@ export const authenticateToken = (
         return;
       }
 
-      // Agregar usuario al request
-      req.user = decoded as AuthUser;
+      // Agregar usuario al request con verificación de rol
+      const decodedUser = decoded as any;
+      if (!decodedUser.role || !decodedUser.role.nombre_rol) {
+        logger.error('❌ Token no contiene información de rol válida');
+        res.status(403).json({
+          success: false,
+          error: 'Token inválido - falta información de rol'
+        });
+        return;
+      }
+      
+      req.user = decodedUser as AuthUser;
       logger.info(`✅ Token válido - Usuario: ${req.user.email} (${req.user.role.nombre_rol})`);
       next();
     });

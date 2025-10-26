@@ -4,6 +4,7 @@ import {
   DetalleVenta,
   CreateVentaDTO,
   VentaCompleta,
+  ProductoPopular,
 } from '../types/ventas.types';
 
 // ================================================================
@@ -317,6 +318,50 @@ export class VentasService {
     fechaFin?: string
   ): Promise<Venta[]> {
     return this.getVentas('confirmada', fechaInicio, fechaFin, idCajero);
+  }
+
+  /**
+   * Obtener productos más populares (más vendidos)
+   */
+  async getProductosPopulares(limit: number = 5): Promise<ProductoPopular[]> {
+    try {
+      // Consulta simplificada que funciona con datos actuales
+      // Cuando no hay ventas, devolver productos disponibles
+      const { data, error } = await supabase
+        .from('producto')
+        .select(`
+          id_producto,
+          nombre_producto,
+          precio_venta,
+          imagen_url,
+          categoria_producto (
+            nombre_categoria
+          )
+        `)
+        .eq('estado', 'activo')
+        .order('id_producto', { ascending: false }) // Más recientes primero
+        .limit(limit);
+
+      if (error) {
+        console.error('Error obteniendo productos:', error);
+        throw new Error(`Error al obtener productos: ${error.message}`);
+      }
+
+      // Por ahora devolver productos sin estadísticas de venta
+      // Cuando haya ventas, se puede mejorar esta lógica
+      return (data || []).map((producto) => ({
+        id_producto: producto.id_producto,
+        nombre_producto: producto.nombre_producto,
+        total_vendido: 0, // TODO: calcular cuando haya ventas
+        veces_vendido: 0, // TODO: calcular cuando haya ventas
+        categoria: producto.categoria_producto?.[0]?.nombre_categoria || 'Producto',
+        imagen_url: producto.imagen_url,
+      }));
+
+    } catch (error) {
+      console.error('Error obteniendo productos populares:', error);
+      throw error;
+    }
   }
 }
 

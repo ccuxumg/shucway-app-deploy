@@ -30,6 +30,12 @@
   height: 54px;
   object-fit: contain;
   display: block;
+  transition: height 0.22s ease, transform 0.22s ease, filter 0.22s ease;
+}
+
+.logo-hover:hover {
+  transform: scale(1.05) rotate(2deg);
+  filter: brightness(1.1);
 }
 
 .logo a {
@@ -148,8 +154,7 @@
   padding: 0.5rem 0;
 }
 
-.nav-dropdown:hover .dropdown-menu,
-.nav-dropdown:focus-within .dropdown-menu {
+.dropdown-menu.show {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0) scale(1);

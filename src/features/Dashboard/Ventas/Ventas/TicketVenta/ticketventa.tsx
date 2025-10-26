@@ -89,7 +89,9 @@ const TicketVenta: React.FC = () => {
     try {
       const raw = sessionStorage.getItem("ticketventa:last");
       if (raw) setData(JSON.parse(raw));
-    } catch {}
+    } catch {
+      // Ignorar errores de parseo del sessionStorage
+    }
   }, [state]);
 
   // Fecha amigable

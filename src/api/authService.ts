@@ -59,6 +59,7 @@ export interface LoginResponse {
   message: string;
   data: {
     token: string;
+    refreshToken: string;
     user: AuthUser;
   };
 }
@@ -71,6 +72,7 @@ export const login = async (credentials: LoginCredentials): Promise<boolean> => 
     const response = await api.post<LoginResponse>('/auth/login', credentials);
     if (response.data.success) {
       localStorage.setItem('access_token', response.data.data.token);
+      localStorage.setItem('refreshToken', response.data.data.refreshToken);
       localStorage.setItem('user', JSON.stringify(response.data.data.user));
       message.success('¡Sesión iniciada correctamente!');
       return true;
@@ -98,6 +100,7 @@ export const logout = async (): Promise<void> => {
   } finally {
     // Limpiar localStorage
     localStorage.removeItem('access_token');
+    localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');
     message.success('Sesión cerrada correctamente');
   }
@@ -113,6 +116,7 @@ export const register = async (data: RegisterData): Promise<boolean> => {
     if (response.data.success) {
       // Guardar token y usuario en localStorage
       localStorage.setItem('access_token', response.data.data.token);
+      localStorage.setItem('refreshToken', response.data.data.refreshToken);
       localStorage.setItem('user', JSON.stringify(response.data.data.user));
       
       message.success('¡Registro exitoso!');
@@ -136,14 +140,27 @@ export const register = async (data: RegisterData): Promise<boolean> => {
 // ============================================================
 export const validateToken = async (): Promise<AuthUser | null> => {
   try {
-    const response = await api.get<{ success: boolean; data: AuthUser }>('/auth/validate');
-    
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      console.log('❌ validateToken - No hay token en localStorage');
+      return null;
+    }
+
+    console.log('📡 validateToken - Enviando token para validación');
+    const response = await api.get<{ success: boolean; data: AuthUser }>('/auth/validate', {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
     if (response.data.success) {
       // Actualizar usuario en localStorage
       localStorage.setItem('user', JSON.stringify(response.data.data));
+      console.log('✅ validateToken - Token validado correctamente');
       return response.data.data;
     }
-    
+
+    console.log('❌ validateToken - Respuesta no exitosa');
     return null;
   } catch (error) {
     console.error('Error al validar token:', error);

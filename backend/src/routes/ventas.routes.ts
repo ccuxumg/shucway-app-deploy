@@ -34,5 +34,6 @@ router.delete('/:id', requireAdministrador, ventasController.deleteVenta.bind(ve
 // Nivel mínimo: Cajero (30)
 
 router.get('/:idVenta/detalles', requireCajero, ventasController.getDetallesByVenta.bind(ventasController));
+router.get('/productos-populares', requireCajero, ventasController.getProductosPopulares.bind(ventasController));
 
 export default router;

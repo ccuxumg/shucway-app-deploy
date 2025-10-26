@@ -245,9 +245,10 @@ CREATE TABLE cliente (
     id_cliente SERIAL PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
     telefono VARCHAR(15),
+    direccion VARCHAR(50), -- Para NIT o CF
     puntos_acumulados INTEGER DEFAULT 0,
     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    ultima_compra TIMESTAMP 
+    ultima_compra TIMESTAMP
 );
 
 CREATE TABLE venta (
@@ -1787,6 +1788,44 @@ EXCEPTION WHEN OTHERS THEN
 END;
 $$ LANGUAGE plpgsql;
 
+-- ================================================================
+-- 🏆 FUNCIÓN PARA OBTENER PRODUCTOS MÁS POPULARES
+-- ================================================================
+
+-- Función que calcula los productos más vendidos en los últimos 30 días
+CREATE OR REPLACE FUNCTION get_productos_populares(limit_param INTEGER DEFAULT 5)
+RETURNS TABLE (
+    id_producto INTEGER,
+    nombre_producto VARCHAR(100),
+    total_vendido DECIMAL(10,2),
+    veces_vendido BIGINT,
+    categoria VARCHAR(50),
+    imagen_url VARCHAR(255)
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        p.id_producto,
+        p.nombre_producto,
+        COALESCE(SUM(dv.cantidad), 0)::DECIMAL(10,2) as total_vendido,
+        COUNT(DISTINCT v.id_venta)::BIGINT as veces_vendido,
+        COALESCE(cp.nombre, 'Producto') as categoria,
+        p.imagen_url
+    FROM producto p
+    LEFT JOIN detalle_venta dv ON p.id_producto = dv.id_producto
+    LEFT JOIN venta v ON dv.id_venta = v.id_venta
+    LEFT JOIN categoria_producto cp ON p.id_categoria = cp.id_categoria
+    WHERE v.estado IN ('confirmada', 'completada')
+    AND v.fecha_venta >= CURRENT_DATE - INTERVAL '30 days'
+    GROUP BY p.id_producto, p.nombre_producto, cp.nombre, p.imagen_url
+    HAVING COALESCE(SUM(dv.cantidad), 0) > 0
+    ORDER BY total_vendido DESC, veces_vendido DESC
+    LIMIT limit_param;
+END;
+$$;
+
 -- ===============================================================
 -- MÓDULO: Triggers (Automatización)
 -- ===============================================================
@@ -2111,7 +2150,8 @@ INSERT INTO categoria_producto (nombre_categoria, descripcion, estado) VALUES
 ('Acompañamientos', 'Papas fritas, aros de cebolla, ensaladas', 'activo'),
 ('Bebidas', 'Refrescos, jugos, aguas y bebidas calientes', 'activo'),
 ('Postres', 'Helados, pasteles y postres variados', 'activo'),
-('Combos', 'Combos y paquetes promocionales', 'activo')
+('Combos', 'Combos y paquetes promocionales', 'activo'),
+('Categoría Desactivada', 'Esta categoría no debería aparecer', 'desactivado')
 ON CONFLICT (nombre_categoria) DO NOTHING;
 
 -- CATEGORÍAS DE GASTOS

@@ -21,8 +21,12 @@ export const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('access_token');
+    console.log('🔍 API Client - Token en localStorage:', token ? 'Presente' : 'Ausente');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+      console.log('✅ API Client - Authorization header agregado');
+    } else {
+      console.log('❌ API Client - No hay token para agregar al header');
     }
     return config;
   },
@@ -38,6 +42,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       // Token inválido o expirado
       localStorage.removeItem('access_token');
+      localStorage.removeItem('refreshToken');
       localStorage.removeItem('user');
       window.location.href = '/login';
     }

@@ -45,13 +45,28 @@ export class ClientesService {
   }
 
   async createCliente(dto: CreateClienteDTO): Promise<Cliente> {
+    console.log('📝 Datos del cliente a crear:', dto);
+
+    // Validar que el teléfono sea único si se proporciona
+    if (dto.telefono && dto.telefono.trim()) {
+      const clienteExistente = await this.buscarClientePorTelefono(dto.telefono.trim());
+      if (clienteExistente) {
+        throw new Error(`Ya existe un cliente con el teléfono ${dto.telefono}`);
+      }
+    }
+
     const { data, error } = await supabase
       .from('cliente')
       .insert(dto)
       .select()
       .single();
 
-    if (error) throw new Error(`Error al crear cliente: ${error.message}`);
+    if (error) {
+      console.error('❌ Error de Supabase:', error);
+      throw new Error(`Error al crear cliente: ${error.message}`);
+    }
+
+    console.log('✅ Cliente creado exitosamente:', data);
     return data;
   }
 

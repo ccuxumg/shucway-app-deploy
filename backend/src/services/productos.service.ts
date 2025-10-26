@@ -22,6 +22,7 @@ export class ProductosService {
     const { data, error } = await supabase
       .from('categoria_producto')
       .select('*')
+      .eq('estado', 'activo')
       .order('nombre_categoria');
 
     if (error) throw new Error(`Error al obtener categorías: ${error.message}`);

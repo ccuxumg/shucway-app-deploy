@@ -47,6 +47,13 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement | null>(null);
+  // Search states
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
+  const searchRef = useRef<HTMLDivElement | null>(null);
+  const debounceRef = useRef<number | null>(null);
 
   useEffect(() => {
     // Obtener el usuario del localStorage (guardado por el backend JWT)
@@ -97,11 +104,129 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
+  // Cierra el buscador al hacer click fuera
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setIsSearchOpen(false);
+        setHighlightedIndex(-1);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  // Debounce simple para evitar filtrar en cada pulsación
+  useEffect(() => {
+    if (debounceRef.current) {
+      window.clearTimeout(debounceRef.current);
+    }
+    // 200ms debounce — ligero y reactivo
+    // store id as number (window.setTimeout returns number in browsers)
+    debounceRef.current = window.setTimeout(() => {
+      setDebouncedQuery(searchQuery.trim());
+    }, 200) as unknown as number;
+
+    return () => {
+      if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    };
+  }, [searchQuery]);
+
   // removed theme toggle per request
 
   const currentRouteName = () => {
     const match = sidebarItems.find((s) => s.route === location.pathname);
     return match?.name || location.pathname.replace("/", "") || "Panel";
+  };
+
+  // Preparar una lista de sugerencias con sección y ruta para el buscador
+  // Incluye los items del sidebar más rutas internas (lista ligera para evitar imports circulares)
+  const extraRoutes: { name: string; route: string; section: string }[] = [
+    { name: 'Dashboard', route: '/dashboard', section: 'General' },
+    { name: 'Configuración', route: '/configuracion', section: 'Ajustes' },
+    { name: 'Mantenimiento', route: '/configuracion/mantenimiento', section: 'Ajustes' },
+    { name: 'Consultas SQL', route: '/configuracion/consultas-sql', section: 'Ajustes' },
+    { name: 'Backup', route: '/configuracion/backup', section: 'Ajustes' },
+    { name: 'Administración', route: '/administracion', section: 'General' },
+    { name: 'Gestionar Roles', route: '/administracion/roles', section: 'General' },
+    { name: 'Ventas', route: '/ventas', section: 'General' },
+    { name: 'Punto de Venta', route: '/ventas/ventas', section: 'Ventas' },
+    { name: 'Producto (Ventas)', route: '/ventas/producto', section: 'Ventas' },
+    { name: 'Cierre de Caja', route: '/ventas/cierre-caja', section: 'Ventas' },
+    { name: 'Inventario', route: '/inventario', section: 'Operaciones' },
+    { name: 'Categorias', route: '/inventario/categorias', section: 'Operaciones' },
+    { name: 'Reportes', route: '/reportes', section: 'Operaciones' },
+    { name: 'Perfil', route: '/perfil', section: 'General' },
+    { name: 'Soporte', route: '/soporte', section: 'General' },
+    { name: 'Login', route: '/login', section: 'Público' },
+  ];
+
+  const combined = [
+    ...sidebarSections.flatMap((sec) => sec.items.map((it) => ({ name: it.name, route: it.route, section: sec.title })) ),
+    ...extraRoutes,
+  ];
+
+  // Deduplicate by route (mantener la primera aparición)
+  const searchableItems = Array.from(new Map(combined.map(item => [item.route, item])).values());
+
+  // Búsqueda minimalista y eficiente: puntuamos coincidencias y ordenamos
+  const fuzzyScore = (text: string, q: string) => {
+    const t = text.toLowerCase();
+    const qq = q.toLowerCase();
+    if (!qq) return 0;
+    if (t === qq) return 100;
+    if (t.startsWith(qq)) return 80;
+    if (t.includes(qq)) return 60;
+    // subsequence match (letras en orden) — bajo coste
+    let i = 0;
+    for (const c of qq) {
+      i = t.indexOf(c, i);
+      if (i === -1) return 0;
+      i++;
+    }
+    return 20; // small score for subsequence matches
+  };
+
+  const filteredSuggestions = debouncedQuery
+    ? searchableItems
+        .map((it) => {
+          const nameScore = fuzzyScore(it.name, debouncedQuery);
+          const routeScore = fuzzyScore(it.route, debouncedQuery);
+          const score = Math.max(nameScore, routeScore);
+          return { item: it, score };
+        })
+        .filter((s) => s.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 10)
+        .map((s) => s.item)
+    : [];
+
+  const selectSuggestion = (item: { name: string; route: string }) => {
+    navigate(item.route);
+    setIsSearchOpen(false);
+    setSearchQuery("");
+    setHighlightedIndex(-1);
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!isSearchOpen) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedIndex((i) => Math.min(i + 1, filteredSuggestions.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedIndex((i) => Math.max(i - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (highlightedIndex >= 0 && highlightedIndex < filteredSuggestions.length) {
+        selectSuggestion(filteredSuggestions[highlightedIndex]);
+      } else if (filteredSuggestions.length === 1) {
+        selectSuggestion(filteredSuggestions[0]);
+      }
+    } else if (e.key === 'Escape') {
+      setIsSearchOpen(false);
+      setHighlightedIndex(-1);
+    }
   };
 
   return (
@@ -222,16 +347,50 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
             {/* Centered search */}
             <div className="flex-1 flex justify-center">
               <div className="w-full max-w-2xl">
-                <div className="relative">
+                <div className="relative" ref={searchRef}>
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"></path>
                     </svg>
                   </span>
                   <input
+                    value={searchQuery}
+                    onChange={(e) => { setSearchQuery(e.target.value); setIsSearchOpen(true); setHighlightedIndex(-1); }}
+                    onFocus={() => setIsSearchOpen(true)}
+                    onKeyDown={handleSearchKeyDown}
                     placeholder="Busca aquí lo que te interese"
+                    aria-label="Buscar"
                     className="w-full bg-gray-100 border border-transparent rounded-full py-2 pl-10 pr-4 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
                   />
+
+                  {/* Dropdown de sugerencias */}
+                  {isSearchOpen && (
+                    <div className="absolute left-0 right-0 mt-2 bg-white border border-gray-100 rounded-md shadow-lg z-50 max-h-64 overflow-auto">
+                      {filteredSuggestions.length > 0 ? (
+                        <ul role="listbox" className="divide-y divide-gray-100">
+                          {filteredSuggestions.map((s, idx) => (
+                            <li
+                              key={s.route}
+                              role="option"
+                              aria-selected={highlightedIndex === idx}
+                              onMouseEnter={() => setHighlightedIndex(idx)}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => selectSuggestion(s)}
+                              className={`px-4 py-3 cursor-pointer hover:bg-gray-50 ${highlightedIndex === idx ? 'bg-blue-50' : ''}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="text-sm font-medium text-gray-800">{s.name}</div>
+                                <div className="text-xs text-gray-400">{s.section}</div>
+                              </div>
+                              <div className="text-xs text-gray-500 truncate">{s.route}</div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="px-4 py-3 text-sm text-gray-500">No se encontraron resultados</div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

@@ -542,3 +542,78 @@
     max-width: 95%;
   }
 }
+/* ====== Inputs con iconos (alineación estable) ====== */
+.input-group {
+  position: relative;
+  margin-bottom: 2rem;
+}
+
+/* Alto y padding consistentes en ambos inputs */
+.input-group input {
+  height: 48px;                 /* alto uniforme */
+  width: 100%;
+  padding-left: 44px;           /* espacio para el icono izquierdo */
+  padding-right: 16px;
+  border: 2px solid var(--shadow-light);
+  border-radius: 12px;
+  font-size: 1.6rem;
+  background: #fff;
+  transition: border-color .2s, box-shadow .2s;
+}
+
+/* Icono de la izquierda, centrado verticalmente dentro del campo */
+.input-group > .input-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  color: var(--text-secondary);
+  pointer-events: none;         /* no captura clics/foco */
+  display: block;
+}
+
+/* Focus: no mover el input para que el icono no “salte” */
+.input-group input:focus {
+  border-color: var(--primary-green);
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.1);
+  outline: none;
+  transform: none;              /* evita el translateY del foco */
+}
+
+/* ====== Campo de contraseña (icono de ojo a la derecha) ====== */
+.password-group input {
+  padding-right: 44px;          /* reserva espacio para el botón ojo */
+  padding-left: 44px;           /* mismo espacio a la izquierda para el candado */
+}
+
+/* Candado (izquierda) ya lo cubre .input-icon del bloque general */
+
+/* Botón de mostrar/ocultar contraseña dentro del campo */
+.password-group .password-toggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background .2s, color .2s, transform .2s;
+}
+
+.password-group .password-toggle:hover {
+  background: rgba(34, 197, 94, 0.10);
+  color: var(--primary-green);
+}
+
+/* Tamaño de los SVGs para que no se vean diminutos o desalineados */
+.input-group .input-icon,
+.password-group .password-toggle svg {
+  width: 20px;
+  height: 20px;
+}

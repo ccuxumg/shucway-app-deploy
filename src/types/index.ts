@@ -76,6 +76,7 @@ export interface IFilters {
     | [start: Dayjs | null | undefined, end: Dayjs | null | undefined]
     | null;
   estado: string | null;
+  rol: string | null;
 }
 
 export interface ITableHeaderProps {

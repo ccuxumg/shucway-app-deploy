@@ -43,6 +43,9 @@ export interface UpdateUsuarioDTO {
   segundo_nombre?: string;
   primer_apellido?: string;
   segundo_apellido?: string;
+  estado?: string;
+  password?: string; // contraseña en texto plano; será enviada al backend para hashear
+  email?: string;
 }
 
 export interface UsuariosFilters {

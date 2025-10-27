@@ -54,6 +54,7 @@ export interface UpdateUsuarioDTO {
   primer_apellido?: string;
   segundo_apellido?: string;
   estado?: 'activo' | 'inactivo' | 'suspendido' | 'eliminado';
+  password?: string; // contraseña en texto plano; será hasheada por el servicio
 }
 
 export interface Rol {
@@ -285,6 +286,24 @@ export class UsuariosService {
     delete safeDto.session_token;
     delete safeDto.token;
 
+    // Si se provee 'password' en el DTO, generar hash y actualizar la columna password_hash.
+    // Nota: Este paso requiere que el usuario esté autorizado para cambiar la contraseña;
+    // la verificación de permisos debe realizarse en el controlador antes de llamar al servicio.
+    if (typeof safeDto.password === 'string' && safeDto.password.trim().length > 0) {
+      try {
+        const bcrypt = await import('bcrypt');
+        const saltRounds = 12;
+        const hashed = await bcrypt.hash(String(safeDto.password), saltRounds);
+        // Asignar al campo que existe en la BD
+        safeDto['password_hash'] = hashed;
+        // Eliminar el campo password en texto plano para no intentar insertar columna inexistente
+        delete safeDto.password;
+      } catch (err) {
+        console.error('Error al hashear la contraseña:', err);
+        throw err;
+      }
+    }
+
     // Intentar update directo primero
     try {
       const { data, error } = await supabase
@@ -421,7 +440,7 @@ export class UsuariosService {
         id_rol,
         rol_usuario!inner(
           id_rol,
-          nombre,
+          nombre_rol,
           nivel_permisos
         )
       `

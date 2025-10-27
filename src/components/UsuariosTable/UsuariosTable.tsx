@@ -21,6 +21,7 @@ import { PiArrowUpBold, PiArrowDownBold } from "react-icons/pi";
 import { useToggleDrawer } from "../../hooks/usetoggleDrawer";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { deleteUsuario } from "../../api/deleteUsuario";
+import { cambiarEstado } from "../../api/usuariosService";
 import { useAuth } from "../../hooks/useAuth";
 
 const itemRender: PaginationProps["itemRender"] = (_, type, orginalElement) => {
@@ -47,10 +48,11 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
     telefono: null,
     fecha_nacimiento: null,
     estado: null,
+    rol: null,
   });
 
   // Estados para ordenamiento
-  type SortKey = 'id' | 'estado' | 'nombreCompleto' | 'telefono' | 'ultimoAcceso' | 'rol';
+  type SortKey = 'id' | 'estado' | 'nombreCompleto' | 'ultimoAcceso' | 'rol';
   const [sortBy, setSortBy] = useState<SortKey>('id');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [selectedRows, setSelectedRows] = useState<number[]>([]);
@@ -62,23 +64,34 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
   const { user: currentUser } = useAuth();
 
   const { mutate: deleteUsuarioApi } = useMutation({
-    mutationFn: deleteUsuario,
+    mutationFn: (id: number) => cambiarEstado(id, 'eliminado'),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["usuarios"],
       });
-      message.success('Usuario eliminado exitosamente');
+      message.success('Usuario marcado como eliminado');
     },
     onError: (error: Error) => {
       message.error(`Error al eliminar usuario: ${error.message}`);
     },
   });
 
+  // Mutación para borrado físico (hard delete)
+  const { mutateAsync: hardDeleteApi } = useMutation({
+    mutationFn: (id: string) => deleteUsuario(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["usuarios"] });
+      message.success('Usuario eliminado permanentemente');
+    },
+    onError: (error: Error) => {
+      message.error(`Error al eliminar usuario permanentemente: ${error.message}`);
+    },
+  });
+
   // Funciones de manejo de acciones
   const handleView = (record: UsuarioDataType) => {
-    // Por ahora, abrir el drawer de edición en modo solo lectura
-    // TODO: Implementar un drawer de vista dedicado
-    toggleDrawer(true, "showDrawerEdit", record?.id_perfil?.toString());
+    // Abrir el drawer en modo vista (solo lectura)
+    toggleDrawer(true, "showDrawerView", record?.id_perfil?.toString());
   };
 
   const handleEdit = (record: UsuarioDataType) => {
@@ -96,6 +109,39 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
       return;
     }
 
+    // Si ya está marcado como 'eliminado', pedir confirmación escrita para borrado definitivo
+    if (record.estado === 'eliminado') {
+      let confirmation = '';
+      Modal.confirm({
+        title: 'Eliminar usuario permanentemente',
+        content: (
+          <div>
+            <p>El usuario ya está marcado como <strong>eliminado</strong>. Esto borrará sus datos permanentemente.</p>
+            <p>Escribe <strong>ELIMINAR</strong> para confirmar:</p>
+            <input
+              onChange={(e) => (confirmation = e.target.value)}
+              className="w-full border rounded px-2 py-1"
+              placeholder="ELIMINAR"
+            />
+          </div>
+        ),
+        okText: 'Eliminar permanentemente',
+        okType: 'danger',
+        cancelText: 'Cancelar',
+        async onOk() {
+          if (confirmation !== 'ELIMINAR') {
+            Modal.error({ title: 'Confirmación inválida', content: 'Debes escribir ELIMINAR para confirmar.' });
+            return Promise.reject();
+          }
+
+          // Llamar al endpoint de borrado físico
+          return hardDeleteApi(record.id_perfil.toString());
+        },
+      });
+      return;
+    }
+
+    // Si está activo o inactivo, solo marcar como 'eliminado'
     Modal.confirm({
       title: 'Confirmar eliminación',
       content: `¿Estás seguro que deseas eliminar al usuario "${record?.primer_nombre} ${record?.primer_apellido}"? Esta acción no se puede deshacer.`,
@@ -103,7 +149,7 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
       okType: 'danger',
       cancelText: 'Cancelar',
       onOk() {
-        deleteUsuarioApi(record?.id_perfil?.toString());
+        deleteUsuarioApi(record.id_perfil);
       },
     });
   };
@@ -188,7 +234,7 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
     {
       title: "Teléfono",
       key: "telefono",
-      hidden: false,
+      hidden: true,
       align: "center",
       dataIndex: "telefono",
       width: 150,
@@ -316,8 +362,6 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
           return usuario.estado;
         case 'nombreCompleto':
           return `${usuario.primer_nombre} ${usuario.segundo_nombre || ''} ${usuario.primer_apellido} ${usuario.segundo_apellido || ''}`.trim();
-        case 'telefono':
-          return usuario.telefono || '';
         case 'ultimoAcceso':
           return usuario.ultimo_acceso || '';
         case 'rol':
@@ -387,9 +431,27 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
 
   useEffect(() => {
     const queryParams = new URLSearchParams(location.search);
-    const showDrawerParam = queryParams.get("showDrawerEdit");
-    if (showDrawerParam && showDrawerParam.startsWith("true-")) {
-      const idFromParam = showDrawerParam.slice(5);
+    const showDrawerEditParam = queryParams.get("showDrawerEdit");
+    const showDrawerViewParam = queryParams.get("showDrawerView");
+
+    if (showDrawerEditParam && showDrawerEditParam.startsWith("true-")) {
+      const idFromParam = showDrawerEditParam.slice(5);
+      // Si el usuario está en la página actual, usarlo directamente
+      const found = usuarios.find((u) => String(u.id_perfil) === idFromParam);
+      if (found) {
+        setDrawerUser(found);
+        return;
+      }
+
+      // Si no está en la página actual, solicitar al servidor
+      getUsuario(idFromParam)
+        .then((u) => setDrawerUser(u as UsuarioDataType | null))
+        .catch(() => setDrawerUser(null));
+      return;
+    }
+
+    if (showDrawerViewParam && showDrawerViewParam.startsWith("true-")) {
+      const idFromParam = showDrawerViewParam.slice(5);
       // Si el usuario está en la página actual, usarlo directamente
       const found = usuarios.find((u) => String(u.id_perfil) === idFromParam);
       if (found) {
@@ -468,12 +530,6 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
                       dir={sortBy === 'nombreCompleto' ? sortDir : undefined}
                     />
                     <Th
-                      label="Teléfono"
-                      onSort={() => toggleSort('telefono')}
-                      active={sortBy === 'telefono'}
-                      dir={sortBy === 'telefono' ? sortDir : undefined}
-                    />
-                    <Th
                       label="Último Acceso"
                       onSort={() => toggleSort('ultimoAcceso')}
                       active={sortBy === 'ultimoAcceso'}
@@ -528,9 +584,6 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
                       </td>
                       <td className="p-4 text-center">
                         <p>{usuario?.primer_nombre} {usuario?.segundo_nombre} {usuario?.primer_apellido} {usuario?.segundo_apellido}</p>
-                      </td>
-                      <td className="p-4 text-center">
-                        {usuario.telefono || '—'}
                       </td>
                       <td className="p-4 text-center">
                         {usuario.ultimo_acceso ? new Date(usuario.ultimo_acceso).toLocaleString() : 'Nunca'}

@@ -88,6 +88,22 @@ export class UsuariosController {
   const { token, active_token, session_token, ...dto } = req.body;
   console.log('Payload de actualización:', dto);
 
+      // Si se intenta cambiar la contraseña, validar permisos: puede hacerlo
+      // el propio usuario o un administrador/propietario.
+      if (dto && typeof dto.password === 'string') {
+        const allowedRoles = ['administrador', 'propietario'];
+        const isSelf = req.user && req.user.id_perfil === id;
+        const isAllowedRole = req.user && allowedRoles.includes(req.user.role.nombre_rol.toLowerCase());
+
+        if (!isSelf && !isAllowedRole) {
+          res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para cambiar la contraseña de este usuario'
+          });
+          return;
+        }
+      }
+
       const usuario = await new UsuariosService().updateUsuario(id, dto);
 
       res.json({

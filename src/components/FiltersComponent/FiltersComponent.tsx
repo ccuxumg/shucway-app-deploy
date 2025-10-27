@@ -1,7 +1,9 @@
 import { Button, DatePicker, Input, Select } from "antd";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { IFilters } from "../../types";
 import { Dayjs } from "dayjs";
+import { getRoles } from "../../api/rolesService";
+import { Rol } from "../../api/rolesService";
 
 const { RangePicker } = DatePicker;
 
@@ -14,7 +16,22 @@ const FiltersComponent = ({
     telefono: null,
     fecha_nacimiento: null,
     estado: null,
+    rol: null,
   });
+
+  const [roles, setRoles] = useState<Rol[]>([]);
+
+  useEffect(() => {
+    const loadRoles = async () => {
+      try {
+        const response = await getRoles(1, 100, { estado: 'activo' });
+        setRoles(response.data);
+      } catch (error) {
+        console.error('Error cargando roles:', error);
+      }
+    };
+    loadRoles();
+  }, []);
 
   const handleFilerChange = (
     key: string,
@@ -23,32 +40,28 @@ const FiltersComponent = ({
       | [start: Dayjs | null | undefined, end: Dayjs | null | undefined]
       | null
   ) => {
-    setFilters({
+    const newFilters = {
       ...filters,
       [key]: value,
-    });
-  };
-
-  const handleSubmit = () => {
-    handleFilterSubmit(filters);
+    };
+    setFilters(newFilters);
+    handleFilterSubmit(newFilters);
   };
 
   const handleReset = () => {
-    setFilters({
+    const resetFilters = {
       telefono: null,
       fecha_nacimiento: null,
       estado: null,
-    });
-    handleFilterSubmit({
-      telefono: null,
-      fecha_nacimiento: null,
-      estado: null,
-    });
+      rol: null,
+    };
+    setFilters(resetFilters);
+    handleFilterSubmit(resetFilters);
   };
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="flex flex-col gap-2">
           <p className="text-gray-500 text-sm font-medium">Teléfono</p>
           <Input
@@ -82,13 +95,26 @@ const FiltersComponent = ({
             <Select.Option value="eliminado">Eliminado</Select.Option>
           </Select>
         </div>
+
+        <div className="flex flex-col gap-2">
+          <p className="text-gray-500 text-sm font-medium">Rol</p>
+          <Select
+            placeholder="Elegir rol"
+            className="w-full"
+            value={filters.rol}
+            onChange={(value) => handleFilerChange("rol", value)}
+          >
+            {roles.map((rol) => (
+              <Select.Option key={rol.id_rol} value={rol.id_rol.toString()}>
+                {rol.nombre_rol}
+              </Select.Option>
+            ))}
+          </Select>
+        </div>
       </div>
 
       <div className="flex gap-4 self-end">
         <Button onClick={handleReset} size="small">Reset</Button>
-        <Button onClick={handleSubmit} type="primary" size="small">
-          Aplicar Filtros
-        </Button>
       </div>
     </div>
   );

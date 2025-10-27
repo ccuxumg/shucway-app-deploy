@@ -1,7 +1,7 @@
 import { Button, Drawer, Input, Spin, Upload, UploadProps, DatePicker, Select, message } from "antd";
 import { CgClose } from "react-icons/cg";
 import { BiPhone, BiUser, BiMap, BiUserPlus, BiLock } from "react-icons/bi";
-import { FaEye, FaEyeSlash } from "react-icons/fa";
+import { FaEye, FaEyeSlash, FaSave } from "react-icons/fa";
 import { Controller, useForm } from "react-hook-form";
 import { supabase } from "../../api/supabaseClient";
 import { useEffect, useState } from "react";
@@ -158,7 +158,7 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
           ? (updatedData.fecha_nacimiento as Dayjs).format("YYYY-MM-DD")
           : (updatedData.fecha_nacimiento as unknown as string | null) || null;
 
-      // El estado NO se edita aquí: usamos el original del usuario (evita cambio accidental + evita TS conflict)
+      // Ahora sí se puede editar estado y email
       const bodyPartial: Partial<UsuarioDataType> = {
         primer_nombre: updatedData.primer_nombre,
         segundo_nombre: updatedData.segundo_nombre,
@@ -168,7 +168,8 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
         direccion: updatedData.direccion,
         fecha_nacimiento: fechaNacimientoISO,
         avatar_url: updatedData.avatar_url,
-        // estado y username se excluyen porque el DTO del endpoint no los contiene
+        estado: updatedData.estado,
+        email: updatedData.email,
       };
 
       // Normalizar valores null -> undefined para cumplir UpdateUsuarioDTO
@@ -182,23 +183,25 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
         if (p.direccion !== null && p.direccion !== undefined) out.direccion = String(p.direccion);
         if (p.fecha_nacimiento !== null && p.fecha_nacimiento !== undefined) out.fecha_nacimiento = String(p.fecha_nacimiento);
         if (p.avatar_url !== null && p.avatar_url !== undefined) out.avatar_url = String(p.avatar_url);
-  // notas: username y estado no forman parte de UpdateUsuarioDTO en frontend
+        if (p.estado !== null && p.estado !== undefined) out.estado = String(p.estado);
+        if (p.email !== null && p.email !== undefined) out.email = String(p.email);
         return out;
       };
 
-      // Si se está cambiando la contraseña
-      if (isEditingPassword && updatedData.password && updatedData.password.trim()) {
-        // Nota: Cambiar contraseña requiere configuración adicional en el backend
-        // Por ahora, mostrar mensaje informativo
-        message.info("La funcionalidad de cambio de contraseña requiere configuración adicional en el backend");
-        // const { error } = await supabase.auth.admin.updateUserById(userId, { password: updatedData.password });
-      }
+      // Si se está cambiando la contraseña, incluirla en el DTO (el backend la hasheará)
+      // Nota: el backend valida permisos para cambiar contraseñas (propio usuario o admin/propietario)
 
       // Usar el endpoint backend (recomendado) en vez de acceder directamente a Supabase desde el cliente.
       // Esto evita errores de RLS/permiso al usar la anon key desde el front.
       if (!data?.id_perfil) throw new Error('Falta id_perfil');
-  const updateDto = normalizeToUpdateDto(bodyPartial);
-  await updateUsuario(Number(data.id_perfil), updateDto);
+      const updateDto = normalizeToUpdateDto(bodyPartial);
+
+      if (isEditingPassword && updatedData.password && updatedData.password.trim()) {
+        // Añadir password en texto plano; el backend se encargará de hashearla de forma segura
+        (updateDto as UpdateUsuarioDTO & { password?: string }).password = String(updatedData.password);
+      }
+
+      await updateUsuario(Number(data.id_perfil), updateDto);
 
       // Cache off
       queryClient.invalidateQueries({ queryKey: ["usuarios"] });
@@ -518,19 +521,22 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
               />
             </div>
 
-            {/* Email (solo lectura) */}
+            {/* Email */}
             <div className="px-6 py-4 flex flex-col gap-4">
               <label htmlFor="email" className="text-gray-700">
-                Correo Electrónico
+                Correo Electrónico <span className="text-red-500">*</span>
               </label>
               <Controller
                 name="email"
                 control={control}
+                rules={{ required: isViewMode ? false : "El correo electrónico es requerido" }}
                 render={({ field }) => (
-                  <Input {...field} value={field.value || ""} prefix={<BiUser />} placeholder="Ingrese correo electrónico" disabled />
+                  <Input {...field} value={field.value || ""} prefix={<BiUser />} placeholder="Ingrese correo electrónico" disabled={isViewMode} />
                 )}
               />
-              <p className="text-sm text-gray-500">El correo electrónico no puede modificarse</p>
+              {errors.email && (
+                <p className="text-red-500 text-[1.2rem]">{errors.email.message as string}</p>
+              )}
             </div>
 
             {/* Contraseña - Solo en modo edición */}
@@ -597,14 +603,15 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
               </div>
             )}
 
-            {/* Estado (deshabilitado para este drawer) */}
+            {/* Estado */}
             <div className="px-6 py-4 flex flex-col gap-4">
               <label htmlFor="estado" className="text-gray-700">
-                Estado
+                Estado <span className="text-red-500">*</span>
               </label>
               <Controller
                 name="estado"
                 control={control}
+                rules={{ required: isViewMode ? false : "El estado es requerido" }}
                 render={({ field }) => (
                   <Select
                     value={field.value}
@@ -615,11 +622,14 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
                       { value: "inactivo", label: "Inactivo" },
                       { value: "eliminado", label: "Eliminado" },
                     ]}
-                    disabled
+                    disabled={isViewMode}
                   />
                 )}
               />
-              <p className="text-sm text-gray-500">{isViewMode ? "Estado del usuario" : "El estado no puede modificarse desde aquí"}</p>
+              {errors.estado && (
+                <p className="text-red-500 text-[1.2rem]">{errors.estado.message as string}</p>
+              )}
+              <p className="text-sm text-gray-500">{isViewMode ? "Estado del usuario" : "Selecciona el estado del usuario"}</p>
             </div>
 
             {/* Rol */}
@@ -660,9 +670,10 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
                 </Button>
                 <Button
                   type="primary"
-                  className="py-3 text-[1.4rem] flex-1 !bg-blue-700 transition-all duration-200 hover:opacity-80"
+                  className="py-3 text-[1.4rem] flex-1 !bg-green-600 !text-white font-bold transition-all duration-200 hover:!bg-green-700 flex items-center justify-center gap-2"
                   htmlType="submit"
                 >
+                  <FaSave size={16} />
                   Guardar cambios
                 </Button>
               </div>

@@ -1,468 +1,1028 @@
-import React, { useState, useEffect } from 'react';
-import '../Inventario.css';
-import './Auditoria.css';
-import { MdCheckCircle, MdEventNote, MdErrorOutline } from 'react-icons/md';
-import { FaUserCircle } from 'react-icons/fa';
-import { useAuth } from '../../../../hooks/useAuth';
-import { supabase } from '../../../../api/supabaseClient';
+/* ===============================================
+ * AUDITORÍA DE INVENTARIO (CONTEO FÍSICO)
+ * - VERSIÓN con compatibilidad de tipos de usuario
+ * =============================================== */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import "../Inventario.css";
+import "./Auditoria.css";
+import { MdCheckCircle, MdEventNote, MdErrorOutline } from "react-icons/md";
+import { FaUserCircle } from "react-icons/fa";
+import { useAuth } from "../../../../hooks/useAuth";
+import { supabase } from "../../../../api/supabaseClient";
 
-type Row = { id?: number; name: string; categoria?: string; unidad?: string; sistema?: number; conteo: number | null; diferencia?: number; estado?: string; notas?: string };
+/* ======================= Tipos ======================= */
+type Row = {
+  id_insumo: number;
+  insumo: string;
+  categoria: string | null;
+  unidad: string | null;
+  tipo_insumo: "operativo" | "perpetuo" | "desconocido";
+  esperado: number;
+  contado: number | null;
+  diferencia: number;
+  estado: "pendiente" | "contado";
+  observacion: string;
+  fue_contado?: boolean | null;
+  id_tipo_ajuste: number | null;
+  causa_nombre: string | null;
+};
+
+type VwUiConteoDetalleRow = {
+  id_insumo: number | null;
+  insumo: string | null;
+  categoria: string | null;
+  unidad_medida: string | null;
+  tipo_insumo: string | null;
+  esperado: number | null;
+  contado: number | null;
+  diferencia: number | null;
+  estado: string | null;
+  fue_contado: boolean | null;
+};
+
+// Mock de causas/ajustes
+const TIPOS_AJUSTE = [
+  { id: 1, nombre: "Merma (Dañado/Vencido)", tipo: "salida", aplica_a: "operativo" },
+  { id: 2, nombre: "Faltante (Pérdida/Robo)", tipo: "salida", aplica_a: "operativo" },
+  { id: 3, nombre: "Consumo Operativo (Gasto)", tipo: "salida", aplica_a: "perpetuo" },
+  { id: 4, nombre: "Sobrante (Conteo)", tipo: "entrada", aplica_a: "todos" },
+  { id: 5, nombre: "Error de Sistema", tipo: "entrada", aplica_a: "todos" },
+];
 
 type AuditoriaProps = {
   initialSessionId?: string;
   auditorName?: string;
 };
 
+/* ======================= Seed (demo) ======================= */
+const SEED_ROWS: Row[] = [
+  { id_insumo: 1, insumo: "Pan para Shuco",        categoria: "Panadería", unidad: "u",  tipo_insumo: "operativo",  esperado: 120, contado: 118,  diferencia: -2,  estado: "contado",   observacion: "Se quemaron 2", fue_contado: true, id_tipo_ajuste: 1, causa_nombre: "Merma (Dañado/Vencido)" },
+  { id_insumo: 2, insumo: "Carne Asada (libra)",   categoria: "Cárnicos",   unidad: "lb", tipo_insumo: "operativo",  esperado: 25,  contado: 25.5, diferencia: 0.5, estado: "contado",   observacion: "Sobrante",      fue_contado: true, id_tipo_ajuste: 4, causa_nombre: "Sobrante (Conteo)" },
+  { id_insumo: 3, insumo: "Chorizo",               categoria: "Cárnicos",   unidad: "u",  tipo_insumo: "operativo",  esperado: 70,  contado: null, diferencia: 0,   estado: "pendiente", observacion: "",      fue_contado: false, id_tipo_ajuste: null, causa_nombre: null },
+  { id_insumo: 4, insumo: "Servilletas (paquete)", categoria: "Desechables", unidad: "u",  tipo_insumo: "perpetuo",   esperado: 5,   contado: 3,    diferencia: -2,  estado: "contado",   observacion: "Gasto del día", fue_contado: true, id_tipo_ajuste: 3, causa_nombre: "Consumo Operativo (Gasto)" },
+  { id_insumo: 5, insumo: "Bolsas para llevar",    categoria: "Desechables", unidad: "u",  tipo_insumo: "perpetuo",   esperado: 100, contado: null, diferencia: 0,   estado: "pendiente", observacion: "",      fue_contado: false, id_tipo_ajuste: null, causa_nombre: null },
+  { id_insumo: 6, insumo: "Ketchup (Botella)",     categoria: "Salsas",      unidad: "u",  tipo_insumo: "perpetuo",   esperado: 10,  contado: 10,   diferencia: 0,   estado: "contado",   observacion: "",      fue_contado: true, id_tipo_ajuste: null, causa_nombre: null },
+];
+
+/* ============ Utilidades comunes ============ */
+function getDefaultStartDate(daysAgo: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() - daysAgo);
+  return date.toISOString().split("T")[0];
+}
+function getTodayDate(): string {
+  return new Date().toISOString().split("T")[0];
+}
+function csvEscape(v: unknown): string {
+  return `"${String(v ?? "").replace(/"/g, '""')}"`;
+}
+
+function buildPrintHtml(title: string, tableHtml: string, subtitle?: string) {
+  const fecha = new Date().toLocaleString();
+  return `<!doctype html><html><head><meta charset="utf-8"/>
+<title>${title}</title>
+<style>
+:root { color-scheme: light; }
+body{font-family: Arial, Helvetica, sans-serif; color:#111; margin:20px}
+.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.brand{display:flex;gap:12px;align-items:center}
+.brand img{height:56px}
+h2{margin:0 0 4px 0}.meta{font-size:13px;color:#444}
+table{width:100%;border-collapse:collapse;margin-top:12px; margin-bottom: 24px;}
+th,td{padding:8px;border:1px solid #e5e7eb;text-align:left;font-size:13px; vertical-align: top;}
+th{background:#f3f4f6;color:#111}tbody tr:nth-child(even){background:#fbfbfb}
+.footer{margin-top:16px;font-size:12px;color:#666}@media print{ .no-print{display:none} }
+h3.table-title{margin: 24px 0 8px 0; font-size: 1.1em; color: #333;}
+</style></head>
+<body>
+<div class="header">
+  <div class="brand"><img src="/img/logo.png"/><div><h2>${title}</h2><div class="meta">${subtitle ?? ""}</div></div></div>
+  <div style="text-align:right"><div class="meta">Fecha: ${fecha}</div></div>
+</div>
+${tableHtml}
+<div class="footer">Generado desde Shucway - Auditoría</div>
+<script>setTimeout(function(){ window.print(); }, 350);</script>
+</body></html>`;
+}
+
+function openPrintWindow(html: string) {
+  const w = window.open("", "_blank");
+  if (!w) return false;
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  return true;
+}
+
+function calcDiferencia(r: Row): Row {
+  const c = r.contado;
+  const diff = typeof c === "number" ? Number((c - r.esperado).toFixed(2)) : 0;
+  const counted = typeof c === "number";
+  const esCero = !counted || diff === 0;
+  return {
+    ...r,
+    diferencia: counted ? diff : 0,
+    estado: counted ? "contado" : "pendiente",
+    fue_contado: r.fue_contado ?? counted,
+    id_tipo_ajuste: esCero ? null : r.id_tipo_ajuste,
+    causa_nombre: esCero ? null : r.causa_nombre,
+  };
+}
+
+function isVolumetricUnit(u?: string | null): boolean {
+  if (!u) return false;
+  const v = u.toLowerCase();
+  return ["lb", "kg", "lt", "l", "ml", "g"].includes(v);
+}
+
+/* ===== Helpers seguros para el usuario (evitan usar `any`) ===== */
+function readString(obj: unknown, key: string): string | null {
+  if (obj && typeof obj === "object" && key in obj) {
+    const val = (obj as Record<string, unknown>)[key];
+    if (typeof val === "string") return val;
+  }
+  return null;
+}
+
+function getUserId(u: unknown): string | null {
+  // intenta: id, userId, uid, profile.id_perfil
+  const direct =
+    readString(u, "id") ?? readString(u, "userId") ?? readString(u, "uid");
+  if (direct) return direct;
+
+  if (u && typeof u === "object" && "profile" in u) {
+    const p = (u as Record<string, unknown>)["profile"];
+    if (p && typeof p === "object") {
+      const idp = readString(p, "id_perfil");
+      if (idp) return idp;
+    }
+  }
+  return null;
+}
+
+function getUserDisplayName(u: unknown, fallback?: string): string {
+  // 1) user_metadata.full_name (estilo Supabase)
+  if (u && typeof u === "object" && "user_metadata" in u) {
+    const meta = (u as Record<string, unknown>)["user_metadata"];
+    if (meta && typeof meta === "object") {
+      const fn = readString(meta, "full_name");
+      if (fn) return fn;
+    }
+  }
+  // 2) name / username / email
+  return (
+    readString(u, "name") ??
+    readString(u, "username") ??
+    readString(u, "email") ??
+    fallback ??
+    "—"
+  );
+}
+
+/* =================== Componente =================== */
 const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) => {
-  const [rows, setRows] = useState<Row[]>([]);
-  const [showExportModal, setShowExportModal] = useState(false);
+  const { user } = useAuth();
 
-  
+  // Sesión
+  const [sessionId, setSessionId] = useState<string | undefined>(initialSessionId);
+  const [sessionDate, setSessionDate] = useState<string | undefined>();
+  const [sessionLabel, setSessionLabel] = useState<string | undefined>();
 
-  // Exportar CSV
-  const exportCSV = () => {
-    const headers = ['Insumo', 'Categoría', 'Unidad', 'Stock del Sistema', 'Conteo Físico', 'Diferencia', 'Estado', 'Notas'];
-    // Encerrar cada campo entre comillas dobles y escapar comillas internas
-    const csvRows = [headers.map(h => `"${String(h).replace(/"/g, '""')}"`).join(',')];
-    rows.forEach(r => {
-      const fields = [
-        r.name ?? '',
-        r.categoria ?? '',
-        r.unidad ?? '',
-        (r.sistema ?? '').toString(),
-        (r.conteo ?? '').toString(),
-        (r.diferencia ?? '').toString(),
-        r.estado ?? '',
-        r.notas ?? ''
-      ];
-      csvRows.push(fields.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','));
+  // Estado UI
+  const [rows, setRows] = useState<Row[]>(() => SEED_ROWS.map(calcDiferencia));
+  const [term, setTerm] = useState<string>("");
+  const [showExport, setShowExport] = useState(false);
+
+  // Modal "Iniciar Auditoría"
+  const [showStartModal, setShowStartModal] = useState(false);
+  const [auditLabel, setAuditLabel] = useState("Auditoría Quincenal");
+  const [auditStartDate, setAuditStartDate] = useState(() => getDefaultStartDate(14));
+  const [auditEndDate, setAuditEndDate] = useState(() => getTodayDate());
+
+  // Modal "Finalizar"
+  const [showFinalizeModal, setShowFinalizeModal] = useState(false);
+  const [optComentario, setOptComentario] = useState<string>("");
+  const [isStarting, setIsStarting] = useState(false);
+  const [isFinalizing, setIsFinalizing] = useState(false);
+
+  // Notificación
+  const [notif, setNotif] = useState<{ type: "info" | "success" | "error"; msg: string } | null>(
+    null
+  );
+  const detectedName = getUserDisplayName(user, auditorName);
+
+  // Refs
+  const lastLoadAbort = useRef<AbortController | null>(null);
+
+  /* ============== Memo ============== */
+  const counted = useMemo(() => rows.filter((r) => typeof r.contado === "number").length, [rows]);
+  const discrepancies = useMemo(
+    () => rows.filter((r) => Math.abs(r.diferencia) !== 0 && r.id_tipo_ajuste != null).length,
+    [rows]
+  );
+  const operativosRows = useMemo(() => rows.filter((r) => r.tipo_insumo === "operativo"), [rows]);
+  const perpetuosRows = useMemo(
+    () => rows.filter((r) => r.tipo_insumo === "perpetuo" || r.tipo_insumo === "desconocido"),
+    [rows]
+  );
+
+  /* ============== Acciones / helpers ============== */
+
+  function notify(type: "info" | "success" | "error", msg: string) {
+    setNotif({ type, msg });
+    setTimeout(() => setNotif(null), 2600);
+  }
+
+  async function loadRows(search: string) {
+    try {
+      lastLoadAbort.current?.abort();
+      const ac = new AbortController();
+      lastLoadAbort.current = ac;
+
+      const { data, error } = await supabase
+        .from("vw_ui_conteo_detalle")
+        .select(
+          "id_insumo, insumo, categoria, unidad_medida, tipo_insumo, esperado, contado, diferencia, estado, fue_contado"
+        )
+        .eq("id_conteo", sessionId)
+        .ilike("insumo", `%${search}%`)
+        .limit(500);
+
+      if (error || !Array.isArray(data)) {
+        setRows(
+          SEED_ROWS.filter((r) => r.insumo.toLowerCase().includes(search.trim().toLowerCase())).map(
+            calcDiferencia
+          )
+        );
+        return;
+      }
+
+      const mapped: Row[] = (data as VwUiConteoDetalleRow[]).map((d) => {
+        const contado = d?.contado == null ? null : Number(d.contado);
+        const tipo: Row["tipo_insumo"] =
+          String(d?.tipo_insumo).toLowerCase() === "operativo"
+            ? "operativo"
+            : String(d?.tipo_insumo).toLowerCase() === "perpetuo"
+            ? "perpetuo"
+            : "desconocido";
+        return {
+          id_insumo: Number(d?.id_insumo ?? 0),
+          insumo: String(d?.insumo ?? ""),
+          categoria: d?.categoria ?? null,
+          unidad: d?.unidad_medida ?? null,
+          tipo_insumo: tipo,
+          esperado: Number(d?.esperado ?? 0),
+          contado,
+          diferencia: Number(d?.diferencia ?? 0),
+          estado:
+            String(d?.estado ?? "pendiente").toLowerCase() === "contado"
+              ? "contado"
+              : "pendiente",
+          observacion: "",
+          fue_contado: typeof d?.fue_contado === "boolean" ? d.fue_contado : contado != null,
+          id_tipo_ajuste: null,
+          causa_nombre: null,
+        };
+      });
+      setRows(mapped.map(calcDiferencia));
+    } catch {
+      setRows(
+        SEED_ROWS.filter((r) => r.insumo.toLowerCase().includes(search.trim().toLowerCase())).map(
+          calcDiferencia
+        )
+      );
+    }
+  }
+
+  function handleConteoChange(id_insumo: number, value: string) {
+    const v = value === "" ? null : Number(value);
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id_insumo === id_insumo ? calcDiferencia({ ...r, contado: v, fue_contado: v != null }) : r
+      )
+    );
+  }
+
+  function handleNotasChange(id_insumo: number, value: string) {
+    setRows((prev) => prev.map((r) => (r.id_insumo === id_insumo ? { ...r, observacion: value } : r)));
+  }
+
+  function handleCausaChange(id_insumo: number, value: string) {
+    const selectedId = Number(value) || null;
+    const causa = TIPOS_AJUSTE.find((c) => c.id === selectedId);
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id_insumo === id_insumo
+          ? {
+              ...r,
+              id_tipo_ajuste: causa?.id ?? null,
+              causa_nombre: causa?.nombre ?? null,
+            }
+          : r
+      )
+    );
+  }
+
+  async function handleBlurSave(id_insumo: number) {
+    const row = rows.find((r) => r.id_insumo === id_insumo);
+    if (!row) return;
+
+    if (!sessionId) {
+      notify("info", "Sesión demo: cambios guardados localmente.");
+      return;
+    }
+    const { error } = await supabase.rpc("fn_conteo_registrar_linea", {
+      p_id_conteo: sessionId,
+      p_id_insumo: row.id_insumo,
+      p_contado: row.contado,
+      p_observacion: row.observacion,
     });
-    // Usar CRLF para compatibilidad con Excel en Windows
-    const blob = new Blob([csvRows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    if (error)
+      notify(
+        "error",
+        `Error guardando línea: ${String((error as { message?: string }).message ?? error)}`
+      );
+    else notify("success", "Línea guardada.");
+  }
+
+  async function startAudit() {
+    setIsStarting(true);
+    const etiqueta = `${auditLabel} (${auditStartDate} al ${auditEndDate})`;
+
+    try {
+      const { data, error } = await supabase.rpc("fn_conteo_iniciar", {
+        p_ambito: "todos",
+        p_id_categoria: null,
+        p_etiqueta: etiqueta,
+        p_frecuencia: "ad-hoc",
+        p_id_perfil: getUserId(user),
+      });
+      if (error) {
+        const demoId = `demo-${Date.now()}`;
+        setSessionId(demoId);
+        setSessionDate(new Date().toISOString());
+        setSessionLabel(etiqueta);
+        notify("info", "Sesión demo iniciada.");
+      } else {
+        const created = (data as { id_conteo?: string; fecha_creacion?: string }) || {};
+        setSessionId(created.id_conteo);
+        setSessionDate(created.fecha_creacion);
+        setSessionLabel(etiqueta);
+        notify("success", "Auditoría iniciada.");
+      }
+      setTerm("");
+      setShowStartModal(false);
+    } catch {
+      const demoId = `demo-${Date.now()}`;
+      setSessionId(demoId);
+      setSessionDate(new Date().toISOString());
+      setSessionLabel(etiqueta);
+      notify("info", "Sesión demo iniciada.");
+    } finally {
+      setIsStarting(false);
+    }
+  }
+
+  function markNoDiff() {
+    setRows((prev) =>
+      prev.map((r) => calcDiferencia({ ...r, contado: r.esperado, fue_contado: true }))
+    );
+    notify("info", "Se marcaron todos los ítems como sin diferencias.");
+  }
+
+  function resetConteo() {
+    setRows((prev) =>
+      prev.map((r) => ({
+        ...r,
+        contado: null,
+        diferencia: 0,
+        estado: "pendiente",
+        fue_contado: false,
+        id_tipo_ajuste: null,
+        causa_nombre: null,
+      }))
+    );
+    notify("info", "Conteos reiniciados.");
+  }
+
+  function exportCSV() {
+    const headers = [
+      "Insumo",
+      "Categoría",
+      "Unidad",
+      "Tipo",
+      "Esperado",
+      "Conteo Físico",
+      "Diferencia",
+      "Causa",
+      "Notas",
+    ];
+    const out: string[] = [headers.map(csvEscape).join(",")];
+    rows.forEach((r) => {
+      out.push(
+        [
+          r.insumo,
+          r.categoria ?? "",
+          r.unidad ?? "",
+          r.tipo_insumo,
+          r.esperado,
+          r.contado ?? "",
+          r.diferencia,
+          r.causa_nombre ?? "",
+          r.observacion,
+        ]
+          .map(csvEscape)
+          .join(",")
+      );
+    });
+    const blob = new Blob([out.join("\r\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
-    a.download = `auditoria_inventario_${sessionId || 'reporte'}.csv`;
+    a.download = `auditoria_inventario_${sessionId ?? "reporte"}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    // Revocar URL para liberar memoria
     URL.revokeObjectURL(url);
-    setShowExportModal(false);
-  };
+    setShowExport(false);
+  }
 
-  // Helper: generar y descargar PDF desde un string HTML (usa html2canvas + jsPDF)
-  const generatePdfFromHtml = async (htmlString: string, filename: string) => {
-    const container = document.createElement('div');
-    container.style.position = 'fixed';
-    container.style.left = '-9999px';
-    container.style.top = '0';
-    container.innerHTML = htmlString;
-    document.body.appendChild(container);
-    try {
-      const html2canvas = (await import('html2canvas')).default;
-      const jsPDFMod = await import('jspdf');
-      const jsPDF = (jsPDFMod as any).jsPDF;
-      const canvas = await html2canvas(container, { scale: 2 });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const imgWidth = pageWidth - 40;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      pdf.addImage(imgData, 'PNG', 20, 20, imgWidth, imgHeight);
-      pdf.save(filename);
-      pushNotification('success', `PDF descargado: ${filename}`);
-    } catch (error) {
-      console.error('Error generando PDF con html2canvas/jsPDF', error);
-      pushNotification('error', 'Error generando PDF.');
-      throw error;
-    } finally {
-      document.body.removeChild(container);
+  function exportPDF() {
+    const makeTableHtml = (title: string, data: Row[]) => {
+      if (data.length === 0) return "";
+      const headerHtml = `<thead><tr>
+        <th>Insumo</th><th>Categoría</th><th>Unidad</th>
+        <th>Esperado</th><th>Conteo Físico</th><th>Diferencia</th><th>Causa</th><th>Notas</th>
+      </tr></thead>`;
+      const bodyHtml = `<tbody>${data
+        .map(
+          (r) => `
+        <tr><td>${r.insumo}</td><td>${r.categoria ?? ""}</td><td>${r.unidad ?? ""}</td>
+        <td>${r.esperado}</td><td>${r.contado ?? ""}</td><td>${r.diferencia}</td>
+        <td>${r.causa_nombre ?? ""}</td><td>${r.observacion}</td></tr>
+      `
+        )
+        .join("")}</tbody>`;
+      return `<h3 class="table-title">${title}</h3><table>${headerHtml}${bodyHtml}</table>`;
+    };
+
+    const tableHtml =
+      makeTableHtml("Insumos Operativos (Merma/Ajuste)", operativosRows) +
+      makeTableHtml("Insumos Perpetuos (Consumo)", perpetuosRows);
+
+    const subtitle = `Auditor: ${detectedName} · Sesión: ${sessionId ?? "—"}${
+      sessionDate ? " · " + new Date(sessionDate).toLocaleString() : ""
+    }`;
+    const html = buildPrintHtml("Auditoría de Inventario", tableHtml, subtitle);
+    setShowExport(false);
+    openPrintWindow(html);
+  }
+
+  async function finalizeAudit() {
+    if (!sessionId) {
+      notify("info", "Sesión demo: se generará únicamente el resumen imprimible.");
     }
-  };
+    setIsFinalizing(true);
 
-  // Exportar PDF (simple, usando window.print)
-  const buildPrintHtml = (title: string, tableHtml: string, subtitle?: string) => {
-    const fecha = new Date().toLocaleString();
-    return `<!doctype html>
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>${title}</title>
-          <style>
-            body{font-family: Arial, Helvetica, sans-serif; color:#111; margin:20px}
-            .header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-            .brand{display:flex;gap:12px;align-items:center}
-            .brand img{height:56px}
-            h2{margin:0 0 4px 0}
-            .meta{font-size:13px;color:#444}
-            table{width:100%;border-collapse:collapse;margin-top:12px}
-            th,td{padding:8px;border:1px solid #e5e7eb;text-align:left;font-size:13px}
-            th{background:#f3f4f6;color:#111}
-            tbody tr:nth-child(even){background:#fbfbfb}
-            .footer{margin-top:16px;font-size:12px;color:#666}
-            @media print{ .no-print{display:none} }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <div class="brand"><img src="/img/logo.png" alt="logo"/> <div><h2>${title}</h2><div class="meta">${subtitle ?? ''}</div></div></div>
-            <div style="text-align:right"><div class="meta">Fecha: ${fecha}</div></div>
-          </div>
-          ${tableHtml}
-          <div class="footer">Generado desde Shucway - Auditoría</div>
-        </body>
-      </html>`;
-  };
-
-  const exportPDF = async () => {
-    const headers = ['Insumo', 'Categoría', 'Unidad', 'Stock del Sistema', 'Conteo Físico', 'Diferencia', 'Estado', 'Notas'];
-    const headerHtml = `<thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>`;
-    const bodyHtml = `<tbody>${rows.map(r => `<tr><td>${r.name}</td><td>${r.categoria ?? ''}</td><td>${r.unidad ?? ''}</td><td>${r.sistema ?? ''}</td><td>${r.conteo ?? ''}</td><td>${r.diferencia ?? ''}</td><td>${r.estado ?? ''}</td><td>${r.notas ?? ''}</td></tr>`).join('')}</tbody>`;
-    const tableHtml = `<table>${headerHtml}${bodyHtml}</table>`;
-    const subtitle = `Auditor: ${detectedName} · Sesión: ${sessionId ?? '—'}`;
-    const html = buildPrintHtml('Auditoría de Inventario', tableHtml, subtitle);
-    setShowExportModal(false);
     try {
-      const filename = `auditoria_inventario_${sessionId || 'reporte'}.pdf`;
-      await generatePdfFromHtml(html, filename);
-    } catch (e) {
-      console.error('Export PDF failed', e);
-      pushNotification('error', 'No se pudo generar el PDF.');
-    }
-  };
-  // No generar sessionId por defecto: usar únicamente el que venga por props
-  const sessionId = initialSessionId ?? undefined;
-  const { user } = useAuth();
-  const detectedName = user?.nombre || user?.email || auditorName || '—';
-  const [isFinalizing, setIsFinalizing] = useState<boolean>(false);
-  // Notificaciones locales (simple)
-  const [notification, setNotification] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>(null);
+      const diffsFinal = rows.filter(
+        (r) => typeof r.contado === "number" && r.diferencia !== 0 && r.id_tipo_ajuste != null
+      );
+      const diffsIgnoradas = rows.filter(
+        (r) => typeof r.contado === "number" && r.diferencia !== 0 && r.id_tipo_ajuste == null
+      );
 
-  const pushNotification = (type: 'info' | 'success' | 'error', message: string, autoClose = true) => {
-    setNotification({ type, message });
-    if (autoClose) setTimeout(() => setNotification(null), 3000);
-  };
+      // Encabezado
+      let idEncabezado: number | null = null;
+      if (sessionId) {
+        const descripcionCierre = [sessionLabel || `Auditoría ${sessionId}`, optComentario.trim()]
+          .filter(Boolean)
+          .join(" - ");
 
-  // Cargar insumos desde la vista vw_inventario_actual en la BD (extraído para reuso)
-  const loadRows = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('vw_inventario_actual')
-        .select('id_insumo, insumo, categoria, stock_actual, unidad_medida, estado_stock')
-        .order('insumo', { ascending: true })
-        .limit(500);
-      if (error) {
-        const errObj = (error as { message?: string } | null) ?? null;
-          const msg = errObj && errObj.message ? errObj.message : String(error);
-          console.warn('Error cargando inventario para auditoría:', msg);
-        return;
+        const { data: encData, error: encErr } = await supabase
+          .from("movimiento_encabezado")
+          .insert({
+            modulo_origen: "CONTEO_FISICO",
+            descripcion: descripcionCierre,
+            id_perfil: getUserId(user),
+            id_referencia: sessionId,
+          })
+          .select("id_encabezado")
+          .single();
+        if (!encErr) {
+          idEncabezado = (encData as { id_encabezado?: number } | null)?.id_encabezado ?? null;
+        } else {
+          notify("error", "No se pudo crear el encabezado de movimiento. Se continuará con el resumen.");
+        }
       }
-      if (Array.isArray(data)) {
-        const mapped: Row[] = (data as Array<{ id_insumo?: number; insumo?: string; categoria?: string; unidad_medida?: string; stock_actual?: number }>).map(r => ({ id: r.id_insumo, name: r.insumo ?? '—', categoria: r.categoria, unidad: r.unidad_medida, sistema: r.stock_actual ?? 0, conteo: null, estado: 'pendiente', notas: '' }));
-        setRows(mapped);
-      }
-    } catch (e) {
-      console.error('Excepción cargando inventario:', e);
-    }
-  };
 
-  useEffect(() => {
-    let mounted = true;
-    if (mounted) loadRows();
-    return () => { mounted = false; };
-  }, []);
-
-  // Finalizar auditoría: persistir ajuste y detalles en la BD y crear movimientos correspondientes
-  const finalizeAudit = async () => {
-    console.log('finalizeAudit invoked', { sessionId });
-    // Mostrar feedback inmediato para asegurar que el click se procesó
-    setNotification({ type: 'info', message: 'Iniciando validación de auditoría...' });
-    let effectiveSession = sessionId;
-    if (!effectiveSession) {
-      // No hay sesión, pero permitimos continuar usando una marca temporal
-      pushNotification('info', 'No hay sesión de auditoría asignada. Se usará una sesión temporal para guardar el ajuste.');
-      effectiveSession = 'sin_sesion';
-    }
-    const diffs = rows.filter(r => typeof r.conteo === 'number' && (r.conteo ?? 0) !== (r.sistema ?? 0));
-    if (diffs.length === 0) {
-      pushNotification('info', 'No hay diferencias para aplicar.');
-      return;
-    }
-
-    // Solicitar motivo; si el usuario cancela, abortar
-    const motivoPrompt = window.prompt('Motivo del ajuste (breve):', 'Ajuste por auditoría');
-    if (motivoPrompt === null) {
-      pushNotification('info', 'Finalización de auditoría cancelada.');
-      return;
-    }
-    const motivo = motivoPrompt || 'Ajuste por auditoría';
-
-  setIsFinalizing(true);
-  pushNotification('info', 'Aplicando ajuste, por favor espere...');
-    try {
-      // 1) Crear registro de ajuste_inventario
-      const ajustePayload = {
-        motivo,
-        descripcion: `Ajuste generado por auditoría. Sesión: ${effectiveSession}`,
-        id_perfil: user?.id_perfil ?? null
-      };
-
-      type AjusteResp = { id_ajuste?: number } | null;
-      const insertRes = await supabase
-        .from('ajuste_inventario')
-        .insert(ajustePayload)
-        .select('id_ajuste')
-        .single();
-
-      if (insertRes.error) throw insertRes.error;
-      const ajusteData = insertRes.data as AjusteResp | null;
-      const idAjuste = ajusteData && ajusteData.id_ajuste ? ajusteData.id_ajuste : null;
-  if (!idAjuste) throw new Error('No se obtuvo id del ajuste creado');
-
-      // 2) Preparar detalles y movimientos en bloque
-      const detalles = diffs.map(d => ({
-        id_ajuste: idAjuste,
-        id_insumo: d.id ?? null,
-        id_lote: null,
-        cantidad_ajustada: (d.conteo ?? 0) - (d.sistema ?? 0),
-        costo_unitario: null,
-        motivo_detalle: d.notas && d.notas.length > 0 ? d.notas : `Ajuste por auditoría (sesión ${sessionId})`
-      }));
-
-      const movimientos = diffs.map(d => {
-        const cantidadSigned = (d.conteo ?? 0) - (d.sistema ?? 0);
-        const tipo_mov = cantidadSigned < 0 ? 'salida_ajuste' : 'devolucion';
+      // Líneas
+      if (sessionId && idEncabezado && diffsFinal.length > 0) {
+        const lineas = diffsFinal.map((r) => {
+          const diff = r.diferencia;
+          const tipo = diff > 0 ? "ENTRADA" : "SALIDA";
+          const comentarioLinea = `[${r.causa_nombre ?? "Ajuste"}] ${
+            r.observacion || `Conteo ${sessionId}`
+          }`;
         return {
-          id_insumo: d.id ?? null,
-          id_lote: null,
-          tipo_movimiento: tipo_mov,
-          cantidad: Math.abs(cantidadSigned),
-    id_perfil: user?.id_perfil ?? null,
-          id_referencia: idAjuste,
-          modulo_origen: 'auditoria',
-          descripcion: `Ajuste por auditoría. Sesión: ${sessionId}`
-        };
-      });
-
-      // 3) Insertar detalles
-      const { error: detError } = await supabase.from('detalle_ajuste_inventario').insert(detalles);
-      if (detError) throw detError;
-
-      // 4) Insertar movimientos (esto actualizará stock via triggers del servidor)
-      const { error: movError } = await supabase.from('movimiento_inventario').insert(movimientos);
-      if (movError) {
-        // rollback: eliminar detalles e intento de ajuste
-        await supabase.from('detalle_ajuste_inventario').delete().eq('id_ajuste', idAjuste);
-        await supabase.from('ajuste_inventario').delete().eq('id_ajuste', idAjuste);
-        throw movError;
-      }
-
-      pushNotification('success', 'Ajuste aplicado correctamente. Generando resumen...');
-      // Generar HTML del resumen y descargar como PDF usando jsPDF
-      const html = `
-            <html>
-              <head>
-                <title>Resumen Ajuste - Auditoría</title>
-                <style>table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ddd;padding:6px;font-family:Arial;font-size:12px;}th{background:#f4f4f4}</style>
-              </head>
-              <body>
-                <h3>Resumen de Ajuste - Auditoría</h3>
-                <p>Sesión: ${sessionId}</p>
-                <p>Motivo: ${motivo}</p>
-                <table>
-                  <thead><tr><th>Insumo</th><th>Stock Sistema</th><th>Conteo</th><th>Diferencia</th></tr></thead>
-                  <tbody>
-                    ${diffs.map(d => `<tr><td>${d.name}</td><td>${d.sistema ?? ''}</td><td>${d.conteo ?? ''}</td><td>${((d.conteo ?? 0) - (d.sistema ?? 0)).toFixed(2)}</td></tr>`).join('')}
-                  </tbody>
-                </table>
-              </body>
-            </html>`;
-      try {
-        const jsPDFModule = await import('jspdf');
-        const jsPDF = (jsPDFModule as any).jsPDF;
-        const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-        await doc.html(html, {
-          html2canvas: { scale: 1 },
-          // tipamos como any para evitar implicit any en el callback
-          callback: (doc2: any) => {
-            const filename = `ajuste_auditoria_${sessionId || 'reporte'}.pdf`;
-            try { (doc2 as any).save(filename); pushNotification('success', `Resumen descargado: ${filename}`); } catch (error) { console.warn(error); pushNotification('error', 'No se pudo descargar el PDF.'); }
-          }
+            id_encabezado: idEncabezado as number,
+            id_insumo: r.id_insumo,
+            cantidad: Math.abs(diff),
+            tipo_movimiento: tipo,
+            unidad: r.unidad ?? null,
+            comentario: comentarioLinea,
+          };
         });
-      } catch (error) {
-        console.warn('Error generando PDF con jsPDF', error);
-        pushNotification('info', 'No se pudo generar PDF automáticamente; se abrió una vista imprimible.');
-        try {
-          const summaryWin = window.open('', '_blank');
-          if (summaryWin) { summaryWin.document.write(html); summaryWin.document.close(); }
-        } catch (e) { console.warn('No se pudo abrir la vista imprimible', e); }
+
+        const { error: lineErr } = await supabase.from("movimiento_linea").insert(lineas);
+        if (lineErr) {
+          notify(
+            "error",
+            "No se pudieron registrar las líneas de movimiento. Se continuará con el resumen."
+          );
+        } else {
+          notify("success", `${diffsFinal.length} movimientos registrados.`);
+        }
+      } else if (diffsFinal.length === 0) {
+        notify("info", "No hay diferencias justificadas para registrar.");
       }
-      await loadRows();
-    } catch (e) {
-      const errObj = e as Error;
-      const errMsg = errObj?.message ?? String(e);
-      console.error('Error aplicando ajuste de auditoría:', errMsg);
-      pushNotification('error', 'Error aplicando ajuste: ' + errMsg);
+
+      // Resumen
+      const allDiffs = [...diffsFinal, ...diffsIgnoradas];
+      const headerHtml =
+        `<thead><tr><th>Insumo</th><th>Tipo</th><th>Esperado</th><th>Conteo</th><th>Diferencia</th><th>Estado</th><th>Causa/Notas</th></tr></thead>`;
+      const bodyHtml = `<tbody>${allDiffs
+        .map((d) => {
+          const esRegistrada = d.id_tipo_ajuste != null;
+          return `
+          <tr style="${!esRegistrada ? "color:#777; background:#f9f9f9;" : ""}">
+            <td>${d.insumo}</td>
+            <td>${d.tipo_insumo}</td>
+            <td>${d.esperado}</td>
+            <td>${d.contado ?? ""}</td>
+            <td>${d.diferencia.toFixed(2)}</td>
+            <td>${esRegistrada ? "APLICADO" : "IGNORADO (Sin Causa)"}</td>
+            <td><b>${d.causa_nombre ?? ""}</b> ${d.observacion}</td>
+          </tr>`;
+        })
+        .join("")}</tbody>`;
+
+      const tableHtml =
+        allDiffs.length > 0 ? `<table>${headerHtml}${bodyHtml}</table>` : "<p>No hay diferencias.</p>";
+
+      const pdfSubtitle = [`Sesión: ${sessionLabel ?? sessionId}`, optComentario ? `Motivo: ${optComentario}` : ""]
+        .filter(Boolean)
+        .join(" · ");
+
+      const summaryHtml = buildPrintHtml("Resumen de Ajuste - Auditoría", tableHtml, pdfSubtitle);
+      openPrintWindow(summaryHtml);
+
+      // Reset UI
+      setShowFinalizeModal(false);
+      setSessionId(undefined);
+      setSessionDate(undefined);
+      setSessionLabel(undefined);
+      setTerm("");
+      setRows(SEED_ROWS.map(calcDiferencia));
+      setAuditLabel("Auditoría Quincenal");
+      setAuditStartDate(getDefaultStartDate(14));
+      setAuditEndDate(getTodayDate());
+      setOptComentario("");
+      notify("success", "Auditoría finalizada.");
+    } catch {
+      notify("error", "Error al finalizar la auditoría.");
     } finally {
       setIsFinalizing(false);
     }
-  };
+  }
 
-  const counted = rows.filter(r => typeof r.conteo === 'number').length;
-  const discrepancies = rows.filter(r => typeof r.conteo === 'number' && Math.abs((r.conteo ?? 0) - (r.sistema ?? 0)) > 0).length;
+  /* ============== Effects ============== */
+  useEffect(() => {
+    if (!sessionId) return;
+    const t = setTimeout(() => {
+      void loadRows(term);
+    }, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [term, sessionId]);
 
-  const handleConteoChange = (index: number, value: string) => {
-    const v = value === '' ? null : Number(value);
-    setRows(prev => {
-      const copy = [...prev];
-      const prevRow = copy[index] ?? { id: undefined, name: '—', categoria: undefined, unidad: undefined, sistema: 0, conteo: null, diferencia: undefined, estado: 'pendiente', notas: '' };
-      const sistemaVal = typeof prevRow.sistema === 'number' ? prevRow.sistema : 0;
-      const diferencia = v === null ? undefined : +(( (v - sistemaVal) ).toFixed(2));
-      const estado = v === null ? 'pendiente' : (Math.abs((v - sistemaVal)) > 0 ? 'contado' : 'contado');
-      copy[index] = { ...prevRow, conteo: v, diferencia, estado };
-      return copy;
-    });
-  };
+  /* ============== Render helpers ============== */
+  function renderTable(data: Row[], title: string) {
+    function causasAplicables(row: Row) {
+      const tipoDiff = row.diferencia > 0 ? "entrada" : "salida";
+      return TIPOS_AJUSTE.filter(
+        (c) => (c.aplica_a === "todos" || c.aplica_a === row.tipo_insumo) && c.tipo === tipoDiff
+      );
+    }
 
-  const handleNotasChange = (index: number, value: string) => {
-    setRows(prev => {
-      const copy = [...prev];
-      copy[index] = { ...copy[index], notas: value };
-      return copy;
-    });
-  };
+    return (
+      <>
+        <h3 className="auditoria-table-title">{title}</h3>
+        {data.length > 0 ? (
+          <div className="auditoria-table">
+            <table className="inv-table" style={{ width: "100%" }}>
+              <thead>
+                <tr>
+                  <th>Insumo</th>
+                  <th>Unidad</th>
+                  <th>Esperado</th>
+                  <th>Conteo Físico</th>
+                  <th>Diferencia</th>
+                  <th>Causa (si aplica)</th>
+                  <th>Notas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((r) => {
+                  const isCounted = !!(r.fue_contado || r.contado != null);
+                  const step = isVolumetricUnit(r.unidad) ? 0.01 : 1;
+                  const hasDiff = isCounted && r.diferencia !== 0;
+                  const causas = hasDiff ? causasAplicables(r) : [];
 
-  const markNoDiff = () => {
-    setRows(prev => prev.map(r => ({ ...r, conteo: r.sistema ?? null, diferencia: 0, estado: 'contado' })));
-    pushNotification('info', 'Se marcaron todos los ítems como sin diferencias.');
-  };
+                  return (
+                    <tr key={r.id_insumo}>
+                      <td>
+                        {r.insumo}
+                        <div style={{ fontSize: "0.8em", color: "#666" }}>{r.categoria ?? ""}</div>
+                      </td>
+                      <td>{r.unidad ?? ""}</td>
+                      <td>{r.esperado}</td>
+                      <td>
+                        <input
+                          type="number"
+                          step={step}
+                          value={r.contado ?? ""}
+                          onChange={(e) => handleConteoChange(r.id_insumo, e.target.value)}
+                          onBlur={() => handleBlurSave(r.id_insumo)}
+                          className={`p-1 border rounded w-28 ${isCounted ? "counted" : ""}`}
+                          style={
+                            isCounted ? { background: "#ecfdf5", borderColor: "#a7f3d0" } : undefined
+                          }
+                        />
+                      </td>
+                      <td>
+                        <span
+                          className={`diff-cell ${
+                            hasDiff ? (r.diferencia > 0 ? "diff-positive" : "diff-negative") : "diff-zero"
+                          }`}
+                        >
+                          {isCounted
+                            ? r.diferencia > 0
+                              ? `+${r.diferencia.toFixed(2)}`
+                              : r.diferencia.toFixed(2)
+                            : ""}
+                        </span>
+                      </td>
 
-  const resetConteo = () => {
-    setRows(prev => prev.map(r => ({ ...r, conteo: null, diferencia: undefined, estado: 'pendiente' })));
-    pushNotification('info', 'Conteos reiniciados.');
-  };
+                      <td>
+                        {hasDiff ? (
+                          <select
+                            value={r.id_tipo_ajuste ?? ""}
+                            onChange={(e) => handleCausaChange(r.id_insumo, e.target.value)}
+                            className="p-1 border rounded w-full"
+                            style={{ minWidth: "150px" }}
+                          >
+                            <option value="">-- Justificar diferencia --</option>
+                            {causas.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.nombre}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span style={{ color: "#999" }}>—</span>
+                        )}
+                      </td>
 
+                      <td>
+                        <input
+                          className="p-1 border rounded w-full"
+                          placeholder="Observaciones"
+                          value={r.observacion}
+                          onChange={(e) => handleNotasChange(r.id_insumo, e.target.value)}
+                          onBlur={() => handleBlurSave(r.id_insumo)}
+                          style={{ minWidth: "150px" }}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl border p-4 mt-2 mb-4 text-center text-gray-500 text-sm">
+            No hay insumos de tipo "{title.split(" ")[1]}" para mostrar (o que coincidan con la búsqueda).
+          </div>
+        )}
+      </>
+    );
+  }
+
+  /* ============== Render ============== */
   return (
     <div className="inv-list">
       <h3>AUDITORÍA DE INVENTARIO (CONTEO FÍSICO)</h3>
 
-      <div className="auditoria-header">
-        {/* Notification banner */}
-        {notification && (
-          <div style={{ position: 'fixed', right: 18, top: 70, zIndex: 99999 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', borderRadius: 999, background: '#fff', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 6px 18px rgba(16,24,40,0.06)', minWidth: 220, maxWidth: 340 }}>
-              <div style={{ width: 10, height: 10, borderRadius: 999, background: notification.type === 'success' ? '#16a34a' : (notification.type === 'error' ? '#dc2626' : '#2563eb') }} />
-              <div style={{ fontSize: 13, color: '#111', flex: 1 }}>{notification.message}</div>
-              <button aria-label="Cerrar" onClick={() => setNotification(null)} style={{ background: 'transparent', border: 'none', color: '#6b7280', fontSize: 14, padding: '6px 8px', cursor: 'pointer' }}>✕</button>
-            </div>
+      {/* Notificación */}
+      {notif && (
+        <div style={{ position: "fixed", right: 18, top: 70, zIndex: 99999 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "8px 12px",
+              borderRadius: 999,
+              background: "#fff",
+              border: "1px solid rgba(0,0,0,0.06)",
+              boxShadow: "0 6px 18px rgba(16,24,40,0.06)",
+              minWidth: 220,
+              maxWidth: 360,
+            }}
+          >
+            <div
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 999,
+                background: notif.type === "success" ? "#16a34a" : notif.type === "error" ? "#dc2626" : "#2563eb",
+              }}
+            />
+            <div style={{ fontSize: 13, color: "#111", flex: 1 }}>{notif.msg}</div>
+            <button
+              aria-label="Cerrar"
+              onClick={() => setNotif(null)}
+              style={{ background: "transparent", border: "none", color: "#6b7280", fontSize: 14, padding: "6px 8px", cursor: "pointer" }}
+            >
+              ✕
+            </button>
           </div>
-        )}
-        <div className="auditoria-top">
-          <div className="auditoria-cards">
+        </div>
+      )}
+
+      {/* Cards */}
+      <div className="auditoria-top">
+        <div className="auditoria-cards">
           <div className="audit-card audit-success">
             <div>
               <div className="small">Sesión de Auditoría</div>
-              <div className="big">{sessionId ?? <span className="text-sm text-gray-500">Sin sesión asignada</span>}</div>
+              <div className="big">
+                {sessionId ? (
+                  <>
+                    {sessionLabel ? <span title={`ID: ${sessionId}`}>{sessionLabel}</span> : sessionId}
+                    {sessionDate && (
+                      <span className="text-xs text-gray-500"> · {new Date(sessionDate).toLocaleString()}</span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-sm text-gray-500">Sin sesión asignada</span>
+                )}
+              </div>
             </div>
-            <div className="audit-icon" aria-hidden><MdCheckCircle size={20} /></div>
+            <div className="audit-icon" aria-hidden>
+              <MdCheckCircle size={20} />
+            </div>
           </div>
-
           <div className="audit-card audit-count">
             <div>
               <div className="small">Items Contados</div>
-              <div className="big">{counted}/{rows.length}</div>
+              <div className="big">
+                {counted}/{rows.length}
+              </div>
             </div>
-            <div className="audit-icon" aria-hidden><MdEventNote size={20} /></div>
+            <div className="audit-icon" aria-hidden>
+              <MdEventNote size={20} />
+            </div>
           </div>
-
           <div className="audit-card audit-danger">
             <div>
-              <div className="small">Discrepancias</div>
+              <div className="small">Discrepancias (Justificadas)</div>
               <div className="big">{discrepancies}</div>
             </div>
-            <div className="audit-icon" aria-hidden><MdErrorOutline size={20} /></div>
+            <div className="audit-icon" aria-hidden>
+              <MdErrorOutline size={20} />
+            </div>
           </div>
-
-              <div className="audit-card audit-user">
+          <div className="audit-card audit-user">
             <div>
               <div className="small">Auditor</div>
               <div className="big">{detectedName}</div>
             </div>
-            <div className="audit-icon" aria-hidden><FaUserCircle size={20} /></div>
-          </div>
-          </div>
-          <div className="auditoria-actions-wrapper">
-        <div className="auditoria-actions">
-          <button className="btn primary" disabled={isFinalizing} onClick={finalizeAudit}>{isFinalizing ? 'Aplicando...' : 'Finalizar Auditoría'}</button>
-              <button className="btn secondary" onClick={markNoDiff}>Marcar Sin Diferencias</button>
-          <button className="btn outline" onClick={() => setShowExportModal(true)}>Exportar Resultados</button>
-      {/* Mini modal de exportación */}
-      {showExportModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.2)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', padding: 24, borderRadius: 8, minWidth: 280, boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
-            <h4 style={{ marginBottom: 16 }}>Exportar Reporte</h4>
-            <button className="btn primary" style={{ marginBottom: 8, width: '100%' }} onClick={exportCSV}>Descargar CSV</button>
-            <button className="btn secondary" style={{ marginBottom: 8, width: '100%' }} onClick={exportPDF}>Descargar PDF</button>
-            <button className="btn ghost" style={{ width: '100%' }} onClick={() => setShowExportModal(false)}>Cancelar</button>
-          </div>
-        </div>
-      )}
-              <button className="btn ghost" onClick={resetConteo}>Reiniciar Conteo</button>
+            <div className="audit-icon" aria-hidden>
+              <FaUserCircle size={20} />
             </div>
           </div>
         </div>
+
+        {/* Acciones */}
+        <div className="auditoria-actions-wrapper">
+          <div className="auditoria-actions">
+            {sessionId ? (
+              <button className="btn primary" onClick={() => setShowFinalizeModal(true)} disabled={isFinalizing}>
+                {isFinalizing ? "Aplicando..." : "Finalizar Auditoría"}
+              </button>
+            ) : (
+              <button className="btn primary" onClick={() => setShowStartModal(true)} disabled={isStarting}>
+                {isStarting ? "Iniciando..." : "Iniciar Auditoría"}
+              </button>
+            )}
+            <button className="btn secondary" onClick={markNoDiff}>
+              Marcar Sin Diferencias
+            </button>
+            <button className="btn outline" onClick={() => setShowExport(true)}>
+              Exportar Resultados
+            </button>
+            <button className="btn ghost" onClick={resetConteo}>
+              Reiniciar Conteo
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div className="auditoria-search" style={{ marginTop: 12, marginBottom: 8 }}>
-        <input placeholder="Buscar insumo por nombre..." className="w-full p-2 rounded border" />
-      </div>
+      {/* Buscador */}
+      {sessionId && (
+        <div className="auditoria-search" style={{ marginTop: 12, marginBottom: 8 }}>
+          <input
+            placeholder="Buscar insumo por nombre…"
+            className="w-full p-2 rounded border"
+            value={term}
+            onChange={(e) => setTerm(e.target.value)}
+          />
+        </div>
+      )}
 
-      <div className="auditoria-table">
-        <table className="inv-table" style={{ width: '100%' }}>
-          <thead>
-            <tr>
-              <th>Insumo</th>
-              <th>Categoría</th>
-              <th>Unidad</th>
-              <th>Stock del Sistema</th>
-              <th>Conteo Físico</th>
-              <th>Diferencia</th>
-              <th>Estado</th>
-              <th>Notas</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={r.name}>
-                <td>{r.name}</td>
-                <td>{r.categoria}</td>
-                <td>{r.unidad}</td>
-                <td>{r.sistema}</td>
-                <td>
+      {/* Tablas */}
+      {sessionId ? (
+        <div>
+          {renderTable(operativosRows, "Insumos Operativos (Merma/Ajuste)")}
+          {renderTable(perpetuosRows, "Insumos Perpetuos (Consumo)")}
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border p-6 mt-4 text-center text-gray-600">
+          Inicia una auditoría para ver el <b>Detalle del Conteo</b>.
+        </div>
+      )}
+
+      {/* Modal Exportar */}
+      {showExport && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.2)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div style={{ background: "#fff", padding: 24, borderRadius: 8, minWidth: 280, boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}>
+            <h4 style={{ marginBottom: 16 }}>Exportar Reporte</h4>
+            <button className="btn primary" style={{ marginBottom: 8, width: "100%" }} onClick={exportCSV}>
+              Descargar CSV
+            </button>
+            <button className="btn secondary" style={{ marginBottom: 8, width: "100%" }} onClick={exportPDF}>
+              Imprimir / Guardar como PDF
+            </button>
+            <button className="btn ghost" style={{ width: "100%" }} onClick={() => setShowExport(false)}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Finalizar */}
+      {showFinalizeModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.2)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              padding: 20,
+              borderRadius: 12,
+              width: "100%",
+              maxWidth: 520,
+              boxShadow: "0 12px 28px rgba(16,24,40,0.14)",
+            }}
+          >
+            <h4 className="text-lg font-semibold mb-3">Finalizar Auditoría</h4>
+
+            <p className="text-gray-600 mb-3">
+              Se registrarán todas las diferencias que hayan sido justificadas con una "Causa". Las
+              diferencias sin causa serán ignoradas.
+            </p>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Comentario de cierre (Opcional)</label>
+              <textarea
+                rows={3}
+                value={optComentario}
+                onChange={(e) => setOptComentario(e.target.value)}
+                className="w-full p-2 rounded border"
+                placeholder="Ej: Cierre semanal..."
+              />
+            </div>
+
+            <div className="mt-4 flex gap-8 justify-end">
+              <button className="btn ghost" onClick={() => setShowFinalizeModal(false)}>
+                Cancelar
+              </button>
+              <button className="btn primary" disabled={isFinalizing} onClick={finalizeAudit}>
+                {isFinalizing ? "Aplicando..." : "Confirmar Cierre"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Iniciar */}
+      {showStartModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.2)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              padding: 20,
+              borderRadius: 12,
+              width: "100%",
+              maxWidth: 520,
+              boxShadow: "0 12px 28px rgba(16,24,40,0.14)",
+            }}
+          >
+            <h4 className="text-lg font-semibold mb-3">Iniciar Nueva Auditoría</h4>
+
+            <p className="text-gray-600 mb-4">
+              Define el período que cubrirá esta auditoría. Esto es usado para calcular el consumo de
+              perpetuos.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Etiqueta (Nombre)</label>
+                <input
+                  type="text"
+                  value={auditLabel}
+                  onChange={(e) => setAuditLabel(e.target.value)}
+                  className="w-full p-2 rounded border"
+                  placeholder="Ej: Auditoría Quincenal"
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: 16 }}>
+                <div style={{ flex: 1 }}>
+                  <label className="block text-sm font-medium mb-1">Fecha Inicio Período</label>
                   <input
-                    type="number"
-                    value={r.conteo ?? ''}
-                    onChange={(e) => handleConteoChange(i, e.target.value)}
-                    className={`p-1 border rounded w-28 ${typeof r.conteo === 'number' ? 'counted' : ''}`}
+                    type="date"
+                    value={auditStartDate}
+                    onChange={(e) => setAuditStartDate(e.target.value)}
+                    className="w-full p-2 rounded border"
                   />
-                </td>
-                <td>
-                  <span className={`diff-cell ${typeof r.diferencia === 'number' ? (r.diferencia > 0 ? 'diff-positive' : (r.diferencia < 0 ? 'diff-negative' : 'diff-zero')) : 'diff-zero'}`}>
-                    {typeof r.diferencia === 'number' ? (r.diferencia > 0 ? (`+${r.diferencia.toFixed(2)}`) : r.diferencia.toFixed(2)) : ''}
-                  </span>
-                </td>
-                <td>
-                  <span className={`badge ${r.estado === 'contado' ? 'badge-success' : 'badge-pending'}`}>{r.estado}</span>
-                </td>
-                <td><input className="p-1 border rounded w-full" placeholder="Observaciones" value={r.notas} onChange={(e) => handleNotasChange(i, e.target.value)} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label className="block text-sm font-medium mb-1">Fecha Fin Período</label>
+                  <input
+                    type="date"
+                    value={auditEndDate}
+                    onChange={(e) => setAuditEndDate(e.target.value)}
+                    className="w-full p-2 rounded border"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex gap-8 justify-end">
+              <button className="btn ghost" onClick={() => setShowStartModal(false)}>
+                Cancelar
+              </button>
+              <button className="btn primary" disabled={isStarting} onClick={startAudit}>
+                {isStarting ? "Iniciando..." : "Confirmar e Iniciar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

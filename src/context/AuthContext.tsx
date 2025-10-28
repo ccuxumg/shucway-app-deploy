@@ -20,15 +20,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const refreshUser = async () => {
     try {
       setLoading(true);
-      console.log('🔄 AuthContext - Iniciando refreshUser');
       
       // Verificar si hay token en localStorage
       const token = localStorage.getItem('access_token');
-      console.log('🔍 AuthContext - Token en localStorage:', token ? 'Presente' : 'Ausente');
       
       if (!token) {
         // No hay token, usuario no autenticado
-        console.log('❌ AuthContext - No hay token, usuario no autenticado');
         setUser(null);
         setRole(null);
         setLoading(false);
@@ -36,17 +33,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
       
       // Intentar validar el token con el backend
-      console.log('📡 AuthContext - Validando token con backend...');
       const validatedUser = await validateToken();
-      console.log('📡 AuthContext - Respuesta de validateToken:', validatedUser ? 'Usuario válido' : 'Usuario inválido');
       
       if (validatedUser) {
         setUser(validatedUser);
         setRole(validatedUser.role.nombre_rol);
-        console.log('✅ AuthContext - Usuario validado correctamente');
       } else {
         // Token inválido, limpiar todo
-        console.log('❌ AuthContext - Token inválido, limpiando datos');
         setUser(null);
         setRole(null);
         localStorage.removeItem('access_token');

@@ -80,7 +80,7 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
   const { mutateAsync: hardDeleteApi } = useMutation({
     mutationFn: (id: string) => deleteUsuario(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["usuarios"] });
+      queryClient.invalidateQueries({ queryKey: ["usuarios"], exact: false });
       message.success('Usuario eliminado permanentemente');
     },
     onError: (error: Error) => {

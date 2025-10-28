@@ -5,7 +5,6 @@ export const useToggleDrawer = () => {
   const location = useLocation();
 
   const toggleDrawer = (show: boolean, key: string, recordId?: string) => {
-    console.log(recordId);
     if (show) {
       navigate(
         "?" +

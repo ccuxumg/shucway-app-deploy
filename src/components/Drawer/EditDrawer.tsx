@@ -19,6 +19,15 @@ import { UsuarioDataType, UsuarioFormData } from "../../types";
 import dayjs, { Dayjs } from "dayjs";
 import { useAuth } from "../../hooks/useAuth";
 
+interface UsuarioRolResponse {
+  id_rol: number;
+  rol_usuario: {
+    id_rol: number;
+    nombre_rol: string;
+    nivel_permisos: number;
+  };
+}
+
 const { Dragger } = Upload;
 
 /* ────────────────────────────────────────────────────────────
@@ -69,7 +78,7 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
   const [avatar, setAvatar] = useState<string | null>(data?.avatar_url || null);
   const [isLoadingUpload, setIsLoadingUpload] = useState<boolean>(false);
   const [editDrawer, setEditDrawer] = useState(false);
-  const [roles, setRoles] = useState<Array<{ id_rol: number; nombre: string }>>([]);
+  const [roles, setRoles] = useState<Rol[]>([]);
   const [selectedRoleId, setSelectedRoleId] = useState<number | null>(null);
   const [passwordVisible, setPasswordVisible] = useState<boolean>(false);
   const [isEditingPassword, setIsEditingPassword] = useState<boolean>(false);
@@ -151,6 +160,45 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
     if (isViewMode) return; // No hacer nada en modo vista
 
     try {
+      // Validaciones de permisos
+      const isCurrentUser = currentUser && data?.id_perfil === currentUser.id_perfil;
+      const isEditingSelf = isCurrentUser;
+
+      // 0. Un administrador no puede cambiar su propio rol a propietario
+      if (isEditingSelf && currentUser?.role?.nombre_rol?.toLowerCase() === 'administrador') {
+        // Buscar el rol de propietario en la lista de roles disponibles
+        const propietarioRole = (roles as Rol[]).find(r => (r as Rol).nombre_rol.toLowerCase() === 'propietario');
+        if (propietarioRole && selectedRoleId === propietarioRole.id_rol) {
+          message.error('No puedes cambiar tu propio rol a propietario');
+          return;
+        }
+      }
+
+      // 1. Un administrador no puede colocarse como cliente a sí mismo
+      if (isEditingSelf && currentUser?.role?.nombre_rol?.toLowerCase() === 'administrador') {
+        // Buscar el rol de cliente en la lista de roles disponibles
+        const clienteRole = (roles as Rol[]).find(r => (r as Rol).nombre_rol.toLowerCase() === 'cliente');
+        if (clienteRole && selectedRoleId === clienteRole.id_rol) {
+          message.error('No puedes asignarte el rol de cliente a ti mismo');
+          return;
+        }
+      }
+
+      // 2. Un administrador no puede modificar usuarios con rol propietario
+      if (!isEditingSelf && currentUser?.role?.nombre_rol?.toLowerCase() === 'administrador') {
+        // Verificar si el usuario que se está editando tiene rol propietario
+        const userRoles = await getRolesByUsuario(Number(data?.id_perfil));
+        const userRolesTyped = userRoles as UsuarioRolResponse[];
+        const hasPropietarioRole = userRolesTyped.some((ur) =>
+          ur.rol_usuario.nombre_rol?.toLowerCase() === 'propietario'
+        );
+
+        if (hasPropietarioRole) {
+          message.error('No tienes permisos para modificar usuarios con rol propietario');
+          return;
+        }
+      }
+
       if (avatar) updatedData.avatar_url = avatar;
 
       const fechaNacimientoISO =
@@ -203,8 +251,8 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
 
       await updateUsuario(Number(data.id_perfil), updateDto);
 
-      // Cache off
-      queryClient.invalidateQueries({ queryKey: ["usuarios"] });
+      // Invalidar todas las queries relacionadas con usuarios
+      queryClient.invalidateQueries({ queryKey: ["usuarios"], exact: false });
 
       // Rol: usar endpoint backend para asignar/remover rol (evita permission denied desde anon key)
       if (data?.id_perfil) {
@@ -299,11 +347,7 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
         getRoles(1, 100, { estado: 'activo' })
           .then((response) => {
             if (mounted) {
-              const rolesData = response.data.map((rol: Rol) => ({
-                id_rol: rol.id_rol,
-                nombre: rol.nombre_rol
-              }));
-              setRoles(rolesData);
+              setRoles(response.data as Rol[]);
             }
           })
           .catch((error) => {
@@ -313,10 +357,10 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
         // Cargar rol del usuario si hay id_perfil
         if (data?.id_perfil) {
           getRolesByUsuario(Number(data.id_perfil))
-            .then((ur: Array<{ id_rol?: number }>) => {
+            .then((ur: UsuarioRolResponse[]) => {
               if (!mounted) return;
               const first = ur?.[0];
-              setSelectedRoleId(typeof first?.id_rol === "number" ? first.id_rol : null);
+              setSelectedRoleId(first?.rol_usuario?.id_rol || null);
             })
             .catch((error) => {
               console.error('Error cargando rol del usuario:', error);
@@ -641,7 +685,7 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
                 placeholder="Seleccione rol"
                 value={selectedRoleId}
                 onChange={(val: number) => setSelectedRoleId(val)}
-                options={roles.map((r) => ({ value: r.id_rol, label: r.nombre }))}
+                options={roles.map((r) => ({ value: r.id_rol, label: r.nombre_rol }))}
                 disabled={isViewMode}
               />
               <p className="text-sm text-gray-500">{isViewMode ? "Rol asignado al usuario" : "Asigna un rol al usuario"}</p>

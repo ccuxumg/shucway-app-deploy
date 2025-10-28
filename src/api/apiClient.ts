@@ -21,12 +21,11 @@ export const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('access_token');
-    console.log('🔍 API Client - Token en localStorage:', token ? 'Presente' : 'Ausente');
+    if (!token) {
+      console.log('❌ API Client - No hay token para agregar al header');
+    }
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
-      console.log('✅ API Client - Authorization header agregado');
-    } else {
-      console.log('❌ API Client - No hay token para agregar al header');
     }
     return config;
   },

@@ -50,6 +50,7 @@ const AddDrawer = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["usuarios"],
+        exact: false,
       });
     },
   });

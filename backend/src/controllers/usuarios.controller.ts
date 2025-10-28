@@ -2,6 +2,15 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../types/express.types';
 import { UsuariosService } from '../services/usuarios.service';
 
+interface UsuarioRol {
+  id_rol: number;
+  rol_usuario: {
+    id_rol: number;
+    nombre_rol: string;
+    nivel_permisos: number;
+  };
+}
+
 // ================================================================
 // 👥 CONTROLADOR DE USUARIOS
 // ================================================================
@@ -83,10 +92,32 @@ export class UsuariosController {
   async updateUsuario(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const id = parseInt(req.params.id);
-  // Filtrar cualquier campo relacionado con token
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { token, active_token, session_token, ...dto } = req.body;
-  console.log('Payload de actualización:', dto);
+      // Filtrar cualquier campo relacionado con token
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { token, active_token, session_token, ...dto } = req.body;
+      console.log('Payload de actualización:', dto);
+
+      // Validaciones de permisos adicionales
+      const isCurrentUser = req.user && req.user.id_perfil === id;
+      const userRole = req.user?.role?.nombre_rol?.toLowerCase();
+
+      // Un administrador no puede modificar usuarios con rol propietario
+      if (!isCurrentUser && userRole === 'administrador') {
+        // Verificar si el usuario que se está editando tiene rol propietario
+        const { UsuariosService } = await import('../services/usuarios.service');
+        const userRoles = await new UsuariosService().getRolesByUsuario(id);
+        const hasPropietarioRole = (userRoles as UsuarioRol[]).some((ur: UsuarioRol) =>
+          ur.rol_usuario?.nombre_rol?.toLowerCase() === 'propietario'
+        );
+
+        if (hasPropietarioRole) {
+          res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para modificar usuarios con rol propietario'
+          });
+          return;
+        }
+      }
 
       // Si se intenta cambiar la contraseña, validar permisos: puede hacerlo
       // el propio usuario o un administrador/propietario.
@@ -236,6 +267,44 @@ export class UsuariosController {
           message: 'idRol es requerido',
         });
         return;
+      }
+
+      // Validaciones de permisos adicionales
+      const isCurrentUser = req.user && req.user.id_perfil === idUsuario;
+      const userRole = req.user?.role?.nombre_rol?.toLowerCase();
+
+      // 1. Un administrador no puede colocarse como cliente a sí mismo
+      if (isCurrentUser && userRole === 'administrador') {
+        // Verificar si el rol que se está asignando es "cliente"
+        const { UsuariosService } = await import('../services/usuarios.service');
+        const rolesResponse = await new UsuariosService().getRoles();
+        const clienteRole = rolesResponse.data.find(r => r.nombre_rol.toLowerCase() === 'cliente');
+
+        if (clienteRole && idRol === clienteRole.id_rol) {
+          res.status(403).json({
+            success: false,
+            message: 'No puedes asignarte el rol de cliente a ti mismo'
+          });
+          return;
+        }
+      }
+
+      // 2. Un administrador no puede modificar usuarios con rol propietario
+      if (!isCurrentUser && userRole === 'administrador') {
+        // Verificar si el usuario que se está editando tiene rol propietario
+        const { UsuariosService } = await import('../services/usuarios.service');
+        const userRoles = await new UsuariosService().getRolesByUsuario(idUsuario);
+        const hasPropietarioRole = (userRoles as UsuarioRol[]).some((ur: UsuarioRol) =>
+          ur.rol_usuario?.nombre_rol?.toLowerCase() === 'propietario'
+        );
+
+        if (hasPropietarioRole) {
+          res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para modificar usuarios con rol propietario'
+          });
+          return;
+        }
       }
 
       await new UsuariosService().asignarRol(idUsuario, idRol);

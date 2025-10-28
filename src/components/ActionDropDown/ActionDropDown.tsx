@@ -18,6 +18,7 @@ const ActionDropDown = ({ data }: { data: UsuarioDataType }) => {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["usuarios"],
+        exact: false,
       });
     },
   });

@@ -14,3 +14,4 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   db: { schema: 'public' },
   global: { headers: { 'Content-Type': 'application/json' } },
 })
+  

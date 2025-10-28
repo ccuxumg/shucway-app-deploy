@@ -2,7 +2,7 @@
 import serverless from 'serverless-http';
 import app from '../src/app';
 
-// (opcional) fijar runtime
-export const config = { runtime: 'nodejs20.x' };
+// O quita esta línea por completo
+export const config = { runtime: 'nodejs' };
 
 export default serverless(app);

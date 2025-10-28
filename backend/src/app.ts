@@ -1,5 +1,6 @@
 import express, { Application } from 'express';
 import cors from 'cors';
+import type { CorsOptions } from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { config } from './config/env';
@@ -12,12 +13,28 @@ const app: Application = express();
 
 // Middlewares de seguridad
 app.use(helmet());
-app.use(
-  cors({
-    origin: config.cors.origin.split(',').map(o => o.trim()),
-    credentials: true,
-  })
-);
+
+// Utilidad segura para dividir CORS_ORIGIN
+const safeSplit = (s?: string) =>
+  (s ? s.split(',').map(o => o.trim()).filter(Boolean) : []);
+
+const allowList = safeSplit(config.cors?.origin);
+
+// Si hay lista, validamos; si no, permitimos todo (útil mientras configuras)
+const corsOptions: CorsOptions =
+  allowList.length > 0
+    ? {
+        origin(origin, cb) {
+          if (!origin) return cb(null, true); // server to server / curl
+          return allowList.includes(origin)
+            ? cb(null, true)
+            : cb(new Error('Not allowed by CORS'));
+        },
+        credentials: true,
+      }
+    : { origin: true, credentials: true };
+
+app.use(cors(corsOptions));
 
 // Rate limiting
 const limiter = rateLimit({

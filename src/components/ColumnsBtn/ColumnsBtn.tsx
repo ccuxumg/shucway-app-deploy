@@ -31,8 +31,8 @@ const ColumnsBtn = ({ columnsInfo, handleChangeColumns }: IColumnsBtn) => {
 
   return (
     <Dropdown menu={{ items }} trigger={["click"]} placement="bottomRight">
-      <button className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-        <img src={ColumnsIcon} alt="Columns" className="w-4 h-4" />
+      <button className="h-12 rounded-lg border border-gray-200 bg-white px-5 text-base font-semibold text-gray-700 hover:bg-gray-50 flex items-center gap-3">
+        <img src={ColumnsIcon} alt="Columns" className="w-5 h-5" />
         Columnas
       </button>
     </Dropdown>

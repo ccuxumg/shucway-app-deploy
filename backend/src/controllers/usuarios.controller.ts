@@ -300,48 +300,45 @@ export class UsuariosController {
     }
   }
 
-  async getUsuariosByRol(_req: AuthRequest, res: Response, next: NextFunction) {
+  async getUsuariosByRol(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      // const idRol = parseInt(req.params.idRol);
-      // const usuarios = await new UsuariosService().getUsuariosByRol(idRol);
-      throw new Error('Método getUsuariosByRol no implementado aún');
+      const idRol = parseInt(req.params.idRol);
+      const usuarios = await new UsuariosService().getUsuariosByRol(idRol);
 
       res.json({
         success: true,
-        // data: usuarios,
+        data: usuarios,
       });
     } catch (error) {
       next(error);
     }
   }
 
-  async createRol(_req: AuthRequest, res: Response, next: NextFunction) {
+  async createRol(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      // const rolData = req.body;
-      // const nuevoRol = await new UsuariosService().createRol(rolData);
-      throw new Error('Método createRol no implementado aún');
+      const rolData = req.body;
+      const nuevoRol = await new UsuariosService().createRol(rolData);
 
       res.status(201).json({
         success: true,
         message: 'Rol creado exitosamente',
-        // data: nuevoRol,
+        data: nuevoRol,
       });
     } catch (error) {
       next(error);
     }
   }
 
-  async updateRol(_req: AuthRequest, res: Response, next: NextFunction) {
+  async updateRol(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      // const idRol = parseInt(req.params.id);
-      // const rolData = req.body;
-      // const rolActualizado = await new UsuariosService().updateRol(idRol, rolData);
-      throw new Error('Método updateRol no implementado aún');
+      const idRol = parseInt(req.params.id);
+      const rolData = req.body;
+      const rolActualizado = await new UsuariosService().updateRol(idRol, rolData);
 
       res.json({
         success: true,
         message: 'Rol actualizado exitosamente',
-        // data: rolActualizado,
+        data: rolActualizado,
       });
     } catch (error) {
       next(error);

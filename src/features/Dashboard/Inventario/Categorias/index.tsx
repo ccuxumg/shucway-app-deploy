@@ -12,7 +12,7 @@ function TipoCategoriaCard({ title, desc, examples, active, onClick }: { title: 
 import { useNavigate } from 'react-router-dom';
 import { PiPlusBold, PiEyeBold, PiPencilSimpleBold, PiTrashBold, PiBroomBold } from 'react-icons/pi';
 import { MdClose } from 'react-icons/md';
-import { supabase } from '../../../../api/supabaseClient';
+import api from '../../../../api/apiClient';
 
 type Categoria = {
   id_categoria: number;
@@ -44,24 +44,16 @@ export default function Categorias() {
     setLoading(true);
     setError(null);
     try {
-      // Intentar obtener desde la API del backend si existe
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/inventario/categorias`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
-      });
-      const j = await res.json();
-      const data = Array.isArray(j) ? j : (j.data || []);
+      // Obtener desde el backend autenticado (evita problemas de RLS)
+      const resp = await api.get('/dashboard/table-data/categoria_insumo?limit=1000');
+      if (!resp || resp.status >= 400) throw new Error('Error al cargar categorías');
+      const js = resp.data || {};
+      const data = js.data || [];
       setRows((data ?? []) as Categoria[]);
     } catch (e) {
-      console.error('Error cargando categorías desde API, intentando desde Supabase...', e);
-      // fallback a Supabase directamente
-      try {
-        const { data, error } = await supabase.from('categoria_insumo').select('*').order('nombre', { ascending: true });
-        if (error) throw error;
-        setRows((data ?? []) as Categoria[]);
-      } catch (err: unknown) {
-        const m = err instanceof Error ? err.message : String(err);
-        setError(m);
-      }
+      console.error('Error cargando categorías desde API/backend:', e);
+      const m = e instanceof Error ? e.message : String(e);
+      setError(m);
     } finally {
       setLoading(false);
     }
@@ -97,14 +89,14 @@ export default function Categorias() {
     setLoading(true);
     try {
       if (editing) {
-        // actualizar
+        // actualizar via backend
         const payload: { nombre: string; tipo_categoria: string | null } = { nombre: formNombre.trim(), tipo_categoria: formTipo || null };
-        const { error } = await supabase.from('categoria_insumo').update(payload).eq('id_categoria', editing.id_categoria);
-        if (error) throw error;
+        const resp = await api.put(`/dashboard/table-data/categoria_insumo/${encodeURIComponent(String(editing.id_categoria))}`, payload as Record<string, unknown>);
+        if (!resp || resp.status >= 400) throw new Error('Error al actualizar categoría');
       } else {
         const payload: { nombre: string; tipo_categoria: string | null } = { nombre: formNombre.trim(), tipo_categoria: formTipo || null };
-        const { error } = await supabase.from('categoria_insumo').insert(payload);
-        if (error) throw error;
+        const resp = await api.post('/dashboard/table-data/categoria_insumo', payload as Record<string, unknown>);
+        if (!resp || resp.status >= 400) throw new Error('Error al crear categoría');
       }
   await fetchCategorias();
   setOpenDrawer(false);
@@ -120,8 +112,8 @@ export default function Categorias() {
   async function doDelete(row: Categoria) {
     setLoading(true);
     try {
-      const { error } = await supabase.from('categoria_insumo').delete().eq('id_categoria', row.id_categoria);
-      if (error) throw error;
+      const resp = await api.delete(`/dashboard/table-data/categoria_insumo/${encodeURIComponent(String(row.id_categoria))}`);
+      if (!resp || resp.status >= 400) throw new Error('Error al eliminar categoría');
       await fetchCategorias();
       setConfirmDelete(null);
     } catch (err: unknown) {

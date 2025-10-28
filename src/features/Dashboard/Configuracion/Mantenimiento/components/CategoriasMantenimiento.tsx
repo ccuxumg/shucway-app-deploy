@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../../../../api/supabaseClient';
+import api from '../../../../../api/apiClient';
 import { Button, Table, message, Modal, Form, Input, Select } from 'antd';
 import { FaEye, FaEdit, FaTrash, FaPlus } from 'react-icons/fa';
 
@@ -32,13 +32,11 @@ const CategoriasMantenimiento: React.FC = () => {
   const fetchCategorias = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('categorias')
-        .select('*')
-        .order('fecha_creacion', { ascending: false });
-
-      if (error) throw error;
-      setCategorias(data || []);
+      const resp = await api.get('/dashboard/table-data/categorias?limit=1000');
+      if (!resp || resp.status >= 400) throw new Error('Error al cargar categorías');
+      const js = resp.data || {};
+      const rows = js.data || [];
+      setCategorias(rows as Categoria[]);
     } catch (error) {
       console.error('Error fetching categorias:', error);
       message.error('Error al cargar categorías');
@@ -69,12 +67,8 @@ const CategoriasMantenimiento: React.FC = () => {
       cancelText: 'Cancelar',
       onOk: async () => {
         try {
-          const { error } = await supabase
-            .from('categorias')
-            .delete()
-            .eq('id_categoria', categoria.id_categoria);
-
-          if (error) throw error;
+          const resp = await api.delete(`/dashboard/table-data/categorias/${encodeURIComponent(String(categoria.id_categoria))}`);
+          if (!resp || resp.status >= 400) throw new Error('Error al eliminar categoría');
           message.success('Categoría eliminada exitosamente');
           fetchCategorias();
         } catch (error) {
@@ -87,24 +81,15 @@ const CategoriasMantenimiento: React.FC = () => {
 
   const handleSave = async (values: Categoria) => {
     try {
-      if (editingCategoria?.id_categoria) {
-        // Update
-        const { error } = await supabase
-          .from('categorias')
-          .update(values)
-          .eq('id_categoria', editingCategoria.id_categoria);
-
-        if (error) throw error;
-        message.success('Categoría actualizada exitosamente');
-      } else {
-        // Create
-        const { error } = await supabase
-          .from('categorias')
-          .insert(values);
-
-        if (error) throw error;
-        message.success('Categoría creada exitosamente');
-      }
+        if (editingCategoria?.id_categoria) {
+          const resp = await api.put(`/dashboard/table-data/categorias/${encodeURIComponent(String(editingCategoria.id_categoria))}`, values as unknown as Record<string, unknown>);
+          if (!resp || resp.status >= 400) throw new Error('Error al actualizar categoría');
+          message.success('Categoría actualizada exitosamente');
+        } else {
+          const resp = await api.post('/dashboard/table-data/categorias', values as unknown as Record<string, unknown>);
+          if (!resp || resp.status >= 400) throw new Error('Error al crear categoría');
+          message.success('Categoría creada exitosamente');
+        }
 
       setModalVisible(false);
       form.resetFields();

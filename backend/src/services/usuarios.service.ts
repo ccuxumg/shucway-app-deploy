@@ -693,4 +693,69 @@ export class UsuariosService {
 
     return data;
   }
+
+  /**
+   * Obtener usuarios por rol
+   */
+  async getUsuariosByRol(idRol: number): Promise<PerfilUsuario[]> {
+    const { data, error } = await supabase
+      .from('perfil_usuario')
+      .select('*')
+      .eq('id_rol', idRol);
+
+    if (error) {
+      throw new Error(`Error al obtener usuarios del rol: ${error.message}`);
+    }
+
+    return data || [];
+  }
+
+  /**
+   * Crear un nuevo rol
+   */
+  async createRol(rolData: CreateRolDTO): Promise<Rol> {
+    const { data, error } = await supabase
+      .from('rol_usuario')
+      .insert({
+        nombre_rol: rolData.nombre_rol,
+        descripcion: rolData.descripcion,
+        nivel_permisos: rolData.nivel_permisos,
+        permisos: rolData.permisos ? JSON.stringify(rolData.permisos) : '{}',
+        activo: true,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(`Error al crear rol: ${error.message}`);
+    }
+
+    return data;
+  }
+
+  /**
+   * Actualizar un rol
+   */
+  async updateRol(idRol: number, rolData: UpdateRolDTO): Promise<Rol> {
+    const updateData: Partial<Rol> = {};
+
+    if (rolData.nombre_rol !== undefined) updateData.nombre_rol = rolData.nombre_rol;
+    if (rolData.descripcion !== undefined) updateData.descripcion = rolData.descripcion;
+    if (rolData.nivel_permisos !== undefined) updateData.nivel_permisos = rolData.nivel_permisos;
+    if (rolData.permisos !== undefined) updateData.permisos = JSON.stringify(rolData.permisos);
+    if (rolData.activo !== undefined) updateData.activo = rolData.activo;
+
+    const { data, error } = await supabase
+      .from('rol_usuario')
+      .update(updateData)
+      .eq('id_rol', idRol)
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(`Error al actualizar rol: ${error.message}`);
+    }
+
+    return data;
+  }
 }

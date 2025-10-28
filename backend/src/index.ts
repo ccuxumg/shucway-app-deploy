@@ -3,7 +3,9 @@ import { config } from './config/env';
 import { logger } from './utils/logger';
 import { testDatabaseConnection } from './config/database';
 
-// Iniciar servidor
+const isVercel = !!process.env.VERCEL;
+
+// Iniciar servidor SOLO en local (no en Vercel/serverless)
 async function startServer() {
   try {
     console.log('🔄 Iniciando función startServer...');
@@ -25,7 +27,7 @@ async function startServer() {
           logger.warn('⚠️  Continuando sin verificación de BD (modo desarrollo)');
         }
       } else {
-        // En producción, verificar siempre
+        // En producción local, verificar siempre
         logger.info('🔍 Verificando conexión a Supabase PostgreSQL...');
         const isConnected = await testDatabaseConnection();
 
@@ -39,7 +41,6 @@ async function startServer() {
     }
 
     console.log('🔄 Creando servidor HTTP...');
-    // Iniciar servidor HTTP
     const server = app.listen(config.port, () => {
       console.log('✅ Servidor HTTP creado exitosamente');
       logger.info('✅ Servidor iniciado exitosamente');
@@ -53,7 +54,6 @@ async function startServer() {
     });
 
     console.log('🔄 Configurando graceful shutdown...');
-    // Graceful shutdown
     const gracefulShutdown = () => {
       console.log('🔄 Iniciando graceful shutdown...');
       logger.info('⚠️  Iniciando apagado graceful...');
@@ -64,7 +64,6 @@ async function startServer() {
       });
     };
 
-    // Usar graceful shutdown en señales
     process.on('SIGTERM', gracefulShutdown);
     process.on('SIGINT', gracefulShutdown);
 
@@ -76,16 +75,23 @@ async function startServer() {
   }
 }
 
-// Manejo de errores no capturados
-process.on('uncaughtException', (error) => {
-  logger.error('❌ Excepción no capturada:', error);
-  process.exit(1);
-});
+// Manejo de errores no capturados (solo en local)
+if (!isVercel) {
+  process.on('uncaughtException', (error) => {
+    logger.error('❌ Excepción no capturada:', error);
+    process.exit(1);
+  });
 
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('❌ Promesa rechazada no manejada:', { reason, promise });
-  process.exit(1);
-});
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error('❌ Promesa rechazada no manejada:', { reason, promise });
+    process.exit(1);
+  });
+}
 
-// Iniciar servidor
-startServer();
+// Ejecutar servidor solo si NO estamos en Vercel
+if (!isVercel) {
+  startServer();
+}
+
+// En Vercel, este archivo solo exporta la app; la Function la monta `api/index.ts`
+export default app;

@@ -12,10 +12,12 @@ const app: Application = express();
 
 // Middlewares de seguridad
 app.use(helmet());
-app.use(cors({
-  origin: config.cors.origin.split(',').map(o => o.trim()),
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: config.cors.origin.split(',').map(o => o.trim()),
+    credentials: true,
+  })
+);
 
 // Rate limiting
 const limiter = rateLimit({
@@ -23,10 +25,10 @@ const limiter = rateLimit({
   max: config.rateLimit.maxRequests,
   message: {
     success: false,
-    error: 'Demasiadas solicitudes, por favor intenta más tarde'
+    error: 'Demasiadas solicitudes, por favor intenta más tarde',
   },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
 });
 
 app.use('/api/', limiter);
@@ -55,7 +57,7 @@ app.get('/', (_req, res) => {
     stack: 'Node.js + Express + TypeScript',
     database: 'Supabase PostgreSQL (sin Supabase Auth)',
     storage: 'Supabase Storage',
-    authentication: 'JWT personalizado con bcrypt'
+    authentication: 'JWT personalizado con bcrypt',
   });
 });
 

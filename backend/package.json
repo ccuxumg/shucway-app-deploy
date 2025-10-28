@@ -30,6 +30,7 @@
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
+    "serverless-http": "^4.0.0",
     "winston": "^3.17.0",
     "zod": "^3.24.1"
   },

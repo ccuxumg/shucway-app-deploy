@@ -2,6 +2,37 @@ import { StatsData, InventoryItem } from '../types';
 import supabase from '../config/database';
 
 export const dashboardService = {
+  // Mapa explícito table -> primary key para evitar heurísticas
+  primaryKeyMap: {
+    rol_usuario: 'id_rol',
+    perfil_usuario: 'id_perfil',
+    bitacora_seguridad: 'id_bitacora_seguridad',
+    categoria_insumo: 'id_categoria',
+    proveedor: 'id_proveedor',
+    insumo: 'id_insumo',
+    lote_insumo: 'id_lote',
+    movimiento_inventario: 'id_movimiento',
+    orden_compra: 'id_orden',
+    detalle_orden_compra: 'id_detalle',
+    recepcion_mercaderia: 'id_recepcion',
+    detalle_recepcion_mercaderia: 'id_detalle',
+    categoria_producto: 'id_categoria',
+    producto: 'id_producto',
+    producto_variante: 'id_variante',
+    receta_detalle: 'id_receta',
+    cliente: 'id_cliente',
+    venta: 'id_venta',
+    detalle_venta: 'id_detalle',
+    categoria_gasto: 'id_categoria',
+    gasto_operativo: 'id_gasto',
+    deposito_banco: 'id_deposito',
+    arqueo_caja: 'id_arqueo',
+    historial_puntos: 'id_historial',
+    bitacora_inventario: 'id_bitacora_inventario',
+    bitacora_ventas: 'id_bitacora_venta',
+    bitacora_ordenes_compra: 'id_bitacora_orden',
+    bitacora_productos: 'id_bitacora_producto'
+  } as Record<string, string>,
   async getStats(): Promise<StatsData> {
     // TODO: Convertir consultas SQL complejas a usar Supabase API
     // Por ahora devolver datos de ejemplo para que compile
@@ -129,6 +160,70 @@ export const dashboardService = {
       return data || [];
     } catch (error) {
       console.error('Error al obtener datos de la tabla:', error);
+      throw error;
+    }
+  },
+
+  async createRecord(tableName: string, values: Record<string, unknown>) {
+    try {
+      const { data, error } = await supabase.from(tableName).insert(values).select().single();
+      if (error) {
+        console.error('Error creando registro en', tableName, error.message);
+        throw error;
+      }
+      return data;
+    } catch (error) {
+      console.error('Error en createRecord:', error);
+      throw error;
+    }
+  },
+
+  async updateRecord(tableName: string, id: string, values: Record<string, unknown>) {
+    // Usar primaryKeyMap si existe, sino fallback a 'id'
+    const pk = (this.primaryKeyMap && this.primaryKeyMap[tableName]) || 'id';
+
+    try {
+      const { data, error } = await supabase.from(tableName).update(values).eq(pk, id).select().single();
+      if (error) {
+        console.error('Error actualizando registro en', tableName, error.message);
+        throw error;
+      }
+      return data;
+    } catch (error: unknown) {
+      console.error('Error en updateRecord:', error);
+      // Fallback para categoria_producto, producto, producto_variante: si falla constraint en 'estado', intentar con 'estado = 'desactivado''
+      const err = error as { code?: string; message?: string };
+      if ((tableName === 'categoria_producto' || tableName === 'producto' || tableName === 'producto_variante') && err?.code === '23514' && err?.message?.includes('estado_check')) {
+        console.log(`Intentando fallback para ${tableName}: usar estado = desactivado`);
+        try {
+          const { data, error: fallbackError } = await supabase.from(tableName).update({ estado: 'desactivado' }).eq(pk, id).select().single();
+          if (fallbackError) {
+            console.error('Fallback también falló:', fallbackError);
+            throw fallbackError;
+          }
+          return data;
+        } catch (fallbackErr) {
+          console.error('Error en fallback updateRecord:', fallbackErr);
+          throw fallbackErr;
+        }
+      }
+      throw error;
+    }
+  },
+
+  async deleteRecord(tableName: string, id: string) {
+    try {
+    // Usar primaryKeyMap si existe, sino fallback a 'id'
+    const pk = (this.primaryKeyMap && this.primaryKeyMap[tableName]) || 'id';
+
+    const { error } = await supabase.from(tableName).delete().eq(pk, id);
+      if (error) {
+        console.error('Error eliminando registro en', tableName, error.message);
+        throw error;
+      }
+      return true;
+    } catch (error) {
+      console.error('Error en deleteRecord:', error);
       throw error;
     }
   },

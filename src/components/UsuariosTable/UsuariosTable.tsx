@@ -44,7 +44,7 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
   const [searchValue, setSearchValue] = useState<string>("");
   const [debouncedSearchValue, setDebouncedSearchValue] = useState<string>("");
 
-  const [filters, setFilters] = useState<IFilters>({
+  const [filters] = useState<IFilters>({
     telefono: null,
     fecha_nacimiento: null,
     estado: null,
@@ -204,26 +204,8 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
       ),
     },
     {
-      title: "Estado",
-      dataIndex: "estado",
-      key: "estado",
-      align: "center",
-      render: (estado) => (
-        <span className={`px-2 py-1 rounded-full text-xs ${
-          estado === 'activo' ? 'bg-green-100 text-green-800' :
-          estado === 'inactivo' ? 'bg-yellow-100 text-yellow-800' :
-          estado === 'suspendido' ? 'bg-orange-100 text-orange-800' :
-          estado === 'eliminado' ? 'bg-red-100 text-red-800' :
-          'bg-gray-100 text-gray-800'
-        }`}>
-          {estado}
-        </span>
-      ),
-    },
-    {
       title: "Nombre Completo",
-      dataIndex: "primer_nombre",
-      key: "primer_nombre",
+      key: "nombre_completo",
       align: "center",
       hidden: false,
       width: 200,
@@ -240,12 +222,58 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
       width: 150,
     },
     {
+      title: "Dirección",
+      key: "direccion",
+      hidden: true,
+      align: "center",
+      dataIndex: "direccion",
+      width: 200,
+    },
+    {
+      title: "Fecha de Nacimiento",
+      key: "fecha_nacimiento",
+      hidden: true,
+      align: "center",
+      width: 150,
+      render: (_, record) => {
+        const date = record.fecha_nacimiento;
+        return <p>{date ? new Date(date).toLocaleDateString() : '-'}</p>;
+      },
+    },
+    {
+      title: "Username",
+      key: "username",
+      hidden: true,
+      align: "center",
+      dataIndex: "username",
+      width: 150,
+    },
+    {
+      title: "Correo Electrónico",
+      key: "email",
+      hidden: true,
+      align: "center",
+      dataIndex: "email",
+      width: 200,
+    },
+    {
       title: "Estado",
       key: "estado",
       hidden: false,
       align: "center",
       dataIndex: "estado",
       width: 120,
+      render: (estado) => (
+        <span className={`px-2 py-1 rounded-full text-xs ${
+          estado === 'activo' ? 'bg-green-100 text-green-800' :
+          estado === 'inactivo' ? 'bg-yellow-100 text-yellow-800' :
+          estado === 'suspendido' ? 'bg-orange-100 text-orange-800' :
+          estado === 'eliminado' ? 'bg-red-100 text-red-800' :
+          'bg-gray-100 text-gray-800'
+        }`}>
+          {estado}
+        </span>
+      ),
     },
     {
       title: "Último Acceso",
@@ -285,7 +313,7 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
       },
     },
     {
-      title: "Action",
+      title: "Acciones",
       key: "action",
       hidden: false,
       align: "center",
@@ -317,7 +345,33 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
     },
   ];
 
-  const [columnsInfo, setColumnsInfo] = useState<TColumns>(columns);
+  const [columnsInfo, setColumnsInfo] = useState<TColumns>(() => {
+    // Cargar preferencias desde localStorage
+    const savedColumns = localStorage.getItem('usuarios-table-columns');
+    if (savedColumns) {
+      try {
+        const parsed = JSON.parse(savedColumns) as Array<{ key: string; hidden: boolean }>;
+        // Combinar con las columnas por defecto para asegurar compatibilidad
+        return columns.map(col => {
+          const saved = parsed.find((s) => s.key === col.key);
+          return saved ? { ...col, hidden: saved.hidden } : col;
+        });
+      } catch (error) {
+        console.warn('Error loading column preferences:', error);
+        // Si hay error, guardar las columnas por defecto
+        localStorage.setItem('usuarios-table-columns', JSON.stringify(columns.map(col => ({ key: col.key, hidden: col.hidden }))));
+        return columns;
+      }
+    }
+    // Si no hay datos guardados, guardar las columnas por defecto
+    localStorage.setItem('usuarios-table-columns', JSON.stringify(columns.map(col => ({ key: col.key, hidden: col.hidden }))));
+    return columns;
+  });
+
+  // Guardar preferencias cuando cambien las columnas
+  useEffect(() => {
+    localStorage.setItem('usuarios-table-columns', JSON.stringify(columnsInfo));
+  }, [columnsInfo]);
 
   // Usar el nuevo servicio del backend (sin suscripción en tiempo real por ahora)
   const { data, isLoading } = useQuery({
@@ -330,10 +384,6 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
     staleTime: 5000, // 5 segundos
     retry: 3
   });
-
-  const handleFilterSubmit = (filters: IFilters) => {
-    setFilters(filters);
-  };
 
   const handleSearch = (search: string) => {
     setSearchValue(search);
@@ -484,7 +534,6 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
         <TableHeader
           columnsInfo={columnsInfo}
           handleChangeColumns={handleChangeColumns}
-          handleFilterSubmit={handleFilterSubmit}
           handleSearch={handleSearch}
         />
         {isLoading ? (
@@ -511,37 +560,31 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
                         className="rounded"
                       />
                     </th>
-                    <Th
-                      label="ID"
-                      onSort={() => toggleSort('id')}
-                      active={sortBy === 'id'}
-                      dir={sortBy === 'id' ? sortDir : undefined}
-                    />
-                    <Th
-                      label="Estado"
-                      onSort={() => toggleSort('estado')}
-                      active={sortBy === 'estado'}
-                      dir={sortBy === 'estado' ? sortDir : undefined}
-                    />
-                    <Th
-                      label="Nombre Completo"
-                      onSort={() => toggleSort('nombreCompleto')}
-                      active={sortBy === 'nombreCompleto'}
-                      dir={sortBy === 'nombreCompleto' ? sortDir : undefined}
-                    />
-                    <Th
-                      label="Último Acceso"
-                      onSort={() => toggleSort('ultimoAcceso')}
-                      active={sortBy === 'ultimoAcceso'}
-                      dir={sortBy === 'ultimoAcceso' ? sortDir : undefined}
-                    />
-                    <Th
-                      label="Rol"
-                      onSort={() => toggleSort('rol')}
-                      active={sortBy === 'rol'}
-                      dir={sortBy === 'rol' ? sortDir : undefined}
-                    />
-                    <th className="p-4 text-center">Acciones</th>
+                    {columnsInfo?.filter(col => !col.hidden).map((col) => (
+                      <Th
+                        key={col.key}
+                        label={col.title as string}
+                        onSort={() => {
+                          // Solo permitir ordenamiento en columnas específicas
+                          if (col.key === 'id_perfil') toggleSort('id');
+                          else if (col.key === 'estado') toggleSort('estado');
+                          else if (col.key === 'ultimo_acceso') toggleSort('ultimoAcceso');
+                          else if (col.key === 'rol') toggleSort('rol');
+                        }}
+                        active={
+                          (col.key === 'id_perfil' && sortBy === 'id') ||
+                          (col.key === 'estado' && sortBy === 'estado') ||
+                          (col.key === 'ultimo_acceso' && sortBy === 'ultimoAcceso') ||
+                          (col.key === 'rol' && sortBy === 'rol')
+                        }
+                        dir={
+                          ((col.key === 'id_perfil' && sortBy === 'id') ||
+                           (col.key === 'estado' && sortBy === 'estado') ||
+                           (col.key === 'ultimo_acceso' && sortBy === 'ultimoAcceso') ||
+                           (col.key === 'rol' && sortBy === 'rol')) ? sortDir : undefined
+                        }
+                      />
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -558,61 +601,17 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
                           className="rounded"
                         />
                       </td>
-                      <td className="p-4">
-                        <div className="flex gap-6 items-center min-w-fit">
-                          <img
-                            src={usuario?.avatar_url || AvatarIcon}
-                            alt="avatar"
-                            className="min-w-16 h-16 rounded-[50%] object-cover"
-                          />
-                          <div className="flex flex-col">
-                            <p className="font-semibold">{usuario?.primer_nombre} {usuario?.primer_apellido}</p>
-                            <p>#{usuario.id_perfil}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className={`px-2 py-1 rounded-full text-xs ${
-                          usuario.estado === 'activo' ? 'bg-green-100 text-green-800' :
-                          usuario.estado === 'inactivo' ? 'bg-yellow-100 text-yellow-800' :
-                          usuario.estado === 'suspendido' ? 'bg-orange-100 text-orange-800' :
-                          usuario.estado === 'eliminado' ? 'bg-red-100 text-red-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {usuario.estado}
-                        </span>
-                      </td>
-                      <td className="p-4 text-center">
-                        <p>{usuario?.primer_nombre} {usuario?.segundo_nombre} {usuario?.primer_apellido} {usuario?.segundo_apellido}</p>
-                      </td>
-                      <td className="p-4 text-center">
-                        {usuario.ultimo_acceso ? new Date(usuario.ultimo_acceso).toLocaleString() : 'Nunca'}
-                      </td>
-                      <td className="p-4 text-center">
-                        {usuario.roles && usuario.roles !== 'Sin rol' ? usuario.roles : 'Sin asignar'}
-                      </td>
-                      <td className="p-4 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          {/* Botón Ver - visible para todos los usuarios autenticados */}
-                          <IconBtn title="Ver" onClick={() => handleView(usuario)}>
-                            <MdVisibility size={18} />
-                          </IconBtn>
-
-                          {/* Botón Editar - solo administradores y propietarios */}
-                          {(permissions.isAdministrador() || permissions.isPropietario()) && (
-                            <IconBtn title="Editar" onClick={() => handleEdit(usuario)}>
-                              <MdEdit size={18} />
-                            </IconBtn>
-                          )}
-
-                          {/* Botón Eliminar - solo propietarios */}
-                          {permissions.isPropietario() && (
-                            <IconBtn title="Eliminar" onClick={() => handleDelete(usuario)}>
-                              <MdDelete size={18} />
-                            </IconBtn>
-                          )}
-                        </div>
-                      </td>
+                      {columnsInfo?.filter(col => !col.hidden).map((col) => {
+                        const column = col as { dataIndex?: string; render?: (value: unknown, record: UsuarioDataType, index: number) => React.ReactNode };
+                        const value = column.dataIndex ? usuario[column.dataIndex as keyof UsuarioDataType] : null;
+                        return (
+                          <td key={col.key} className={`p-4 ${col.align === 'center' ? 'text-center' : 'text-left'}`}>
+                            {column.render ? column.render(value, usuario, 0) : (
+                              <span>{value as string}</span>
+                            )}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>

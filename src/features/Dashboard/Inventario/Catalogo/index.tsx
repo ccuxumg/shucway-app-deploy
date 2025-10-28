@@ -65,7 +65,6 @@ export default function Catalogo() {
   const [sortBy, setSortBy] = useState<SortKey>('nombre' as SortKey);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
-  const uid = (pref = '') => `${pref}${Date.now().toString(36)}`;
   const slugify = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
   const formatStock = (n: number, unidad: UnidadMedida) => `${n} ${unidad}`;
@@ -225,72 +224,16 @@ export default function Catalogo() {
   // Helper: recargar insumos directamente desde la tabla 'insumo' (mapeo similar al fallback)
   async function fetchInsumosFromTable() {
     try {
-      const { data: insData, error: insErr } = await supabase
-        .from("insumo")
-        .select(`
-          id_insumo,
-          nombre,
-          unidad_medida,
-          stock_minimo,
-          costo_promedio,
-          activo,
-          fecha_creacion,
-          id_categoria,
-          id_proveedor_principal,
-          categoria_insumo!inner(tipo_categoria, nombre)
-        `)
-        .order("nombre", { ascending: true });
-      if (insErr) throw insErr;
-      const toStr = (v: unknown) => (v == null ? "" : String(v));
-      const toNum = (v: unknown) => {
-        const n = Number(String(v ?? "0"));
-        return Number.isFinite(n) ? n : 0;
-      };
-      const mapped = (insData ?? []).map((i: Record<string, unknown>) => {
-        const categoriaData = i["categoria_insumo"] as { tipo_categoria?: string; nombre?: string } | null;
-        const nombreCategoria = toStr(categoriaData?.nombre);
-
-        // Determinar tipo basado en el nombre de la categoría (consistente con el mapeo principal)
-        let tipo: TipoInsumo = "Operativo";
-        if (nombreCategoria && nombreCategoria.toLowerCase().includes("perpetuo")) {
-          tipo = "Perpetuo";
-        }
-
-        // Usar stock de lotes (temporalmente 0)
-        const stockLotes = 0;
-        const stockMinimo = toNum(i["stock_minimo"]);
-        let estado: EstadoStock = "OK";
-        if (stockLotes <= stockMinimo * 0.5) estado = "Crítico";
-        else if (stockLotes <= stockMinimo) estado = "Stock Bajo";
-
-        // Última actualización (fecha_creacion)
-        const ultimaBitacora = toStr(i["fecha_creacion"]);
-
-        return {
-          id: toStr(i["id_insumo"]),
-          nombre: toStr(i["nombre"]),
-          tipo,
-          stockCantidad: stockLotes,
-          unidad: (toStr(i["unidad_medida"]) || "unidades") as UnidadMedida,
-          estado,
-          ultimaActualizacion: ultimaBitacora || new Date().toISOString(),
-          categoria: nombreCategoria || "—",
-          descripcion: "",
-          proveedor: (() => {
-            const idProv = i["id_proveedor_principal"];
-            const found = proveedoresBD.find((p: { id_proveedor: number; nombre_empresa: string }) => p.id_proveedor === Number(idProv));
-            return found ? found.nombre_empresa : undefined;
-          })(),
-          costo: i["costo_promedio"] != null ? Number(i["costo_promedio"]) : undefined,
-          ubicacion: undefined,
-          activo: Boolean(i["activo"]),
-          automatica: false,
-          imagen: `/insumos/${slugify(toStr(i["nombre"]))}.png`,
-          categoriaId: i["id_categoria"] != null ? Number(i["id_categoria"]) : undefined,
-          proveedorId: i["id_proveedor_principal"] != null ? Number(i["id_proveedor_principal"]) : undefined,
-        } as Fila;
+      // Usar el endpoint del backend que ya devuelve el catálogo/joined view
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/inventario/catalogo`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+        },
       });
-      setRows(mapped);
+      const json = await res.json();
+      const insumos = Array.isArray(json) ? json : (json.data || []);
+      // Reutilizar el mapeo principal a `rows` vía rawInsumos para mantener consistencia
+      setRawInsumos(insumos as Record<string, unknown>[]);
     } catch (e: unknown) {
       console.error("Error recargando insumos:", e);
     }
@@ -384,7 +327,8 @@ export default function Catalogo() {
   // CRUD
   const openCreate = () => {
     setEditingId(null);
-    setForm({ ...blankForm, id: uid("INS"), categoriaId: categoriasBD.length > 0 ? categoriasBD[0].id_categoria : undefined });
+    // no crear id en frontend: delegar autoincrement al backend
+    setForm({ ...blankForm, id: "", categoriaId: categoriasBD.length > 0 ? categoriasBD[0].id_categoria : undefined });
     setOpenDrawer(true);
   };
   const openEdit = (row: Fila) => {
@@ -405,8 +349,19 @@ export default function Catalogo() {
     setLoading(true);
     setError(null);
     try {
-      const { error: delErr } = await supabase.from('insumo').delete().eq('id_insumo', Number(deleteModal.row.id));
-      if (delErr) throw delErr;
+      const idToDelete = Number(deleteModal.row.id);
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/dashboard/table-data/insumo/${idToDelete}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+        },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.message || `HTTP ${res.status}`);
+      }
+      // recargar catálogo
       await fetchInsumosFromTable();
       setDeleteModal({ open: false, row: null });
     } catch (e: unknown) {
@@ -445,43 +400,52 @@ export default function Catalogo() {
       setLoading(true);
       setError(null);
       try {
-        // Intentar la operación aunque no haya sesión; Supabase puede devolver error por RLS si corresponde
         if (editingId) {
-          // actualizar
-          const { error: upErr } = await supabase.from("insumo").update(payload).eq("id_insumo", Number(editingId));
-          if (upErr) throw upErr;
+          // actualizar via backend
+          const res = await fetch(`${import.meta.env.VITE_API_URL}/dashboard/table-data/insumo/${editingId}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error(body?.message || `HTTP ${res.status}`);
+          }
         } else {
-          const { data: insData, error: insErr } = await supabase.from("insumo").insert(payload).select("id_insumo, nombre").single();
-          if (insErr) throw insErr;
-          // si se creó, actualizar id del form
-          if (insData && insData.id_insumo) setForm((f) => ({ ...f, id: String(insData.id_insumo) }));
+          // crear via backend
+          const res = await fetch(`${import.meta.env.VITE_API_URL}/dashboard/table-data/insumo`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error(body?.message || `HTTP ${res.status}`);
+          }
+          const body = await res.json().catch(() => ({}));
+          const created = body?.data;
+          if (created) {
+            // buscar posibles campos id comunes
+            const newId = created.id_insumo ?? created.id ?? created.insertId ?? created[Object.keys(created)[0]];
+            if (newId != null) setForm((f) => ({ ...f, id: String(newId) }));
+          }
         }
-        // recargar listado desde la tabla para reflejar cambios
+        // recargar listado desde el backend para reflejar cambios
         await fetchInsumosFromTable();
         setOpenDrawer(false);
       } catch (e: unknown) {
-        // Log the raw error for debugging
         console.error('Error guardando insumo - raw error:', e);
-        let message: string;
-        try {
-          if (e instanceof Error) {
-            message = e.message;
-          } else if (e && typeof e === 'object') {
-            // include non-enumerable props
-            message = JSON.stringify(e, Object.getOwnPropertyNames(e), 2);
-          } else {
-            message = String(e);
-          }
-        } catch (stringifyErr) {
-          console.error('Error stringifying error object:', stringifyErr);
-          message = String(e);
-        }
-        console.error('Error guardando insumo (stringified):', message);
+        const message = e instanceof Error ? e.message : String(e);
         setError(message);
-        // Detecta errores comunes de RLS/permisos y sugiere pasos
         const lower = message.toLowerCase();
         if (lower.includes('forbidden') || lower.includes('permission') || lower.includes('policy')) {
-          alert('Error de permisos al guardar insumo. Es posible que las políticas RLS impidan la operación con la sesión actual. Revisa roles/permisos en Supabase.\nDetalles: ' + message);
+          alert('Error de permisos al guardar insumo. Revisa roles/permisos en el backend.\nDetalles: ' + message);
         } else {
           alert('Error guardando insumo. Revisa la consola para más detalles.\n' + message);
         }

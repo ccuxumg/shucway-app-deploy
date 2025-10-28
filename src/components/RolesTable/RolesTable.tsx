@@ -59,7 +59,7 @@ const RolesTable: React.FC<RolesTableProps> = ({ estadoFilter }) => {
   const createRolMutation = useMutation({
     mutationFn: createRol,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["roles"] });
+      queryClient.invalidateQueries({ queryKey: ["roles-table"] });
       message.success("Rol creado exitosamente");
       setAddDrawerOpen(false);
       addForm.reset();
@@ -72,7 +72,7 @@ const RolesTable: React.FC<RolesTableProps> = ({ estadoFilter }) => {
   const updateRolMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: UpdateRolDTO }) => updateRol(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["roles"] });
+      queryClient.invalidateQueries({ queryKey: ["roles-table"] });
       message.success("Rol actualizado exitosamente");
       setEditDrawerOpen(false);
       editForm.reset();
@@ -91,7 +91,7 @@ const RolesTable: React.FC<RolesTableProps> = ({ estadoFilter }) => {
     mutationFn: deleteRol,
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["roles"],
+        queryKey: ["roles-table"],
       });
       message.success("Rol eliminado exitosamente");
     },
@@ -369,7 +369,7 @@ const RolesTable: React.FC<RolesTableProps> = ({ estadoFilter }) => {
             {permissions.isPropietario() && (
               <button
                 onClick={handleAdd}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-[#12443d] text-white rounded-lg hover:bg-[#0d3a34] transition-colors"
               >
                 <MdAdd size={20} />
                 <span>Nuevo Rol</span>

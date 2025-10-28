@@ -82,6 +82,50 @@ export const dashboardController = {
     }
   },
 
+  async createRecord(req: Request, res: Response) {
+    try {
+      const { tableName } = req.params;
+      const values = req.body;
+      if (!tableName) return res.status(400).json({ message: 'Nombre de tabla requerido' });
+      const created = await dashboardService.createRecord(tableName, values);
+      res.status(201).json({ data: created });
+      return;
+    } catch (error) {
+      console.error('Error creando registro:', error);
+      res.status(500).json({ message: 'Error al crear el registro' });
+      return;
+    }
+  },
+
+  async updateRecord(req: Request, res: Response) {
+    try {
+      const { tableName, id } = req.params;
+      const values = req.body;
+      if (!tableName || !id) return res.status(400).json({ message: 'Nombre de tabla e id requerido' });
+      const updated = await dashboardService.updateRecord(tableName, id, values);
+      res.json({ data: updated });
+      return;
+    } catch (error) {
+      console.error('Error actualizando registro:', error);
+      res.status(500).json({ message: 'Error al actualizar el registro' });
+      return;
+    }
+  },
+
+  async deleteRecord(req: Request, res: Response) {
+    try {
+      const { tableName, id } = req.params;
+      if (!tableName || !id) return res.status(400).json({ message: 'Nombre de tabla e id requerido' });
+      await dashboardService.deleteRecord(tableName, id);
+      res.json({ success: true });
+      return;
+    } catch (error) {
+      console.error('Error eliminando registro:', error);
+      res.status(500).json({ message: 'Error al eliminar el registro' });
+      return;
+    }
+  },
+
   async getInventoryData(_req: Request, res: Response) {
     try {
       const data = await dashboardService.getInventoryData();

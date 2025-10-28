@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../../../../api/supabaseClient';
+import api from '../../../../../api/apiClient';
 import { Button, Table, message, Modal, Form, Input, Select } from 'antd';
 import { FaEye, FaEdit, FaTrash, FaPlus } from 'react-icons/fa';
 
@@ -33,13 +33,11 @@ const RolesMantenimiento: React.FC = () => {
   const fetchRoles = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('rol_usuario')
-        .select('*')
-        .order('fecha_creacion', { ascending: false });
-
-      if (error) throw error;
-      setRoles(data || []);
+      const resp = await api.get('/dashboard/table-data/rol_usuario?limit=1000');
+      if (!resp || resp.status >= 400) throw new Error('Error al cargar roles');
+      const js = resp.data || {};
+      const rows = js.data || [];
+      setRoles(rows as RolUsuario[]);
     } catch (error) {
       console.error('Error fetching roles:', error);
       message.error('Error al cargar roles');
@@ -70,12 +68,8 @@ const RolesMantenimiento: React.FC = () => {
       cancelText: 'Cancelar',
       onOk: async () => {
         try {
-          const { error } = await supabase
-            .from('rol_usuario')
-            .delete()
-            .eq('id_rol', rol.id_rol);
-
-          if (error) throw error;
+          const resp = await api.delete(`/dashboard/table-data/rol_usuario/${encodeURIComponent(String(rol.id_rol))}`);
+          if (!resp || resp.status >= 400) throw new Error('Error al eliminar rol');
           message.success('Rol eliminado exitosamente');
           fetchRoles();
         } catch (error) {
@@ -88,24 +82,15 @@ const RolesMantenimiento: React.FC = () => {
 
   const handleSave = async (values: RolUsuario) => {
     try {
-      if (editingRol?.id_rol) {
-        // Update
-        const { error } = await supabase
-          .from('rol_usuario')
-          .update(values)
-          .eq('id_rol', editingRol.id_rol);
-
-        if (error) throw error;
-        message.success('Rol actualizado exitosamente');
-      } else {
-        // Create
-        const { error } = await supabase
-          .from('rol_usuario')
-          .insert(values);
-
-        if (error) throw error;
-        message.success('Rol creado exitosamente');
-      }
+        if (editingRol?.id_rol) {
+          const resp = await api.put(`/dashboard/table-data/rol_usuario/${encodeURIComponent(String(editingRol.id_rol))}`, values as unknown as Record<string, unknown>);
+          if (!resp || resp.status >= 400) throw new Error('Error al actualizar rol');
+          message.success('Rol actualizado exitosamente');
+        } else {
+          const resp = await api.post('/dashboard/table-data/rol_usuario', values as unknown as Record<string, unknown>);
+          if (!resp || resp.status >= 400) throw new Error('Error al crear rol');
+          message.success('Rol creado exitosamente');
+        }
 
       setModalVisible(false);
       form.resetFields();

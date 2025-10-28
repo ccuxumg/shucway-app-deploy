@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../../../../api/supabaseClient';
+import api from '../../../../../api/apiClient';
 import { Button, Table, message, Modal, Form, Input, Select, InputNumber } from 'antd';
 import { FaEye, FaEdit, FaTrash, FaPlus } from 'react-icons/fa';
 
@@ -36,13 +36,11 @@ const ProductosMantenimiento: React.FC = () => {
   const fetchProductos = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('productos')
-        .select('*')
-        .order('fecha_creacion', { ascending: false });
-
-      if (error) throw error;
-      setProductos(data || []);
+      const resp = await api.get('/dashboard/table-data/productos?limit=1000');
+      if (!resp || resp.status >= 400) throw new Error('Error al cargar productos');
+      const js = resp.data || {};
+      const rows = js.data || [];
+      setProductos(rows as Producto[]);
     } catch (error) {
       console.error('Error fetching productos:', error);
       message.error('Error al cargar productos');
@@ -73,12 +71,8 @@ const ProductosMantenimiento: React.FC = () => {
       cancelText: 'Cancelar',
       onOk: async () => {
         try {
-          const { error } = await supabase
-            .from('productos')
-            .delete()
-            .eq('id_producto', producto.id_producto);
-
-          if (error) throw error;
+          const resp = await api.delete(`/dashboard/table-data/productos/${encodeURIComponent(String(producto.id_producto))}`);
+          if (!resp || resp.status >= 400) throw new Error('Error al eliminar producto');
           message.success('Producto eliminado exitosamente');
           fetchProductos();
         } catch (error) {
@@ -91,24 +85,15 @@ const ProductosMantenimiento: React.FC = () => {
 
   const handleSave = async (values: Producto) => {
     try {
-      if (editingProducto?.id_producto) {
-        // Update
-        const { error } = await supabase
-          .from('productos')
-          .update(values)
-          .eq('id_producto', editingProducto.id_producto);
-
-        if (error) throw error;
-        message.success('Producto actualizado exitosamente');
-      } else {
-        // Create
-        const { error } = await supabase
-          .from('productos')
-          .insert(values);
-
-        if (error) throw error;
-        message.success('Producto creado exitosamente');
-      }
+        if (editingProducto?.id_producto) {
+          const resp = await api.put(`/dashboard/table-data/productos/${encodeURIComponent(String(editingProducto.id_producto))}`, values as unknown as Record<string, unknown>);
+          if (!resp || resp.status >= 400) throw new Error('Error al actualizar producto');
+          message.success('Producto actualizado exitosamente');
+        } else {
+          const resp = await api.post('/dashboard/table-data/productos', values as unknown as Record<string, unknown>);
+          if (!resp || resp.status >= 400) throw new Error('Error al crear producto');
+          message.success('Producto creado exitosamente');
+        }
 
       setModalVisible(false);
       form.resetFields();

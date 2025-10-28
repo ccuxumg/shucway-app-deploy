@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '@/api/supabaseClient';
+import api from '@/api/apiClient';
 import { Button, Table, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -22,13 +22,11 @@ const CategoriaProductoMantenimiento: React.FC = () => {
 
   const fetchCategorias = async () => {
     try {
-      const { data, error } = await supabase
-        .from('categoria_producto')
-        .select('*')
-        .order('orden_visual', { ascending: true });
-
-      if (error) throw error;
-      setCategorias(data || []);
+      const resp = await api.get(`/dashboard/table-data/categoria_producto?limit=1000`);
+      if (!resp || resp.status >= 400) throw new Error('Error al cargar categorías');
+      const js = resp.data || {};
+      const rows = js.data || [];
+      setCategorias(rows as CategoriaProducto[]);
     } catch (error) {
       message.error('Error al cargar las categorías');
       console.error('Error:', error);

@@ -1,3 +1,4 @@
+// backend/src/app.ts
 import express, { Application } from 'express';
 import cors, { CorsOptions } from 'cors';
 import helmet from 'helmet';
@@ -7,40 +8,48 @@ import { logger } from './utils/logger';
 import { errorHandler, notFoundHandler } from './middlewares/errorHandler.middleware';
 import routes from './routes';
 
-// Crear aplicación Express
 const app: Application = express();
 
-/* ================= Seguridad básica ================= */
-// Para APIs: desactivar CORP (evita bloquear recursos cross-origin).
-app.use(helmet({ crossOriginResourcePolicy: false }));
+// Confianza en proxy (Vercel) para cabeceras de origen/IP
+app.set('trust proxy', 1);
 
-/* ================= CORS robusto ================= */
-// Normaliza CORS_ORIGIN: separa por coma/espacio/; , trimea y quita '/' final
-const allowlist = (config.cors?.origin || '')
-  .split(/[,\s;]+/)
-  .map(o => o.trim().replace(/\/$/, ''))
-  .filter(Boolean);
+// Seguridad básica
+app.use(helmet());
 
-const corsOptions: CorsOptions = {
-  origin(origin, cb) {
-    // Permite llamadas server-to-server (sin header Origin)
-    if (!origin) return cb(null, true);
-    const clean = origin.replace(/\/$/, '');
-    const ok = allowlist.includes(clean);
-    if (ok) return cb(null, true);
-    return cb(new Error(`CORS blocked origin: ${origin}`));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  maxAge: 86400, // cache de preflight (24h)
-};
+// ========= CORS =========
+const safeSplit = (s?: string) =>
+  (s ? s.split(',').map(o => o.trim()).filter(Boolean) : []);
 
+const allowList = safeSplit(config.cors?.origin);
+
+// OJO: si usas cookies en el futuro, mantén credentials:true en ambos lados
+const corsOptions: CorsOptions =
+  allowList.length > 0
+    ? {
+        origin(origin, cb) {
+          // Permite server-to-server (curl, Postman) sin Origin
+          if (!origin) return cb(null, true);
+
+          const ok = allowList.includes(origin);
+          if (config.env === 'development') {
+            logger.debug(`[CORS] origin="${origin}" allow=${ok}`);
+          }
+          return ok ? cb(null, true) : cb(new Error('Not allowed by CORS'));
+        },
+        credentials: true,
+      }
+    : {
+        origin: true,
+        credentials: true,
+      };
+
+// Aplica CORS a todas las peticiones
 app.use(cors(corsOptions));
-// Responder explícitamente preflights a cualquier ruta
+// **MUY IMPORTANTE**: responder también el preflight (OPTIONS)
 app.options('*', cors(corsOptions));
+// ========================
 
-/* ================= Rate limiting ================= */
+// Rate limiting (después de CORS para no bloquear preflights)
 const limiter = rateLimit({
   windowMs: config.rateLimit.windowMs,
   max: config.rateLimit.maxRequests,
@@ -53,11 +62,11 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-/* ================= Parsers ================= */
+// Parsers
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-/* ================= Logger en desarrollo ================= */
+// Logger de requests en desarrollo
 if (config.env === 'development') {
   app.use((req, _res, next) => {
     logger.debug(`${req.method} ${req.url}`);
@@ -65,9 +74,15 @@ if (config.env === 'development') {
   });
 }
 
-/* ================= Rutas ================= */
+// Rutas API
 app.use('/api', routes);
 
+// Healthcheck (útil para probar CORS rápido)
+app.get('/api/health', (_req, res) => {
+  res.json({ ok: true, env: config.env, cors_allow: allowList });
+});
+
+// Ruta raíz informativa
 app.get('/', (_req, res) => {
   res.json({
     success: true,
@@ -80,7 +95,7 @@ app.get('/', (_req, res) => {
   });
 });
 
-/* ================= Errores ================= */
+// Errores
 app.use(notFoundHandler);
 app.use(errorHandler);
 

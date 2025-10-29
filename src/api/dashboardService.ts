@@ -30,9 +30,10 @@ export interface ChartData {
 }
 
 export interface Alert {
-  id?: number;
+  id?: string;
   type: 'warning' | 'info' | 'error';
   message: string;
+  module: string;
   timestamp: string;
 }
 

@@ -1,6 +1,25 @@
 import { StatsData, InventoryItem } from '../types';
 import supabase from '../config/database';
 
+interface Alerta {
+  id: string;
+  message: string;
+  module: string;
+  type: 'warning' | 'info' | 'error';
+  timestamp: string;
+}
+
+interface InsumoBajo {
+  nombre_insumo: string;
+  stock_actual: number;
+  stock_minimo: number;
+}
+
+interface OrdenPendiente {
+  id_orden: number;
+  proveedor: string;
+}
+
 export const dashboardService = {
   // Mapa explícito table -> primary key para evitar heurísticas
   primaryKeyMap: {
@@ -62,10 +81,55 @@ export const dashboardService = {
     return [];
   },
 
-  async getAlertasRecientes() {
-    // TODO: Convertir consulta SQL a usar Supabase API
-    // Por ahora devolver datos de ejemplo
-    return [];
+  async getAlertasRecientes(): Promise<Alerta[]> {
+    const alertas: Alerta[] = [];
+
+    try {
+      // Insumos bajos en stock (notifications)
+      const { data: insumos, error: errorInsumos } = await supabase
+        .from('insumo')
+        .select('nombre_insumo, stock_actual, stock_minimo');
+
+      if (!errorInsumos && insumos) {
+        const insumosBajos = insumos.filter((i: InsumoBajo) => i.stock_actual < i.stock_minimo);
+        insumosBajos.forEach((i: InsumoBajo) => {
+          alertas.push({
+            id: `insumo-${i.nombre_insumo}`,
+            message: `Límite alcanzado: insumo '${i.nombre_insumo}' bajo stock`,
+            module: 'Inventario',
+            type: 'warning',
+            timestamp: new Date().toISOString()
+          });
+        });
+      }
+
+      // Órdenes de compra pendientes (notifications)
+      const { data: ordenesPendientes, error: errorOrdenes } = await supabase
+        .from('orden_compra')
+        .select('id_orden, proveedor')
+        .eq('estado', 'pendiente');
+
+      if (!errorOrdenes && ordenesPendientes) {
+        ordenesPendientes.forEach((o: OrdenPendiente) => {
+          alertas.push({
+            id: `orden-${o.id_orden}`,
+            message: `Orden de compra pendiente: proveedor '${o.proveedor}'`,
+            module: 'Ventas',
+            type: 'info',
+            timestamp: new Date().toISOString()
+          });
+        });
+      }
+
+      // Alertas de errores (por ahora, agregar algunas de ejemplo o vacías)
+      // TODO: Implementar alertas de errores desde logs o bitácoras
+      // Por ejemplo, conexiones fallidas, etc.
+
+    } catch (error) {
+      console.error('Error obteniendo alertas recientes:', error);
+    }
+
+    return alertas;
   },
 
   async getAvailableTables(): Promise<string[]> {

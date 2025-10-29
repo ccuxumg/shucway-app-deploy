@@ -36,19 +36,21 @@ const corsOptions: CorsOptions =
 
 app.use(cors(corsOptions));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: config.rateLimit.windowMs,
-  max: config.rateLimit.maxRequests,
-  message: {
-    success: false,
-    error: 'Demasiadas solicitudes, por favor intenta más tarde',
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// Rate limiting (solo en producción)
+if (config.env === 'production') {
+  const limiter = rateLimit({
+    windowMs: config.rateLimit.windowMs,
+    max: config.rateLimit.maxRequests,
+    message: {
+      success: false,
+      error: 'Demasiadas solicitudes, por favor intenta más tarde',
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
 
-app.use('/api/', limiter);
+  app.use('/api/', limiter);
+}
 
 // Parsers
 app.use(express.json({ limit: '10mb' }));

@@ -1,9 +1,10 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { MdReceiptLong, MdInventory2, MdAccountBalance } from "react-icons/md";
+import { MdReceiptLong, MdInventory2, MdAccountBalance, MdError } from "react-icons/md";
 import { Banknote, Landmark, CreditCard } from "lucide-react";
 import { ventasService, Venta, ProductoPopular } from "../../../../api/ventasService";
+import { useAlerts } from "../../../../hooks/useAlerts";
 
 
 // ====== Tipos ======
@@ -137,6 +138,8 @@ const VentasDashboard: React.FC = () => {
   const [productosPopulares, setProductosPopulares] = useState<ProductoPopular[]>([]);
   const [isLoadingPopulares, setIsLoadingPopulares] = useState(false);
 
+  const { addAlert } = useAlerts();
+
   // Cargar ventas del backend
   useEffect(() => {
     const loadVentas = async () => {
@@ -171,6 +174,13 @@ const VentasDashboard: React.FC = () => {
         setProductosPopulares(populares);
       } catch (err) {
         console.error('Error cargando productos populares:', err);
+        // Agregar alerta al sistema
+        addAlert({
+          message: 'Error al cargar productos populares',
+          icon: <MdError size={16} />,
+          module: 'Ventas',
+          action: () => navigate('/ventas'), // Acción para ir al módulo
+        });
         // En caso de error, mantener array vacío
         setProductosPopulares([]);
       } finally {
@@ -179,7 +189,7 @@ const VentasDashboard: React.FC = () => {
     };
 
     loadProductosPopulares();
-  }, []);
+  }, [addAlert, navigate]);
 
   // Botones con mismo look & feel que Inventario
   const cards = [

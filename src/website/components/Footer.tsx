@@ -66,15 +66,15 @@ const Footer = () => {
             <div className="contact-info">
               <div className="contact-item">
                 <FaEnvelope />
-                <span>info@shucway.com</span>
+                <span>luisrfp@gmail.com</span>
               </div>
               <div className="contact-item">
                 <FaPhone />
-                <span>+1 (555) 123-4567</span>
+                <span>(+502) 5202-5909</span>
               </div>
               <div className="contact-item">
                 <FaMapMarkerAlt />
-                <span>Tu Dirección Aquí</span>
+                <span>Local 8, CC Naciones Unidas 2, Villa Nueva</span>
               </div>
             </div>
           </div>

@@ -4,7 +4,7 @@ import './Home.css';
 
 const Home = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
-  
+
   const slides = [
     {
       title: "BIENVENIDOS A SHUCWAY",
@@ -99,8 +99,8 @@ const Home = () => {
                 <h1 className="hero-title">{slide.title}</h1>
                 <p className="hero-subtitle">{slide.subtitle}</p>
                 <div className="hero-buttons">
-                  <a 
-                    href="/productos" 
+                  <a
+                    href="/productos"
                     className="btn btn-primary"
                     style={{
                       backgroundColor: slide.colors.primary,
@@ -109,8 +109,8 @@ const Home = () => {
                   >
                     Ver Menú
                   </a>
-                  <a 
-                    href="/contacto" 
+                  <a
+                    href="/contacto"
                     className="btn btn-secondary"
                     style={{
                       backgroundColor: slide.colors.secondary,
@@ -168,27 +168,33 @@ const Home = () => {
       </section>
 
       {/* Visit Section */}
+      
       <section className="visit-section" style={{ lineHeight: 0, fontSize: 0 }}>
-        <iframe
-          src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3861.5367370793485!2d-90.5536095!3d14.5673789!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x8589a115b825c96d%3A0x4b769de74591ec23!2sShucway!5e0!3m2!1ses!2sgt!4v1693875492589!5m2!1ses!2sgt"
-          width="100%"
-          height="400"
-          style={{ 
-            border: 0,
-            display: 'block',
-            marginBottom: '-6px'
-          }}
-          allowFullScreen
-          loading="lazy"
-          referrerPolicy="no-referrer-when-downgrade"
-        ></iframe>
-        <div className="map-overlay"></div>
-        <div className="visit-content">
-          <FaMapMarkerAlt className="location-icon" />
-          <h2 style={{ fontSize: '24px', margin: '0 0 10px' }}>Encuéntranos aquí</h2>
-          <p style={{ fontSize: '16px', margin: 0 }}>Local, CC Naciones Unidas 2, Villa Nueva</p>
-        </div>
+        <a
+          href="https://maps.app.goo.gl/s5bHJLDKRp4qvboB6"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="visit-map-link"
+        >
+          <img
+            src="/image/other/location-static-map.png"
+            alt="Ubicación Shucway"
+            className="visit-map-img"
+          />
+          <div className="map-overlay"></div>
+          <div className="visit-content">
+            <FaMapMarkerAlt className="location-icon" />
+            <h2 style={{ fontSize: '24px', margin: '0 0 10px' }}>Encuéntranos Aquí</h2>
+            <p style={{ fontSize: '16px', margin: 0 }}>
+              Local 8, CC Naciones Unidas 2, Villa Nueva
+            </p>
+            <p style={{ fontSize: '12px', margin: 0 }}>
+              Clic para ver en el mapa
+            </p>
+          </div>
+        </a>
       </section>
+
     </div>
   );
 };

@@ -1,6 +1,5 @@
 import express, { Application } from 'express';
-import cors from 'cors';
-import type { CorsOptions } from 'cors';
+import cors, { CorsOptions } from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { config } from './config/env';
@@ -11,32 +10,37 @@ import routes from './routes';
 // Crear aplicación Express
 const app: Application = express();
 
-// Middlewares de seguridad
-app.use(helmet());
+/* ================= Seguridad básica ================= */
+// Para APIs: desactivar CORP (evita bloquear recursos cross-origin).
+app.use(helmet({ crossOriginResourcePolicy: false }));
 
-// Utilidad segura para dividir CORS_ORIGIN
-const safeSplit = (s?: string) =>
-  (s ? s.split(',').map(o => o.trim()).filter(Boolean) : []);
+/* ================= CORS robusto ================= */
+// Normaliza CORS_ORIGIN: separa por coma/espacio/; , trimea y quita '/' final
+const allowlist = (config.cors?.origin || '')
+  .split(/[,\s;]+/)
+  .map(o => o.trim().replace(/\/$/, ''))
+  .filter(Boolean);
 
-const allowList = safeSplit(config.cors?.origin);
-
-// Si hay lista, validamos; si no, permitimos todo (útil mientras configuras)
-const corsOptions: CorsOptions =
-  allowList.length > 0
-    ? {
-        origin(origin, cb) {
-          if (!origin) return cb(null, true); // server to server / curl
-          return allowList.includes(origin)
-            ? cb(null, true)
-            : cb(new Error('Not allowed by CORS'));
-        },
-        credentials: true,
-      }
-    : { origin: true, credentials: true };
+const corsOptions: CorsOptions = {
+  origin(origin, cb) {
+    // Permite llamadas server-to-server (sin header Origin)
+    if (!origin) return cb(null, true);
+    const clean = origin.replace(/\/$/, '');
+    const ok = allowlist.includes(clean);
+    if (ok) return cb(null, true);
+    return cb(new Error(`CORS blocked origin: ${origin}`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  maxAge: 86400, // cache de preflight (24h)
+};
 
 app.use(cors(corsOptions));
+// Responder explícitamente preflights a cualquier ruta
+app.options('*', cors(corsOptions));
 
-// Rate limiting
+/* ================= Rate limiting ================= */
 const limiter = rateLimit({
   windowMs: config.rateLimit.windowMs,
   max: config.rateLimit.maxRequests,
@@ -47,14 +51,13 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
-
 app.use('/api/', limiter);
 
-// Parsers
+/* ================= Parsers ================= */
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Logger de requests en desarrollo
+/* ================= Logger en desarrollo ================= */
 if (config.env === 'development') {
   app.use((req, _res, next) => {
     logger.debug(`${req.method} ${req.url}`);
@@ -62,10 +65,9 @@ if (config.env === 'development') {
   });
 }
 
-// Rutas
+/* ================= Rutas ================= */
 app.use('/api', routes);
 
-// Ruta raíz
 app.get('/', (_req, res) => {
   res.json({
     success: true,
@@ -78,7 +80,7 @@ app.get('/', (_req, res) => {
   });
 });
 
-// Manejo de errores
+/* ================= Errores ================= */
 app.use(notFoundHandler);
 app.use(errorHandler);
 

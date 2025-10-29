@@ -5,6 +5,7 @@ import inventarioImg from "/img/inventario.jpg";
 import adminImg from "/img/adm.jpg";
 import reportesImg from "/img/reportes.jpg";
 import configImg from "/img/config.jpg";
+import soporteImg from "/img/download.jpeg";
 import StatsCard from "../../../components/widgets/StatsCard";
 import ChartWidget from "../../../components/widgets/ChartWidget";
 import AlertWidget from "../../../components/widgets/AlertWidget";
@@ -38,6 +39,13 @@ const modules = [
     route: "/reportes",
     color: "from-yellow-500 to-yellow-300",
     description: "Estadísticas y análisis"
+  },
+  {
+    name: "Soporte",
+    img: soporteImg,
+    route: "/soporte",
+    color: "from-pink-400 to-pink-300",
+    description: "Centro de ayuda y soporte"
   },
   {
     name: "Configuración",
@@ -114,7 +122,7 @@ const DashboardHome: React.FC = () => {
       </header>
 
       {/* Módulos */}
-      <section className="grid grid-cols-1 lg:grid-cols-5 gap-6 mb-12">
+      <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-6 mb-10 w-full max-w-6xl mx-auto">
         {modules.map((mod) => (
           <div
             key={mod.name}
@@ -122,22 +130,22 @@ const DashboardHome: React.FC = () => {
             tabIndex={0}
             onClick={() => (mod.route ? navigate(mod.route) : null)}
             onKeyDown={(e) => (e.key === "Enter" && mod.route ? navigate(mod.route) : null)}
-            className={`relative rounded-xl shadow-lg cursor-pointer group overflow-hidden h-72 flex items-end bg-gradient-to-br ${mod.color} hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1`}
+            className={`relative rounded-2xl shadow-md cursor-pointer group overflow-hidden h-56 w-full max-w-md flex items-end bg-gradient-to-tr ${mod.color} transition duration-300 transform hover:-translate-y-0.5`}
           >
             <img
               src={mod.img}
               alt={mod.name}
-              className="absolute inset-0 w-full h-full object-cover opacity-20 group-hover:opacity-30 transition duration-300"
+              className="absolute inset-0 w-full h-full object-cover opacity-30 group-hover:opacity-60 transition duration-300"
             />
-            <div className="relative z-10 p-6 w-full flex flex-col justify-end h-full">
-              <h3 className="text-2xl font-bold text-white mb-2 drop-shadow-lg group-hover:scale-105 transition-transform">
+            <div className="relative z-10 p-5 w-full flex flex-col items-start">
+              <h3 className="text-2xl md:text-3xl font-semibold text-white mb-1 drop-shadow-lg">
                 {mod.name}
               </h3>
-              <p className="text-white/90 text-sm mb-3 line-clamp-2">
+              <p className="text-white/95 text-sm mb-0 line-clamp-2">
                 {mod.description}
               </p>
               {mod.name === "Administración" && (
-                <span className="inline-block bg-white/90 text-gray-700 px-3 py-1 rounded-full text-sm font-medium self-start">
+                <span className="inline-block bg-white/90 text-gray-700 px-3 py-1 rounded-full text-sm font-medium mt-2">
                   Gestión de usuarios
                 </span>
               )}

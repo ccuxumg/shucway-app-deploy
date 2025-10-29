@@ -5,8 +5,10 @@ import { validateToken, AuthUser } from '../api/authService';
 interface AuthContextType {
   user: AuthUser | null;
   role: string | null;
+  roleLevel: number | null; // Nivel de permiso del rol
   loading: boolean;
   refreshUser: () => Promise<void>;
+  hasPermission: (requiredLevel: number) => boolean; // Función para verificar permisos
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -15,6 +17,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [role, setRole] = useState<string | null>(null);
+  const [roleLevel, setRoleLevel] = useState<number | null>(null);
   const [loading, setLoading] = useState(true); // Iniciar en true para evitar problemas de timing
 
   const refreshUser = async () => {
@@ -28,6 +31,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         // No hay token, usuario no autenticado
         setUser(null);
         setRole(null);
+        setRoleLevel(null);
         setLoading(false);
         return;
       }
@@ -38,10 +42,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (validatedUser) {
         setUser(validatedUser);
         setRole(validatedUser.role.nombre_rol);
+        setRoleLevel(validatedUser.role.nivel_permiso);
       } else {
         // Token inválido, limpiar todo
         setUser(null);
         setRole(null);
+        setRoleLevel(null);
         localStorage.removeItem('access_token');
         localStorage.removeItem('user');
       }
@@ -49,6 +55,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.error('Error al validar usuario:', err);
       setUser(null);
       setRole(null);
+      setRoleLevel(null);
       localStorage.removeItem('access_token');
       localStorage.removeItem('user');
     } finally {
@@ -66,7 +73,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []); // Solo se ejecuta una vez al montar
 
-  const value = { user, role, loading, refreshUser };
+  const hasPermission = (requiredLevel: number): boolean => {
+    // Si no hay roleLevel, asumir permisos básicos (cliente)
+    const currentLevel = roleLevel ?? 10;
+    return currentLevel >= requiredLevel;
+  };
+
+  const value = { user, role, roleLevel, loading, refreshUser, hasPermission };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

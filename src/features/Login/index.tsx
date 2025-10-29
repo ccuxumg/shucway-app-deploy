@@ -1,4 +1,3 @@
-
 import logo from "/img/logo.png";
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
@@ -31,19 +30,22 @@ const Login = () => {
     try {
       const { identifier, password } = data;
       const success = await handleLogin(identifier, password);
-      
+
       if (success) {
         await refreshUser();
         navigate('/dashboard');
         return;
       }
+
+      // Si el login no fue exitoso (p. ej. credenciales incorrectas),
+      // handleLogin ya muestra el mensaje (por ejemplo 'Usuario no autorizado').
+      // Solo reactivar el botón para permitir reintento.
+      setIsLoading(false);
     } catch (error) {
       console.error('Error al iniciar sesión:', error);
+      // En caso de excepción, también reactivar botón y limpiar campos.
       setIsLoading(false);
-      reset({
-        identifier: '',
-        password: '',
-      });
+      reset({ identifier: '', password: '' });
     }
   };
 

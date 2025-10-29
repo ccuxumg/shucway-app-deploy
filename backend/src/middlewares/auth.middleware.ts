@@ -40,7 +40,7 @@ export const authenticateToken = (
       }
 
       // Agregar usuario al request con verificación de rol
-      const decodedUser = decoded as any;
+      const decodedUser = decoded as AuthUser;
       if (!decodedUser.role || !decodedUser.role.nombre_rol) {
         logger.error('❌ Token no contiene información de rol válida');
         res.status(403).json({

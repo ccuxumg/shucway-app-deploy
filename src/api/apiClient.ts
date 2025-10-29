@@ -40,10 +40,23 @@ api.interceptors.response.use(
   async (error) => {
     if (error.response?.status === 401) {
       // Token inválido o expirado
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
+      // Evitar recargar/redirigir si ya estamos en la página de login
+      const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
+      const requestUrl = error.config?.url || '';
+
+      // Si la petición fue la de login (o ya estamos en /login), no forzar redirect aquí;
+      // eso permite que la vista (p.ej. Login) maneje la presentación de errores/notifications.
+      if (currentPath === '/login' || requestUrl.includes('/auth/login')) {
+        // limpiar tokens locales pero no forzar navegación
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('user');
+      } else {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }

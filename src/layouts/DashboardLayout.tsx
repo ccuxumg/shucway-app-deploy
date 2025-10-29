@@ -9,18 +9,18 @@ import { FiBell } from "react-icons/fi";
 import { IoAlertCircleOutline } from "react-icons/io5";
 import { handleLogout } from "../api/handleLogout";
 import { useNavigate, useLocation } from "react-router-dom";
-// import { supabase } from "../api/supabaseClient"; // Ya no necesitamos supabase para auth
+import { MenuItemGuard } from "../components/guards/ModuleGuard";
 
 // usar el logo público (public/img/logo.png)
 const publicLogo = "/img/logo.png";
 
 const sidebarItems = [
-  { name: "Inicio", icon: <MdHome size={18} />, route: "/dashboard" },
-  { name: "Ventas", icon: <MdShoppingCart size={18} />, route: "/ventas" },
-  { name: "Inventario", icon: <MdInventory2 size={18} />, route: "/inventario" },
-  { name: "Reportes", icon: <MdOutlineAssessment size={18} />, route: "/reportes" },
-  { name: "Administración", icon: <MdAdminPanelSettings size={18} />, route: "/administracion" },
-  { name: "Configuración", icon: <MdSettings size={18} />, route: "/configuracion" },
+  { name: "Inicio", icon: <MdHome size={18} />, route: "/dashboard", module: "DASHBOARD" },
+  { name: "Ventas", icon: <MdShoppingCart size={18} />, route: "/ventas", module: "VENTAS" },
+  { name: "Inventario", icon: <MdInventory2 size={18} />, route: "/inventario", module: "INVENTARIO" },
+  { name: "Reportes", icon: <MdOutlineAssessment size={18} />, route: "/reportes", module: "REPORTES" },
+  { name: "Administración", icon: <MdAdminPanelSettings size={18} />, route: "/administracion", module: "USUARIOS" },
+  { name: "Configuración", icon: <MdSettings size={18} />, route: "/configuracion", module: "CONFIGURACION" },
 ];
 
 const sidebarSections = [
@@ -229,6 +229,83 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  // Componente local: CajaQuick (declarado antes del return para evitar errores TSX)
+  const CajaQuick: React.FC = () => {
+    const [startTs, setStartTs] = useState<number | null>(() => {
+      try {
+        const v = localStorage.getItem('caja:start');
+        return v ? Number(v) : null;
+      } catch {
+        return null;
+      }
+    });
+    const cajaOpen = !!startTs;
+    const [showConfirm, setShowConfirm] = useState(false);
+
+    const openCaja = () => {
+      const ts = Date.now();
+  try { localStorage.setItem('caja:start', String(ts)); } catch { /* ignore storage errors */ }
+      setStartTs(ts);
+      navigate('/ventas/cierre-caja');
+    };
+
+    const closeCaja = () => {
+  try { localStorage.removeItem('caja:start'); } catch { /* ignore storage errors */ }
+      setStartTs(null);
+      navigate('/ventas/cierre-caja');
+    };
+
+    
+
+    const formatDateSpanish = (ts: number) => {
+      try {
+        const d = new Date(ts);
+        const day = d.getDate();
+        const monthNames = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+        return `${day} DE ${monthNames[d.getMonth()]}`;
+      } catch { return '' }
+    };
+
+    const formatCurrency = (amount: number) => {
+      // show like Q.78.0 or Q.0.00 -> use 2 decimals
+      return `Q.${amount.toFixed(2)}`;
+    };
+
+    // Always render card; button color/label depends on cajaOpen.
+    return (
+      <>
+        <div className="flex items-center justify-center w-full">
+          <div className="w-full bg-gray-50 rounded-lg p-4 flex flex-col items-center shadow-md">
+            <div className="text-xs text-gray-500">{formatDateSpanish(startTs || Date.now())}</div>
+            <div className="text-2xl font-extrabold text-gray-800 mt-2">{formatCurrency(0)}</div>
+            <div className="mt-3 w-full">
+              {!cajaOpen ? (
+                <button onClick={openCaja} className="w-full bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-full font-semibold">Abrir Caja</button>
+              ) : (
+                <button onClick={() => setShowConfirm(true)} className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 px-3 py-2 rounded-full font-semibold">Cerrar Caja</button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Confirmación modal al cerrar caja */}
+        {showConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowConfirm(false)} />
+            <div className="relative bg-white rounded-lg shadow-lg p-6 w-80"> 
+              <h3 className="text-lg font-semibold mb-2">Confirmar cierre</h3>
+              <p className="text-sm text-gray-600 mb-4">¿Estás seguro de que deseas cerrar la caja? Se registrará el cierre y podrá revisarse en el módulo de ventas.</p>
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setShowConfirm(false)} className="px-3 py-2 rounded-md bg-gray-100 hover:bg-gray-200">Cancelar</button>
+                <button onClick={() => { setShowConfirm(false); closeCaja(); }} className="px-3 py-2 rounded-md bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-semibold">Cerrar caja</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  };
+
   return (
     <div className="flex min-h-screen font-[Barrow,Segoe UI,Roboto,sans-serif]">
       {/* Sidebar */}
@@ -252,42 +329,43 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
                 {sec.items.map((item) => {
                   const isActive = location.pathname === item.route;
                   return (
-                    <Tippy
-                      key={item.name}
-                      content={item.name}
-                      disabled={!collapsed}
-                      animation="scale"
-                      placement="right"
-                      delay={[80, 0]}
-                      duration={[160, 80]}
-                      hideOnClick={false}
-                      interactive={false}
-                      arrow={true}
-                    >
-                      <button
-                        onClick={() => navigate(item.route)}
-                        title={collapsed ? item.name : undefined}
-                        className={`relative flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-3 rounded-lg text-base font-medium transition-all duration-150 w-full text-left hover:bg-gray-50 transform ${
-                          isActive ? "bg-green-50 text-green-700 shadow-[inset_0_0_0_1px_rgba(34,197,94,0.06)]" : "text-gray-700"
-                        }`}
+                    <MenuItemGuard key={item.name} moduleName={item.module}>
+                      <Tippy
+                        content={item.name}
+                        disabled={!collapsed}
+                        animation="scale"
+                        placement="right"
+                        delay={[80, 0]}
+                        duration={[160, 80]}
+                        hideOnClick={false}
+                        interactive={false}
+                        arrow={true}
                       >
-                        {/* active indicator */}
-                        <AnimatePresence>{isActive && (
-                          <motion.span layoutId="active-indicator" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 rounded-r-full bg-green-500" />
-                        )}</AnimatePresence>
+                        <button
+                          onClick={() => navigate(item.route)}
+                          title={collapsed ? item.name : undefined}
+                          className={`relative flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-3 rounded-lg text-base font-medium transition-all duration-150 w-full text-left hover:bg-gray-50 transform ${
+                            isActive ? "bg-green-50 text-green-700 shadow-[inset_0_0_0_1px_rgba(34,197,94,0.06)]" : "text-gray-700"
+                          }`}
+                        >
+                          {/* active indicator */}
+                          <AnimatePresence>{isActive && (
+                            <motion.span layoutId="active-indicator" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 rounded-r-full bg-green-500" />
+                          )}</AnimatePresence>
 
-                        <motion.div whileHover={{ scale: 1.06 }} transition={{ type: "spring", stiffness: 300 }} className={`flex items-center justify-center ${collapsed ? 'w-12 h-12' : 'w-11 h-11'} rounded-lg shadow-sm`} style={{ background: ICON_HEX[item.name] || '#E5E7EB', color: '#fff' }}>
-                          {item.icon}
-                        </motion.div>
-                        <AnimatePresence initial={false} mode="wait">
-                          {!collapsed && (
-                            <motion.span key={item.name} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} transition={{ duration: 0.18 }} className="ml-2">
-                              {item.name}
-                            </motion.span>
-                          )}
-                        </AnimatePresence>
-                      </button>
-                    </Tippy>
+                          <motion.div whileHover={{ scale: 1.06 }} transition={{ type: "spring", stiffness: 300 }} className={`flex items-center justify-center ${collapsed ? 'w-12 h-12' : 'w-11 h-11'} rounded-lg shadow-sm`} style={{ background: ICON_HEX[item.name] || '#E5E7EB', color: '#fff' }}>
+                            {item.icon}
+                          </motion.div>
+                          <AnimatePresence initial={false} mode="wait">
+                            {!collapsed && (
+                              <motion.span key={item.name} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} transition={{ duration: 0.18 }} className="ml-2">
+                                {item.name}
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
+                        </button>
+                      </Tippy>
+                    </MenuItemGuard>
                   );
                 })}
               </div>
@@ -296,6 +374,13 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
         </nav>
 
         <div className="flex-1" />
+        {/* Caja rápida: abrir / cerrar caja y contador */}
+        <div className="w-full px-3 mb-4">
+          {/* estado de la caja almacenado en localStorage: 'caja:start' = timestamp */}
+          {/* Mostrar botón Abrir Caja cuando cerrada; contador + Cerrar cuando abierta */}
+          {/* Usa navigate a la ruta de cierre de caja para integrarse con el módulo de ventas */}
+          <CajaQuick />
+        </div>
 
         <div className="w-full px-3 mb-4">
           {/* sidebar: perfil eliminado según solicitud */}
@@ -314,7 +399,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
             ) : (
               <button
                 onClick={handleLogout}
-                className="w-full flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium"
+                className="w-full flex items-center justify-center gap-3 bg-red-500 hover:bg-red-600 text-white px-4 py-3 rounded-md shadow-sm text-base font-semibold"
               >
                 <CgLogOut />
                 <span>Cerrar sesión</span>
@@ -323,6 +408,8 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           </div>
         </div>
   </motion.aside>
+
+  
 
   {/* spacer para que el contenido no quede bajo el sidebar (animado) */}
   <motion.div initial={false} animate={{ width: collapsed ? 80 : 224 }} transition={{ type: 'spring', stiffness: 220, damping: 30 }} />

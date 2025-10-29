@@ -7,8 +7,10 @@ import clientesRoutes from './clientes.routes';
 import ventasRoutes from './ventas.routes';
 import usuariosRoutes from './usuarios.routes';
 import dashboardRoutes from './dashboard.routes';
+import { dashboardController } from '../controllers/dashboard.controller';
 import proveedorRoutes from './proveedor.routes';
 import ordenCompraRoutes from './orden_compra.routes';
+import backupRoutes from './backup.routes';
 
 const router = Router();
 
@@ -23,6 +25,11 @@ router.use('/usuarios', usuariosRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/proveedores', proveedorRoutes);
 router.use('/ordenes-compra', ordenCompraRoutes);
+router.use('/backup', backupRoutes);
+
+// Rutas adicionales para compatibilidad con frontend
+router.get('/db/tables-count', dashboardController.getTablesCount);
+router.get('/config/recent-changes', dashboardController.getRecentChanges);
 
 // Ruta de health check
 router.get('/health', (_req, res) => {

@@ -8,6 +8,7 @@ import { Result, Button, Spin } from 'antd';
 import { LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { usePermissions } from '../hooks/usePermissions';
+import { useAuth } from '../hooks/useAuth';
 
 interface RoleGuardProps {
   children: React.ReactNode;
@@ -27,7 +28,8 @@ const RoleGuard: FC<RoleGuardProps> = ({
   fallbackPath = '/dashboard'
 }) => {
   const navigate = useNavigate();
-  const { checkPermission, loading, role, user } = usePermissions();
+  const { checkPermission, role } = usePermissions();
+  const { loading, user } = useAuth();
 
   // Mostrar spinner mientras carga (sin tip para evitar warning)
   if (loading) {

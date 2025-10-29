@@ -11,7 +11,9 @@
     "start": "node dist/index.js",
     "test": "jest",
     "lint": "eslint src --ext .ts",
-    "format": "prettier --write \"src/**/*.ts\""
+    "format": "prettier --write \"src/**/*.ts\"",
+    "backup:full": "powershell -ExecutionPolicy Bypass -File scripts/backup.ps1 -Action full",
+    "backup:incremental": "powershell -ExecutionPolicy Bypass -File scripts/backup.ps1 -Action incremental"
   },
   "keywords": [
     "nodejs",
@@ -23,6 +25,7 @@
   "license": "MIT",
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
+    "@types/pg": "^8.15.6",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
@@ -30,6 +33,7 @@
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
+    "pg": "^8.16.3",
     "serverless-http": "^4.0.0",
     "winston": "^3.17.0",
     "zod": "^3.24.1"

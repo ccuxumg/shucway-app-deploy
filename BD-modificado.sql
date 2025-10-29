@@ -913,29 +913,12 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;-- FUNCIÓN PARA VALIDAR CAMBIO DE CONTRASEÑA (SOLO ADMIN/PROPIETARIO)
+$$ LANGUAGE plpgsql SECURITY DEFINER;-- FUNCIÓN PARA VALIDAR CAMBIO DE CONTRASEÑA (DESHABILITADA - validación se hace en controlador)
 CREATE OR REPLACE FUNCTION fn_validar_cambio_password()
 RETURNS TRIGGER AS $$
-DECLARE
-    v_rol_usuario VARCHAR(50);
-    v_puede_cambiar BOOLEAN := FALSE;
 BEGIN
-    IF OLD.password_hash = NEW.password_hash THEN
-        RETURN NEW;
-    END IF;
-    SELECT r.nombre_rol INTO v_rol_usuario
-    FROM perfil_usuario p
-    JOIN rol_usuario r ON p.id_rol = r.id_rol
-    WHERE p.id_perfil = NEW.id_perfil;
-    
-    IF v_rol_usuario IN ('administrador', 'propietario') THEN
-        v_puede_cambiar := TRUE;
-    END IF;
-    
-    IF NOT v_puede_cambiar THEN
-        RAISE EXCEPTION 'Permiso denegado: Solo usuarios con rol "administrador" o "propietario" pueden modificar contraseñas. Tu rol actual: %', v_rol_usuario;
-    END IF;
-    
+    -- Validación deshabilitada - se hace en el controlador de la aplicación
+    -- para tener acceso al usuario autenticado
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

@@ -14,6 +14,13 @@ const envSchema = z.object({
   SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_KEY: z.string().min(1),
   
+  // PostgreSQL connection for pg_dump
+  SUPABASE_DB_HOST: z.string().optional(),
+  SUPABASE_DB_PORT: z.string().default('5432'),
+  SUPABASE_DB_NAME: z.string().optional(),
+  SUPABASE_DB_USER: z.string().optional(),
+  SUPABASE_DB_PASSWORD: z.string().optional(),
+  
   // JWT (autenticación personalizada)
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRES_IN: z.string().default('7d'),
@@ -46,7 +53,12 @@ export const config = {
   supabase: {
     url: env.SUPABASE_URL,
     anonKey: env.SUPABASE_ANON_KEY,
-    serviceKey: env.SUPABASE_SERVICE_KEY
+    serviceKey: env.SUPABASE_SERVICE_KEY,
+    dbHost: env.SUPABASE_DB_HOST,
+    dbPort: env.SUPABASE_DB_PORT,
+    dbName: env.SUPABASE_DB_NAME,
+    dbUser: env.SUPABASE_DB_USER,
+    dbPassword: env.SUPABASE_DB_PASSWORD
   },
   
   jwt: {

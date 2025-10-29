@@ -6,7 +6,8 @@
 import axios from 'axios';
 
 // URL del backend
-const API_URL = import.meta.env.VITE_API_URL || '/api';
+const API_URL = (import.meta.env.VITE_API_URL || '/api').trim();
+console.log('[API_URL]', API_URL);
 
 // Crear instancia de axios
 export const api = axios.create({

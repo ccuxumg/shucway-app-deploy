@@ -10,50 +10,50 @@ import routes from "./routes";
 
 const app: Application = express();
 
-// Seguridad
+/* ---- Seguridad base ---- */
 app.use(helmet());
 
-// === CORS ===
-const safeSplit = (s?: string) =>
-  (s ? s.split(",").map(o => o.trim()).filter(Boolean) : []);
-
+/* ---- CORS ---- */
+const safeSplit = (s?: string) => (s ? s.split(",").map(o => o.trim()).filter(Boolean) : []);
 const allowList = safeSplit(config.cors?.origin);
 
 const corsOptions: CorsOptions =
   allowList.length > 0
     ? {
         origin(origin, cb) {
-          if (!origin) return cb(null, true);          // server to server
-          return allowList.includes(origin)
-            ? cb(null, true)
-            : cb(new Error("Not allowed by CORS"));
+          if (!origin) return cb(null, true); // server-to-server
+          return allowList.includes(origin) ? cb(null, true) : cb(new Error("Not allowed by CORS"));
         },
         credentials: true
       }
     : { origin: true, credentials: true };
 
 app.use(cors(corsOptions));
-// Responder preflight explícitamente
 app.options("*", cors(corsOptions));
 
-// Rate limiting solo en /api
+/* ---- Healthcheck (ARRIBA y fuera de límites) ---- */
+app.get("/api/health", (_req, res) => {
+  res
+    .set("Cache-Control", "no-store")
+    .status(200)
+    .json({ ok: true, env: config.env, cors_allow: allowList });
+});
+
+/* ---- Rate limiting solo para /api (después de /api/health) ---- */
 const limiter = rateLimit({
   windowMs: config.rateLimit.windowMs,
   max: config.rateLimit.maxRequests,
-  message: {
-    success: false,
-    error: "Demasiadas solicitudes, por favor intenta más tarde"
-  },
+  message: { success: false, error: "Demasiadas solicitudes, por favor intenta más tarde" },
   standardHeaders: true,
   legacyHeaders: false
 });
-app.use("/api/", limiter);
+app.use("/api", limiter);
 
-// Parsers
+/* ---- Parsers ---- */
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// Logger dev
+/* ---- Logger dev ---- */
 if (config.env === "development") {
   app.use((req, _res, next) => {
     logger.debug(`${req.method} ${req.url}`);
@@ -61,15 +61,10 @@ if (config.env === "development") {
   });
 }
 
-// Rutas API
+/* ---- Rutas API ---- */
 app.use("/api", routes);
 
-// Healthcheck
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, env: config.env, cors_allow: allowList });
-});
-
-// Raíz
+/* ---- Raíz informativa ---- */
 app.get("/", (_req, res) => {
   res.json({
     success: true,
@@ -82,7 +77,7 @@ app.get("/", (_req, res) => {
   });
 });
 
-// Errores
+/* ---- Errores ---- */
 app.use(notFoundHandler);
 app.use(errorHandler);
 

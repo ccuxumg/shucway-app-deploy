@@ -1,5 +1,4 @@
-// backend/src/app.ts
-import express, { Application, Request, Response, NextFunction } from 'express';
+import express, { Application } from 'express';
 import cors, { CorsOptions } from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -10,75 +9,59 @@ import routes from './routes';
 
 const app: Application = express();
 
-/* --------------------------- Seguridad básica --------------------------- */
+// Seguridad
 app.use(helmet());
 
-/* ------------------------------ CORS ----------------------------------- */
-// Dominios explícitos desde env (coma separados)
-const raw = (config.cors?.origin ?? '')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
+// ===== CORS con allowlist desde CORS_ORIGIN =====
+const safeSplit = (s?: string) => (s ? s.split(',').map(o => o.trim()).filter(Boolean) : []);
+const allowList = safeSplit(config.cors?.origin);
 
-// Acepta el dominio principal y también los “preview deployments” de Vercel
-const previewRegex = /^https:\/\/shucway-app-front-[\w-]+\.vercel\.app$/i;
-
-const isAllowedOrigin = (origin?: string) => {
-  if (!origin) return true;                  // server-to-server / curl
-  if (raw.includes(origin)) return true;     // coincide con la lista
-  if (previewRegex.test(origin)) return true; // preview de Vercel
-  return false;
-};
-
-const corsOptions: CorsOptions = {
-  origin(origin, cb) {
-    cb(null, isAllowedOrigin(origin));
-  },
-  credentials: true,
-  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-};
+const corsOptions: CorsOptions =
+  allowList.length > 0
+    ? {
+        origin(origin, cb) {
+          if (!origin) return cb(null, true); // server-to-server / curl
+          return allowList.includes(origin) ? cb(null, true) : cb(new Error('Not allowed by CORS'));
+        },
+        credentials: true
+      }
+    : { origin: true, credentials: true };
 
 app.use(cors(corsOptions));
-// Responder explícitamente preflight a todo
+// *** Responder preflight explícitamente (soluciona el 404/ERR_FAILED del OPTIONS) ***
 app.options('*', cors(corsOptions));
 
-/* --------------------------- Rate limiting ------------------------------ */
+// Rate limiting
 const limiter = rateLimit({
   windowMs: config.rateLimit.windowMs,
   max: config.rateLimit.maxRequests,
-  message: { success: false, error: 'Demasiadas solicitudes, intenta más tarde.' },
+  message: { success: false, error: 'Demasiadas solicitudes, intenta más tarde' },
   standardHeaders: true,
-  legacyHeaders: false,
+  legacyHeaders: false
 });
 app.use('/api/', limiter);
 
-/* --------------------------- Parsers & logs ----------------------------- */
+// Parsers
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 if (config.env === 'development') {
-  app.use((req: Request, _res: Response, next: NextFunction) => {
+  app.use((req, _res, next) => {
     logger.debug(`${req.method} ${req.url}`);
     next();
   });
 }
 
-/* ------------------------------- Rutas ---------------------------------- */
+// Rutas API
 app.use('/api', routes);
 
-// Healthcheck (útil para probar CORS y disponibilidad)
-app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({
-    ok: true,
-    env: config.env,
-    cors_allow: raw,
-    time: new Date().toISOString(),
-  });
+// Healthcheck (útil para probar CORS rápido)
+app.get('/api/health', (_req, res) => {
+  res.json({ ok: true, env: config.env, cors_allow: allowList });
 });
 
-// Info raíz
-app.get('/', (_req: Request, res: Response) => {
+// Raíz
+app.get('/', (_req, res) => {
   res.json({
     success: true,
     message: 'Shucway API - Backend funcionando',
@@ -86,11 +69,11 @@ app.get('/', (_req: Request, res: Response) => {
     stack: 'Node.js + Express + TypeScript',
     database: 'Supabase PostgreSQL (sin Supabase Auth)',
     storage: 'Supabase Storage',
-    authentication: 'JWT personalizado con bcrypt',
+    authentication: 'JWT personalizado con bcrypt'
   });
 });
 
-/* --------------------------- Manejo de errores -------------------------- */
+// Errores
 app.use(notFoundHandler);
 app.use(errorHandler);
 

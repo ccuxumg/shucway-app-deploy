@@ -114,7 +114,7 @@ export class AuthService {
       }
 
       if (!user) {
-        throw new AppError('Credenciales inválidas', 401);
+        throw new AppError('Usuario no encontrado', 404);
       }
 
       // Verificar si el usuario está activo
@@ -129,7 +129,7 @@ export class AuthService {
       );
 
       if (!isPasswordValid) {
-        throw new AppError('Credenciales inválidas', 401);
+        throw new AppError('Contraseña incorrecta', 401);
       }
 
       // Actualizar último acceso

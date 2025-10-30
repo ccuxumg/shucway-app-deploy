@@ -27,7 +27,7 @@ if (userStr) {
 
 // 3. Hacer petición de prueba al endpoint test
 console.log('\n3. Probando endpoint /api/usuarios/test...');
-fetch('http://localhost:3001/api/usuarios/test', {
+fetch('http://localhost:3002/api/usuarios/test', {
   headers: {
     'Authorization': `Bearer ${token}`
   }

@@ -702,7 +702,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           </div>
   </header>
 
-  <div className="flex-1 overflow-auto p-6 bg-transparent">
+  <div className="flex-1 p-6 bg-transparent">
           <div className="animate-fade-in">{children}</div>
         </div>
       </main>

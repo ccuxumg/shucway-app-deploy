@@ -11,7 +11,7 @@ npm run dev:all
 ```
 
 - Frontend: `http://localhost:5173` (o puerto 3000)
-- Backend: `http://localhost:3001`
+- Backend: `http://localhost:3002`
 
 ## 👤 Usuarios del Sistema
 

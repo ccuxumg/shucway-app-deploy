@@ -4,20 +4,38 @@ import Tippy from '@tippyjs/react';
 import 'tippy.js/dist/tippy.css';
 import avatarImg from "../assets/imgs/login.png";
 import { CgLogOut } from "react-icons/cg";
-import { MdHome, MdInventory2, MdSettings, MdOutlineAssessment, MdAdminPanelSettings, MdShoppingCart } from "react-icons/md";
+import { MdHome, MdInventory, MdSettings, MdOutlineAssessment, MdAdminPanelSettings, MdShoppingCart, MdLockOpen, MdBackup, MdError, MdWarning, MdCancel, MdLock, MdPerson, MdHelp } from "react-icons/md";
 import { FiBell } from "react-icons/fi";
 import { IoAlertCircleOutline } from "react-icons/io5";
 import { handleLogout } from "../api/handleLogout";
 import { useNavigate, useLocation } from "react-router-dom";
 import { MenuItemGuard } from "../components/guards/ModuleGuard";
+import { dashboardService } from "../api/dashboardService";
+import { useAlerts } from "../hooks/useAlerts";
 
 // usar el logo público (public/img/logo.png)
 const publicLogo = "/img/logo.png";
 
+interface NotificationItem {
+  id: string;
+  message: string;
+  icon: React.ReactNode;
+  module: string;
+  action: () => void;
+}
+
+interface AlertData {
+  id?: string;
+  type: 'warning' | 'info' | 'error';
+  message: string;
+  module: string;
+  timestamp: string;
+}
+
 const sidebarItems = [
   { name: "Inicio", icon: <MdHome size={18} />, route: "/dashboard", module: "DASHBOARD" },
   { name: "Ventas", icon: <MdShoppingCart size={18} />, route: "/ventas", module: "VENTAS" },
-  { name: "Inventario", icon: <MdInventory2 size={18} />, route: "/inventario", module: "INVENTARIO" },
+  { name: "Inventario", icon: <MdInventory size={18} />, route: "/inventario", module: "INVENTARIO" },
   { name: "Reportes", icon: <MdOutlineAssessment size={18} />, route: "/reportes", module: "REPORTES" },
   { name: "Administración", icon: <MdAdminPanelSettings size={18} />, route: "/administracion", module: "USUARIOS" },
   { name: "Configuración", icon: <MdSettings size={18} />, route: "/configuracion", module: "CONFIGURACION" },
@@ -40,6 +58,8 @@ const ICON_HEX: Record<string, string> = {
 };
 
 const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
+  // ... existing code ...
+  const { alerts: localAlerts } = useAlerts();
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
@@ -47,6 +67,13 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement | null>(null);
+  // Notifications and alerts states
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [alertsOpen, setAlertsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [alerts, setAlerts] = useState<NotificationItem[]>([]);
+  const notificationsRef = useRef<HTMLDivElement | null>(null);
+  const alertsRef = useRef<HTMLDivElement | null>(null);
   // Search states
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -99,6 +126,12 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
         setProfileOpen(false);
       }
+      if (notificationsRef.current && !notificationsRef.current.contains(e.target as Node)) {
+        setNotificationsOpen(false);
+      }
+      if (alertsRef.current && !alertsRef.current.contains(e.target as Node)) {
+        setAlertsOpen(false);
+      }
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
@@ -133,6 +166,42 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   }, [searchQuery]);
 
   // removed theme toggle per request
+
+  useEffect(() => {
+    const loadAlerts = async () => {
+      try {
+        const alertasData = await dashboardService.getAlertasRecientes();
+        const notifs: NotificationItem[] = [];
+        const alrts: NotificationItem[] = [];
+        alertasData.forEach((alert: AlertData) => {
+          const item: NotificationItem = {
+            id: alert.id || '',
+            message: alert.message,
+            icon: alert.type === 'error' ? <MdError size={16} /> : alert.type === 'warning' ? <MdWarning size={16} /> : <MdBackup size={16} />,
+            module: alert.module,
+            action: () => {
+              if (alert.module === 'Inventario') navigate('/inventario');
+              else if (alert.module === 'Ventas') navigate('/ventas');
+              else if (alert.module === 'Configuración') navigate('/configuracion');
+            }
+          };
+          if (alert.type === 'error' || alert.type === 'warning') {
+            alrts.push(item);
+          } else {
+            notifs.push(item);
+          }
+        });
+        setNotifications(notifs);
+        setAlerts(alrts);
+      } catch (error) {
+        console.error('Error loading alerts:', error);
+        // Fallback to empty arrays
+        setNotifications([]);
+        setAlerts([]);
+      }
+    };
+    loadAlerts();
+  }, [navigate, setNotifications, setAlerts]);
 
   const currentRouteName = () => {
     const match = sidebarItems.find((s) => s.route === location.pathname);
@@ -276,13 +345,19 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       <>
         <div className="flex items-center justify-center w-full">
           <div className="w-full bg-gray-50 rounded-lg p-4 flex flex-col items-center shadow-md">
-            <div className="text-xs text-gray-500">{formatDateSpanish(startTs || Date.now())}</div>
-            <div className="text-2xl font-extrabold text-gray-800 mt-2">{formatCurrency(0)}</div>
+            <div className="text-lg font-semibold text-gray-700">{formatDateSpanish(startTs || Date.now())}</div>
+            <div className="text-4xl font-extrabold text-gray-800 mt-2">{formatCurrency(0)}</div>
             <div className="mt-3 w-full">
               {!cajaOpen ? (
-                <button onClick={openCaja} className="w-full bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-full font-semibold">Abrir Caja</button>
+                <button onClick={openCaja} className="w-full bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2">
+                  <MdLockOpen size={16} />
+                  Abrir Caja
+                </button>
               ) : (
-                <button onClick={() => setShowConfirm(true)} className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 px-3 py-2 rounded-full font-semibold">Cerrar Caja</button>
+                <button onClick={() => setShowConfirm(true)} className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2">
+                  <MdLockOpen size={16} />
+                  Cerrar Caja
+                </button>
               )}
             </div>
           </div>
@@ -292,12 +367,18 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
         {showConfirm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center">
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowConfirm(false)} />
-            <div className="relative bg-white rounded-lg shadow-lg p-6 w-80"> 
-              <h3 className="text-lg font-semibold mb-2">Confirmar cierre</h3>
-              <p className="text-sm text-gray-600 mb-4">¿Estás seguro de que deseas cerrar la caja? Se registrará el cierre y podrá revisarse en el módulo de ventas.</p>
-              <div className="flex gap-2 justify-end">
-                <button onClick={() => setShowConfirm(false)} className="px-3 py-2 rounded-md bg-gray-100 hover:bg-gray-200">Cancelar</button>
-                <button onClick={() => { setShowConfirm(false); closeCaja(); }} className="px-3 py-2 rounded-md bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-semibold">Cerrar caja</button>
+            <div className="relative bg-white rounded-lg shadow-lg p-10 w-[32rem] max-w-2xl">
+              <h3 className="text-xl font-semibold mb-4 text-center">Confirmar cierre</h3>
+              <p className="text-lg text-gray-700 mb-8 leading-relaxed text-center">¿Estás seguro de que deseas cerrar la caja?<br />Se registrará el cierre y podrá revisarse en el módulo de ventas.</p>
+              <div className="flex gap-4 justify-end">
+                <button onClick={() => setShowConfirm(false)} className="px-6 py-3 rounded-md bg-gray-100 hover:bg-gray-200 font-bold text-xl flex items-center gap-2">
+                  <MdCancel size={24} />
+                  Cancelar
+                </button>
+                <button onClick={() => { setShowConfirm(false); closeCaja(); }} className="px-6 py-3 rounded-md bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold text-xl flex items-center gap-2">
+                  <MdLock size={24} />
+                  Cerrar caja
+                </button>
               </div>
             </div>
           </div>
@@ -484,14 +565,100 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
 
             {/* Right: notifications + profile */}
             <div className="flex items-center gap-4 justify-end w-auto min-w-[260px]">
-              <button className="p-2 rounded-lg bg-blue-50 hover:bg-blue-100 transition-colors relative flex items-center justify-center" aria-label="notificaciones">
-                <FiBell size={18} className="text-green-600" />
-                <span className="absolute -top-1 -right-1 bg-blue-500 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center">5</span>
-              </button>
-              <button className="p-2 rounded-lg bg-pink-50 hover:bg-pink-100 transition-colors relative flex items-center justify-center" aria-label="alertas">
-                <IoAlertCircleOutline size={18} className="text-pink-500" />
-                <span className="absolute -top-1 -right-1 bg-pink-400 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center">2</span>
-              </button>
+              <div className="relative" ref={notificationsRef}>
+                <button onClick={() => setNotificationsOpen(!notificationsOpen)} className="p-2 rounded-lg bg-blue-50 hover:bg-blue-100 transition-colors relative flex items-center justify-center" aria-label="notificaciones">
+                  <FiBell size={18} className="text-green-600" />
+                  <motion.span
+                    key={notifications.length}
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 20 }}
+                    className="absolute -top-1 -right-1 bg-blue-500 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center"
+                  >
+                    {notifications.length}
+                  </motion.span>
+                </button>
+                <AnimatePresence>
+                  {notificationsOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                      className="absolute right-0 mt-2 w-80 bg-white/70 backdrop-blur-sm rounded-2xl shadow-lg border-l-4 border-green-600 py-2 z-50 max-h-80 overflow-auto"
+                    >
+                      {notifications.length > 0 ? (
+                        notifications.map((notif) => (
+                          <button
+                            key={notif.id}
+                            onClick={() => { notif.action(); setNotificationsOpen(false); }}
+                            className="w-full text-left px-4 py-3 hover:bg-gray-100 rounded-2xl bg-white shadow-sm border border-gray-200 flex items-start gap-3 transition-colors mb-2"
+                          >
+                            <div className="flex-shrink-0 mt-1 text-gray-600">
+                              {notif.icon}
+                            </div>
+                            <div className="flex-1">
+                              <span className="text-xs text-gray-500 uppercase font-medium">{notif.module}</span>
+                              <span className="text-sm text-gray-700 block">{notif.message}</span>
+                            </div>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-4 py-3 text-sm text-gray-500">No hay notificaciones</div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              <div className="relative" ref={alertsRef}>
+                <button onClick={() => setAlertsOpen(!alertsOpen)} className="p-2 rounded-lg bg-pink-50 hover:bg-pink-100 transition-colors relative flex items-center justify-center" aria-label="alertas">
+                  <IoAlertCircleOutline size={18} className="text-pink-500" />
+                  <motion.span
+                    key={alerts.length + localAlerts.length}
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 20 }}
+                    className="absolute -top-1 -right-1 bg-pink-400 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center"
+                  >
+                    {alerts.length + localAlerts.length}
+                  </motion.span>
+                </button>
+                <AnimatePresence>
+                  {alertsOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                      className="absolute right-0 mt-2 w-80 bg-white/70 backdrop-blur-sm rounded-2xl shadow-lg border-l-4 border-pink-500 py-2 z-50 max-h-80 overflow-auto"
+                    >
+                      {(() => {
+                        const combinedAlerts = [...alerts, ...localAlerts];
+                        return combinedAlerts.length > 0 ? (
+                          combinedAlerts.map((alert) => (
+                            <button
+                              key={alert.id}
+                              onClick={() => { alert.action(); setAlertsOpen(false); }}
+                              className="w-full text-left px-4 py-3 hover:bg-gray-100 rounded-2xl bg-white shadow-sm border border-gray-200 flex items-start gap-3 transition-colors mb-2"
+                            >
+                              <div className="flex-shrink-0 mt-1 text-gray-600">
+                                {alert.icon}
+                              </div>
+                              <div className="flex-1">
+                                <span className="text-xs text-gray-500 uppercase font-medium">{alert.module}</span>
+                                <span className="text-sm text-gray-700 block">{alert.message}</span>
+                              </div>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="px-4 py-2 text-sm text-gray-500">No hay alertas</div>
+                        );
+                      })()}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
 
               <div className="relative" ref={profileRef}>
                 <button onClick={() => setProfileOpen((s) => !s)} className="flex items-center gap-3" aria-label="Abrir perfil">
@@ -513,8 +680,14 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
 
                 {profileOpen && (
                   <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-100 py-2 z-50">
-                    <button onClick={() => { navigate('/perfil'); setProfileOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Mi perfil</button>
-                    <button onClick={() => { navigate('/soporte'); setProfileOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Soporte</button>
+                    <button onClick={() => { navigate('/perfil'); setProfileOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                      <MdPerson size={16} />
+                      Mi perfil
+                    </button>
+                    <button onClick={() => { navigate('/soporte'); setProfileOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                      <MdHelp size={16} />
+                      Soporte
+                    </button>
                     <div className="border-t border-gray-100 my-1" />
                     <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-50 flex items-center gap-2">
                       <CgLogOut /> Cerrar sesión
@@ -529,7 +702,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           </div>
   </header>
 
-  <div className="flex-1 overflow-auto p-6 bg-transparent">
+  <div className="flex-1 p-6 bg-transparent">
           <div className="animate-fade-in">{children}</div>
         </div>
       </main>

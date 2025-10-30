@@ -44,9 +44,9 @@ export const handleLogin = async (
         if (options?.useAntd !== false) {
           message.error("Credenciales incorrectas. Verifica tu usuario y contraseña.");
         }
-      } else if (axiosError.response?.status === 401) {
+      } else if (axiosError.response?.status === 401 || axiosError.response?.status === 404) {
         if (options?.useAntd !== false) {
-          message.error("Usuario no autorizado.");
+          message.error("Credenciales incorrectas. Verifica tu usuario y contraseña.");
         }
       } else if (axiosError.response?.status === 429) {
         if (options?.useAntd !== false) {

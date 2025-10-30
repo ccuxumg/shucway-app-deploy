@@ -7,7 +7,7 @@ dotenv.config();
 // Esquema de validación para las variables de entorno
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  PORT: z.string().default('3001'),
+  PORT: z.string().default('3002'),
   
   // Supabase (solo como base de datos PostgreSQL)
   SUPABASE_URL: z.string().url(),
@@ -31,7 +31,7 @@ const envSchema = z.object({
   
   // Rate Limiting
   RATE_LIMIT_WINDOW_MS: z.string().default('900000'),
-  RATE_LIMIT_MAX_REQUESTS: z.string().default('100')
+  RATE_LIMIT_MAX_REQUESTS: z.string().default('1000')
 });
 
 // Validar variables de entorno

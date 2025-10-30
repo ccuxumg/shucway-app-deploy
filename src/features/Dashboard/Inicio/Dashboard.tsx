@@ -84,7 +84,7 @@ const Dashboard: React.FC = () => {
   });
 
   return (
-    <div className="min-h-screen flex flex-col items-center bg-gray-50 p-6">
+    <div className="h-full flex flex-col items-center bg-gray-50 p-6">
       <header className="w-full max-w-6xl mb-8">
         <h1 className="text-3xl md:text-4xl font-bold text-gray-800">Panel Principal</h1>
         <p className="text-sm text-gray-600 mt-1">Accesos rápidos y estado general del sistema</p>

@@ -12,12 +12,16 @@
     "start": "node dist/index.js",
     "lint": "eslint src"
   },
-  "keywords": ["nodejs", "express", "typescript", "supabase"],
+  "keywords": [
+    "nodejs",
+    "express",
+    "typescript",
+    "supabase"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
-    "@types/pg": "^8.15.6",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
@@ -37,6 +41,7 @@
     "@types/jest": "^29.5.14",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.10.5",
+    "@types/pg": "^8.15.6",
     "@typescript-eslint/eslint-plugin": "^8.20.0",
     "@typescript-eslint/parser": "^8.20.0",
     "@vercel/node": "^5.5.0",

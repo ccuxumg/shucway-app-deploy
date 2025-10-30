@@ -1,64 +1,63 @@
+// backend/src/index.ts
 import app from './app';
 import { config } from './config/env';
 import { logger } from './utils/logger';
 import { testDatabaseConnection } from './config/database';
 
+// ─────────────────────────────────────────────────────────────
+// Detección de entorno
+//   - En local: queremos LEVANTAR el servidor HTTP.
+//   - En serverless (Vercel/AWS): NO levantamos servidor; solo exportamos `app`.
+//   - Puedes forzar el arranque con FORCE_LOCAL=true
+// ─────────────────────────────────────────────────────────────
 const isVercel = !!process.env.VERCEL;
+const isAwsLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+const isServerless = isVercel || isAwsLambda || process.env.SERVERLESS === 'true';
+const forceLocal = process.env.FORCE_LOCAL === 'true';
 
-// Iniciar servidor SOLO en local (no en Vercel/serverless)
+// Si no estamos en serverless (o lo forzamos), arrancamos el server.
+const shouldStartHttp = forceLocal || !isServerless;
+
 async function startServer() {
   try {
-    console.log('🔄 Iniciando función startServer...');
     logger.info('🚀 Iniciando servidor Shucway Backend...');
+    logger.info(
+      `🧭 Flags → isVercel=${isVercel} isAwsLambda=${isAwsLambda} forceLocal=${forceLocal} shouldStartHttp=${shouldStartHttp}`
+    );
 
-    // Verificar conexión a Supabase PostgreSQL (solo si no se salta)
+    // Verificación de BD (saltable con SKIP_DB_CHECK=true)
     const skipDbCheck = process.env.SKIP_DB_CHECK === 'true';
-
-    if (!skipDbCheck) {
-      if (config.env === 'development') {
-        console.log('🔍 Verificando conexión a BD...');
-        logger.info('🔍 Verificando conexión a Supabase PostgreSQL...');
-        const isConnected = await testDatabaseConnection();
-
-        if (!isConnected) {
-          logger.error('❌ No se pudo conectar a la base de datos Supabase');
-          logger.error('Verifica las credenciales en el archivo .env');
-          // En desarrollo, continuar de todas formas para no bloquear el desarrollo
+    if (skipDbCheck) {
+      logger.warn('⏭️  SKIP_DB_CHECK=true → Saltando verificación de base de datos');
+    } else {
+      const ok = await testDatabaseConnection();
+      if (!ok) {
+        logger.error('❌ No se pudo conectar a la base de datos Supabase');
+        if (config.env === 'development') {
           logger.warn('⚠️  Continuando sin verificación de BD (modo desarrollo)');
-        }
-      } else {
-        // En producción local, verificar siempre
-        logger.info('🔍 Verificando conexión a Supabase PostgreSQL...');
-        const isConnected = await testDatabaseConnection();
-
-        if (!isConnected) {
-          logger.error('❌ No se pudo conectar a la base de datos Supabase');
+        } else {
           process.exit(1);
         }
+      } else {
+        logger.info('✅ Conexión a base de datos OK');
       }
-    } else {
-      logger.info('⚡ Saltando verificación de base de datos (modo rápido)');
     }
 
-    console.log('🔄 Creando servidor HTTP...');
-    const server = app.listen(config.port, () => {
-      console.log('✅ Servidor HTTP creado exitosamente');
-      logger.info('✅ Servidor iniciado exitosamente');
-      logger.info(`🌐 Servidor corriendo en http://localhost:${config.port}`);
+    const port = Number(config.port) || Number(process.env.PORT) || 3001;
+
+    const server = app.listen(port, () => {
+      logger.info(`✅ Servidor escuchando en http://localhost:${port}`);
       logger.info(`🌍 Entorno: ${config.env}`);
-      logger.info(`📡 CORS habilitado para: ${config.cors.origin}`);
-      logger.info(`🗄️  Base de datos: Supabase PostgreSQL (sin RLS)`);
-      logger.info(`📦 Storage: Supabase Storage`);
-      logger.info(`🔐 Autenticación: JWT personalizado (sin Supabase Auth)`);
-      logger.info('📝 Logs guardados en: ./logs/');
+      logger.info(`📡 CORS: ${Array.isArray(config.cors?.origin) ? config.cors.origin.join(',') : config.cors?.origin}`);
+      logger.info('🗄️  BD: Supabase PostgreSQL (sin RLS)');
+      logger.info('📦 Storage: Supabase Storage');
+      logger.info('🔐 Auth: JWT personalizado (sin Supabase Auth)');
+      logger.info('📝 Logs en: ./logs/');
     });
 
-    console.log('🔄 Configurando graceful shutdown...');
     const gracefulShutdown = () => {
-      console.log('🔄 Iniciando graceful shutdown...');
-      logger.info('⚠️  Iniciando apagado graceful...');
+      logger.info('⚠️  Apagado graceful…');
       server.close(() => {
-        console.log('✅ Servidor cerrado correctamente');
         logger.info('✅ Servidor cerrado correctamente');
         process.exit(0);
       });
@@ -67,7 +66,13 @@ async function startServer() {
     process.on('SIGTERM', gracefulShutdown);
     process.on('SIGINT', gracefulShutdown);
 
-    console.log('🔄 Servidor configurado completamente');
+    process.on('unhandledRejection', (reason) => {
+      logger.error('❌ UnhandledRejection:', reason as any);
+    });
+    process.on('uncaughtException', (err) => {
+      logger.error('❌ UncaughtException:', err);
+    });
+
     return server;
   } catch (error) {
     logger.error('❌ Error al iniciar el servidor:', error);
@@ -75,23 +80,17 @@ async function startServer() {
   }
 }
 
-// Manejo de errores no capturados (solo en local)
-if (!isVercel) {
-  process.on('uncaughtException', (error) => {
-    logger.error('❌ Excepción no capturada:', error);
-    process.exit(1);
-  });
-
-  process.on('unhandledRejection', (reason, promise) => {
-    logger.error('❌ Promesa rechazada no manejada:', { reason, promise });
-    process.exit(1);
-  });
-}
-
-// Ejecutar servidor solo si NO estamos en Vercel
-if (!isVercel) {
+// Arrancar sólo cuando corresponde (local por defecto)
+if (shouldStartHttp) {
+  // Nota: en Windows puedes forzar el arranque con:
+  //   cross-env FORCE_LOCAL=true SKIP_DB_CHECK=true tsx src/index.ts
+  // o con npm script "dev:fast"
+  // (asegúrate de que el front apunte a http://localhost:3001/api)
+  // @ts-ignore - no necesitamos usar el valor devuelto
   startServer();
+} else {
+  logger.info('🧪 Entorno serverless detectado → no se levanta HTTP, se exporta app');
 }
 
-// En Vercel, este archivo solo exporta la app; la Function la monta `api/index.ts`
+// Exportar la app para Vercel/serverless/tests
 export default app;

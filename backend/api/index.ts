@@ -1,8 +1,3 @@
-// backend/api/index.ts
-import serverless from 'serverless-http';
-import app from '../src/app';
-
-// O quita esta línea por completo
-export const config = { runtime: 'nodejs' };
-
+import serverless from "serverless-http";
+import app from "../src/app";
 export default serverless(app);

@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt';
-import * as jwt from 'jsonwebtoken';
+import { jwt } from '../utils/jwt';                 // ⬅️ usa el wrapper
 import { supabase } from '../config/database';
 import { config } from '../config/env';
 import { logger } from '../utils/logger';
@@ -10,6 +10,8 @@ import {
   UsuarioConRol,
   AuthUser
 } from '../types';
+
+const JWT_SECRET = config.jwt.secret;
 
 export class AuthService {
   // Registrar nuevo usuario
@@ -36,10 +38,10 @@ export class AuthService {
         throw new AppError('El correo electrónico ya está registrado', 400);
       }
 
-      // Hashear contraseña con bcrypt (NO usamos Supabase Auth)
+      // Hashear contraseña
       const hashedPassword = await bcrypt.hash(userData.password, 10);
 
-      // Obtener rol por defecto (cliente)
+      // Rol por defecto
       const { data: defaultRole } = await supabase
         .from('rol_usuario')
         .select('id_rol')
@@ -50,7 +52,7 @@ export class AuthService {
         throw new AppError('Rol por defecto no encontrado', 500);
       }
 
-      // Crear usuario en la tabla perfil_usuario
+      // Crear usuario
       const { data: newUser, error } = await supabase
         .from('perfil_usuario')
         .insert({
@@ -74,11 +76,8 @@ export class AuthService {
         throw new AppError('Error al crear usuario', 500);
       }
 
-      // Obtener usuario con rol
       const userWithRol = await this.getUserWithRol(newUser.id_perfil);
-      
       logger.info(`Usuario registrado: ${newUser.email}`);
-      
       return userWithRol;
     } catch (error) {
       if (error instanceof AppError) throw error;
@@ -87,50 +86,38 @@ export class AuthService {
     }
   }
 
-  // Login con JWT personalizado (NO usamos Supabase Auth)
+  // Login con JWT personalizado
   async login(credentials: LoginCredentials): Promise<LoginResponse> {
     try {
-      // Buscar usuario por email O username en nuestra tabla
-      // Probar primero con email, luego con username
-      let user = null;
-      // Intentar buscar por email primero
+      // Buscar por email o username
+      let user: any = null;
+
       const { data: userByEmail } = await supabase
         .from('perfil_usuario')
         .select('*')
         .eq('email', credentials.identifier)
         .single();
+
       if (userByEmail) {
         user = userByEmail;
       } else {
-        // Si no se encontró por email, buscar por username
         const { data: userByUsername } = await supabase
           .from('perfil_usuario')
           .select('*')
           .eq('username', credentials.identifier)
           .single();
-        if (userByUsername) {
-          user = userByUsername;
-        }
+        if (userByUsername) user = userByUsername;
       }
 
-      if (!user) {
-        throw new AppError('Usuario no encontrado', 404);
-      }
+      if (!user) throw new AppError('Credenciales inválidas', 401);
+      if (user.estado !== 'activo') throw new AppError('Usuario inactivo', 403);
 
-      // Verificar si el usuario está activo
-      if (user.estado !== 'activo') {
-        throw new AppError('Usuario inactivo', 403);
-      }
-
-      // Verificar contraseña con bcrypt (NO usamos Supabase Auth)
+      // Validar password
       const isPasswordValid = await bcrypt.compare(
         credentials.password,
         user.password_hash
       );
-
-      if (!isPasswordValid) {
-        throw new AppError('Contraseña incorrecta', 401);
-      }
+      if (!isPasswordValid) throw new AppError('Credenciales inválidas', 401);
 
       // Actualizar último acceso
       await supabase
@@ -138,10 +125,10 @@ export class AuthService {
         .update({ ultimo_acceso: new Date().toISOString() })
         .eq('id_perfil', user.id_perfil);
 
-      // Obtener usuario con rol
+      // Cargar rol
       const userWithRol = await this.getUserWithRol(user.id_perfil);
 
-      // Generar tokens JWT personalizados
+      // Tokens
       const token = this.generateToken(userWithRol);
       const refreshToken = this.generateRefreshToken(userWithRol);
 
@@ -162,9 +149,8 @@ export class AuthService {
   // Validar token JWT
   async validateToken(token: string): Promise<AuthUser> {
     try {
-      const decoded = jwt.verify(token, config.jwt.secret) as AuthUser;
+      const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
 
-      // Verificar que el usuario siga activo en nuestra BD
       const { data: user, error } = await supabase
         .from('perfil_usuario')
         .select('estado')
@@ -186,24 +172,20 @@ export class AuthService {
   // Refresh token
   async refreshToken(refreshToken: string): Promise<{ token: string; refreshToken: string }> {
     try {
-      const decoded = jwt.verify(refreshToken, config.jwt.secret) as AuthUser;
-
+      const decoded = jwt.verify(refreshToken, JWT_SECRET) as AuthUser;
       const userWithRol = await this.getUserWithRol(decoded.id_perfil);
 
       const newToken = this.generateToken(userWithRol);
       const newRefreshToken = this.generateRefreshToken(userWithRol);
 
-      return {
-        token: newToken,
-        refreshToken: newRefreshToken
-      };
+      return { token: newToken, refreshToken: newRefreshToken };
     } catch (error) {
       logger.error('Error en refreshToken:', error);
       throw new AppError('Token inválido', 401);
     }
   }
 
-  // Obtener usuario con rol (usando tu estructura de BD)
+  // Usuario con rol
   private async getUserWithRol(userId: number): Promise<UsuarioConRol> {
     const { data: user, error: userError } = await supabase
       .from('perfil_usuario')
@@ -235,18 +217,11 @@ export class AuthService {
       .eq('id_perfil', userId)
       .single();
 
-    if (userError || !user) {
-      throw new AppError('Usuario no encontrado', 404);
-    }
+    if (userError || !user) throw new AppError('Usuario no encontrado', 404);
 
-    // Extraer el rol del usuario
     const rol = Array.isArray(user.rol_usuario) ? user.rol_usuario[0] : user.rol_usuario;
+    if (!rol) throw new AppError('Rol de usuario no encontrado', 404);
 
-    if (!rol) {
-      throw new AppError('Rol de usuario no encontrado', 404);
-    }
-
-    // Eliminar rol_usuario del objeto user y agregarlo como propiedad 'rol'
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { rol_usuario, ...userData } = user;
 
@@ -256,7 +231,7 @@ export class AuthService {
     } as UsuarioConRol;
   }
 
-  // Generar token JWT personalizado
+  // Generar token JWT
   private generateToken(user: UsuarioConRol): string {
     const payload = {
       id_perfil: user.id_perfil,
@@ -266,14 +241,12 @@ export class AuthService {
       role: {
         id_rol: user.rol.id_rol,
         nombre_rol: user.rol.nombre_rol,
-        nivel_permiso: user.rol.nivel_permisos // <--- corregido para coincidir con el middleware
+        // El middleware solo exige nombre_rol; dejamos nivel por si lo usas
+        nivel_permisos: user.rol.nivel_permisos
       }
     };
-    return jwt.sign(
-      payload,
-      config.jwt.secret,
-      { expiresIn: 604800 } // 7 días en segundos
-    );
+
+    return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' }); // 7 días
   }
 
   // Generar refresh token
@@ -283,11 +256,8 @@ export class AuthService {
       email: user.email,
       rol: user.rol.nombre_rol
     };
-    return jwt.sign(
-      payload,
-      config.jwt.secret,
-      { expiresIn: 2592000 } // 30 días en segundos
-    );
+
+    return jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }); // 30 días
   }
 }
 

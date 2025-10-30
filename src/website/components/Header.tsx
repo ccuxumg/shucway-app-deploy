@@ -46,38 +46,48 @@ const Header = () => {
               <FaHome className="nav-icon" />
               <NavLink to="/" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>Inicio</NavLink>
             </li>
-            <li
-              className="nav-module nav-dropdown"
-              onMouseEnter={() => handleMouseEnter('nosotros')}
-              onMouseLeave={() => handleMouseLeave('nosotros')}
-            >
+            <li className="nav-module">
               <FaUsers className="nav-icon" />
-              <NavLink to="/nosotros" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>Nosotros</NavLink>
-              <ul
-                className={`dropdown-menu ${hoveredDropdown === 'nosotros' ? 'show' : ''}`}
-                onMouseEnter={() => handleMouseEnter('nosotros')}
-                onMouseLeave={() => handleMouseLeave('nosotros')}
-              >
-                <li><NavLink to="/nosotros" className="dropdown-link">Sobre Nosotros</NavLink></li>
-                <li><a href="#equipo" className="dropdown-link">Equipo</a></li>
-              </ul>
+              <NavLink to="/nosotros" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                Nosotros
+              </NavLink>
             </li>
+
             <li
               className="nav-module nav-dropdown"
               onMouseEnter={() => handleMouseEnter('productos')}
               onMouseLeave={() => handleMouseLeave('productos')}
             >
               <FaBoxOpen className="nav-icon" />
-              <NavLink to="/productos" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>Productos</NavLink>
+              <NavLink to="/productos" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                Productos
+              </NavLink>
               <ul
                 className={`dropdown-menu ${hoveredDropdown === 'productos' ? 'show' : ''}`}
                 onMouseEnter={() => handleMouseEnter('productos')}
                 onMouseLeave={() => handleMouseLeave('productos')}
               >
-                <li><NavLink to="/productos" className="dropdown-link">Todos los Productos</NavLink></li>
-                <li><a href="#destacados" className="dropdown-link">Destacados</a></li>
+                <li>
+                  <NavLink
+                    to="/productos#menu"
+                    className="dropdown-link"
+                    onClick={() => setHoveredDropdown(null)}
+                  >
+                    Todos los Productos
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
+                    to="/productos#destacados"
+                    className="dropdown-link"
+                    onClick={() => setHoveredDropdown(null)}
+                  >
+                    Destacados
+                  </NavLink>
+                </li>
               </ul>
             </li>
+
             <li className="nav-module">
               <FaEnvelope className="nav-icon" />
               <NavLink to="/contacto" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>Contacto</NavLink>

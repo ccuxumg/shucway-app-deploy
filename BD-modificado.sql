@@ -110,7 +110,7 @@ CREATE TABLE insumo (
     id_insumo SERIAL PRIMARY KEY,
     nombre_insumo VARCHAR(100) NOT NULL,
     id_categoria INTEGER NOT NULL REFERENCES categoria_insumo(id_categoria),
-    unidad_medida VARCHAR(20) NOT NULL,
+    unidad_base VARCHAR(20) NOT NULL,
     id_proveedor_principal INTEGER REFERENCES proveedor(id_proveedor),
     stock_minimo DECIMAL(10,2) DEFAULT 0.00,
     stock_maximo DECIMAL(10,2) DEFAULT 0.00,
@@ -173,7 +173,8 @@ CREATE TABLE detalle_orden_compra (
     precio_unitario DECIMAL(10,2) NOT NULL,
     subtotal DECIMAL(12,2) GENERATED ALWAYS AS (cantidad * precio_unitario) STORED,
     iva DECIMAL(12,2) DEFAULT 0,
-    cantidad_recibida DECIMAL(10,2) DEFAULT 0
+    cantidad_recibida DECIMAL(10,2) DEFAULT 0,
+    id_presentacion INTEGER NOT NULL REFERENCES insumo_presentacion(id_presentacion)
 );
 
 CREATE TABLE recepcion_mercaderia (
@@ -224,8 +225,8 @@ CREATE TABLE producto_variante (
     id_variante SERIAL PRIMARY KEY,
     id_producto INTEGER NOT NULL REFERENCES producto(id_producto) ON DELETE CASCADE,
     nombre_variante VARCHAR(100) NOT NULL,
-    costo_adicional DECIMAL(10,2) DEFAULT 0, 
-    precio_adicional DECIMAL(10,2) DEFAULT 0, 
+    costo_variante DECIMAL(10,2) DEFAULT 0, 
+    precio_variante DECIMAL(10,2) DEFAULT 0, 
     estado VARCHAR(20) DEFAULT 'activo' CHECK (estado IN ('activo', 'desactivado')),
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(id_producto, nombre_variante)
@@ -235,7 +236,8 @@ CREATE TABLE receta_detalle (
     id_receta SERIAL PRIMARY KEY,
     id_producto INTEGER NOT NULL REFERENCES producto(id_producto) ON DELETE CASCADE,
     id_insumo INTEGER NOT NULL REFERENCES insumo(id_insumo) ON DELETE RESTRICT,
-    cantidad DECIMAL(10,3) NOT NULL,
+    cantidad_requerida DECIMAL(10,3) NOT NULL,
+    unidad_base VARCHAR(20) NOT NULL,
     es_obligatorio BOOLEAN DEFAULT TRUE,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(id_producto, id_insumo)
@@ -517,7 +519,7 @@ BEGIN
         SELECT 
             dv.cantidad AS cantidad_vendida,
             rd.id_insumo, 
-            rd.cantidad AS cantidad_receta,
+            rd.cantidad_requerida AS cantidad_receta,
             ci.tipo_categoria,
             i.costo_promedio,
             i.nombre_insumo
@@ -558,7 +560,7 @@ BEGIN
     WHERE id_producto = NEW.id_producto;
     
     IF NEW.id_variante IS NOT NULL THEN
-        SELECT precio_adicional, costo_adicional
+        SELECT precio_variante, costo_variante
         INTO v_precio_variante, v_costo_variante
         FROM producto_variante
         WHERE id_variante = NEW.id_variante;
@@ -846,7 +848,7 @@ BEGIN
         SELECT id_producto, cantidad FROM detalle_venta WHERE id_venta = NEW.id_venta
     LOOP
         FOR v_insumo_receta IN
-            SELECT rd.id_insumo, rd.cantidad, i.nombre_insumo
+            SELECT rd.id_insumo, rd.cantidad_requerida, i.nombre_insumo
             FROM receta_detalle rd
             JOIN insumo i ON rd.id_insumo = i.id_insumo
             JOIN categoria_insumo ci ON i.id_categoria = ci.id_categoria
@@ -913,12 +915,29 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;-- FUNCIÓN PARA VALIDAR CAMBIO DE CONTRASEÑA (DESHABILITADA - validación se hace en controlador)
+$$ LANGUAGE plpgsql SECURITY DEFINER;-- FUNCIÓN PARA VALIDAR CAMBIO DE CONTRASEÑA (SOLO ADMIN/PROPIETARIO)
 CREATE OR REPLACE FUNCTION fn_validar_cambio_password()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_rol_usuario VARCHAR(50);
+    v_puede_cambiar BOOLEAN := FALSE;
 BEGIN
-    -- Validación deshabilitada - se hace en el controlador de la aplicación
-    -- para tener acceso al usuario autenticado
+    IF OLD.password_hash = NEW.password_hash THEN
+        RETURN NEW;
+    END IF;
+    SELECT r.nombre_rol INTO v_rol_usuario
+    FROM perfil_usuario p
+    JOIN rol_usuario r ON p.id_rol = r.id_rol
+    WHERE p.id_perfil = NEW.id_perfil;
+    
+    IF v_rol_usuario IN ('administrador', 'propietario') THEN
+        v_puede_cambiar := TRUE;
+    END IF;
+    
+    IF NOT v_puede_cambiar THEN
+        RAISE EXCEPTION 'Permiso denegado: Solo usuarios con rol "administrador" o "propietario" pueden modificar contraseñas. Tu rol actual: %', v_rol_usuario;
+    END IF;
+    
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -1394,7 +1413,7 @@ SELECT
     (mi.cantidad * mi.costo_unitario_momento) AS costo_total,
     l.ubicacion,
     i.nombre_insumo,
-    i.unidad_medida
+    i.unidad_base
 FROM movimiento_inventario mi
 LEFT JOIN lote_insumo l ON mi.id_lote = l.id_lote
 LEFT JOIN insumo i ON mi.id_insumo = i.id_insumo;
@@ -2155,54 +2174,54 @@ INSERT INTO categoria_gasto (nombre, descripcion, tipo_gasto) VALUES
 ON CONFLICT (nombre) DO NOTHING;
 
 -- INSUMOS DEL NEGOCIO (basados en los productos)
-INSERT INTO insumo (nombre_insumo, id_categoria, unidad_medida, stock_minimo, stock_maximo, costo_promedio, stock_actual, activo) VALUES
+INSERT INTO insumo (nombre_insumo, id_categoria, unidad_base, stock_minimo, stock_maximo, costo_promedio, activo) VALUES
 -- Carnes y Proteínas (cambiado de 1 a 2)
-('Carne Asada', 2, 'lb', 10, 50, 35.00, 0.00, TRUE),
-('Chorizo', 2, 'lb', 10, 40, 25.00, 0.00, TRUE),
-('Salami', 2, 'lb', 10, 40, 22.00, 0.00, TRUE),
-('Longaniza', 2, 'lb', 10, 40, 23.00, 0.00, TRUE),
-('Carne Adobada', 2, 'lb', 10, 50, 32.00, 0.00, TRUE),
-('Salchicha', 2, 'lb', 10, 40, 20.00, 0.00, TRUE),
-('Pollo (carne)', 2, 'lb', 15, 60, 18.00, 0.00, TRUE),
-('Tocino/Bacon', 2, 'lb', 5, 30, 45.00, 0.00, TRUE),
-('Carne Molida para Hamburguesa', 2, 'lb', 15, 60, 28.00, 0.00, TRUE),
-('Pollo Frito (piezas)', 2, 'pza', 20, 100, 5.00, 0.00, TRUE),
+('Carne Asada', 2, 'lb', 10, 50, 35.00, TRUE),
+('Chorizo', 2, 'lb', 10, 40, 25.00, TRUE),
+('Salami', 2, 'lb', 10, 40, 22.00, TRUE),
+('Longaniza', 2, 'lb', 10, 40, 23.00, TRUE),
+('Carne Adobada', 2, 'lb', 10, 50, 32.00, TRUE),
+('Salchicha', 2, 'lb', 10, 40, 20.00, TRUE),
+('Pollo (carne)', 2, 'lb', 15, 60, 18.00, TRUE),
+('Tocino/Bacon', 2, 'lb', 5, 30, 45.00, TRUE),
+('Carne Molida para Hamburguesa', 2, 'lb', 15, 60, 28.00, TRUE),
+('Pollo Frito (piezas)', 2, 'pza', 20, 100, 5.00, TRUE),
 
 -- Vegetales y Verduras (cambiado de 2 a 1)
-('Lechuga', 1, 'unidad', 5, 30, 8.00, 0.00, TRUE),
-('Tomate', 1, 'lb', 5, 30, 5.00, 0.00, TRUE),
-('Cebolla', 1, 'lb', 5, 30, 4.00, 0.00, TRUE),
-('Aguacate', 1, 'unidad', 10, 50, 4.00, 0.00, TRUE),
-('Repollo', 1, 'unidad', 3, 20, 6.00, 0.00, TRUE),
+('Lechuga', 1, 'unidad', 5, 30, 8.00, TRUE),
+('Tomate', 1, 'lb', 5, 30, 5.00, TRUE),
+('Cebolla', 1, 'lb', 5, 30, 4.00, TRUE),
+('Aguacate', 1, 'unidad', 10, 50, 4.00, TRUE),
+('Repollo', 1, 'unidad', 3, 20, 6.00, TRUE),
 
 -- Lácteos
-('Queso', 3, 'lb', 5, 30, 35.00, 0.00, TRUE),
+('Queso', 3, 'lb', 5, 30, 35.00, TRUE),
 
 -- Panadería
-('Pan para Shuco', 4, 'unidad', 30, 150, 1.50, 0.00, TRUE),
-('Pan para Hamburguesa', 4, 'unidad', 30, 150, 2.00, 0.00, TRUE),
+('Pan para Shuco', 4, 'unidad', 30, 150, 1.50, TRUE),
+('Pan para Hamburguesa', 4, 'unidad', 30, 150, 2.00, TRUE),
 
 -- Condimentos y Salsas (OPERATIVOS)
-('Salsa de Tomate', 5, 'botella', 5, 30, 15.00, 0.00, TRUE),
-('Mayonesa', 5, 'frasco', 5, 30, 25.00, 0.00, TRUE),
-('Mostaza', 5, 'frasco', 5, 30, 18.00, 0.00, TRUE),
-('Salsa Inglesa', 5, 'botella', 3, 20, 20.00, 0.00, TRUE),
-('Aceite', 5, 'litro', 5, 30, 35.00, 0.00, TRUE),
-('Sal', 5, 'lb', 3, 20, 5.00, 0.00, TRUE),
-('Especies y Condimentos', 5, 'paquete', 5, 30, 15.00, 0.00, TRUE),
+('Salsa de Tomate', 5, 'botella', 5, 30, 15.00, TRUE),
+('Mayonesa', 5, 'frasco', 5, 30, 25.00, TRUE),
+('Mostaza', 5, 'frasco', 5, 30, 18.00, TRUE),
+('Salsa Inglesa', 5, 'botella', 3, 20, 20.00, TRUE),
+('Aceite', 5, 'litro', 5, 30, 35.00, TRUE),
+('Sal', 5, 'lb', 3, 20, 5.00, TRUE),
+('Especies y Condimentos', 5, 'paquete', 5, 30, 15.00, TRUE),
 
 -- Bebidas (OPERATIVOS)
-('Coca Cola', 6, 'unidad', 20, 100, 4.30, 0.00, TRUE),
-('Pepsi Cola', 6, 'unidad', 20, 100, 3.80, 0.00, TRUE),
+('Coca Cola', 6, 'unidad', 20, 100, 4.30, TRUE),
+('Pepsi Cola', 6, 'unidad', 20, 100, 3.80, TRUE),
 
 -- Acompañamientos (cambiado de 2 a 1)
-('Papa para Freír', 1, 'lb', 20, 100, 8.00, 0.00, TRUE),
+('Papa para Freír', 1, 'lb', 20, 100, 8.00, TRUE),
 
 -- Desechables (OPERATIVOS)
-('Bolsas Plásticas', 7, 'paquete', 5, 30, 25.00, 0.00, TRUE),
-('Vasos Desechables', 7, 'paquete', 3, 20, 30.00, 0.00, TRUE),
-('Platos Desechables', 7, 'paquete', 3, 20, 35.00, 0.00, TRUE),
-('Servilletas', 7, 'paquete', 5, 30, 15.00, 0.00, TRUE)
+('Bolsas Plásticas', 7, 'paquete', 5, 30, 25.00, TRUE),
+('Vasos Desechables', 7, 'paquete', 3, 20, 30.00, TRUE),
+('Platos Desechables', 7, 'paquete', 3, 20, 35.00, TRUE),
+('Servilletas', 7, 'paquete', 5, 30, 15.00, TRUE)
 ON CONFLICT DO NOTHING;
 
 -- PRODUCTOS DEL MENÚ
@@ -2247,7 +2266,7 @@ ON CONFLICT DO NOTHING;
 
 -- VARIANTES DE PRODUCTOS (Sub-artículos)
 -- Ejemplo: Shuco de Adobado puede tener variante "Longaniza" o "Salami"
-INSERT INTO producto_variante (id_producto, nombre_variante, costo_adicional, precio_adicional, estado) VALUES
+INSERT INTO producto_variante (id_producto, nombre_variante, costo_variante, precio_variante, estado) VALUES
 -- Variantes para Shuco de Adobado (id_producto 5)
 (5, 'Longaniza', 1.50, 3.00, 'activo'),
 (5, 'Salami', 1.50, 3.00, 'activo'),
@@ -2328,3 +2347,394 @@ COMMENT ON FUNCTION fn_registrar_entrada_por_compra IS 'Registra la entrada de i
 COMMENT ON FUNCTION sp_procesar_venta IS 'Stored Procedure para procesar una venta completa en una sola transacción. Maneja: creación de venta, canje de puntos (opcional), agregado de productos, confirmación y acumulación de puntos. Incluye manejo de errores con rollback automático.';
 COMMENT ON FUNCTION sp_recepcionar_mercaderia IS 'Stored Procedure para recepcionar mercadería de una orden de compra. Procesa múltiples insumos, actualiza costos promedio (PPP), registra entradas en Kardex y actualiza el estado de la orden. Transacción atómica con rollback en caso de error.';
 COMMENT ON FUNCTION sp_cierre_diario IS 'Stored Procedure para realizar el cierre diario del negocio. Genera resumen de ventas, gastos, ganancias, movimientos de puntos y marca las ventas como completadas. Retorna estadísticas completas del día.';
+
+-- ==========================================================
+-- 1.1) Tabla nueva: insumo_presentacion
+-- ==========================================================
+CREATE TABLE IF NOT EXISTS  insumo_presentacion (
+  id_presentacion           SERIAL PRIMARY KEY,
+  id_insumo                 INTEGER NOT NULL REFERENCES public.insumo(id_insumo) ON DELETE CASCADE,
+  id_proveedor              INTEGER NULL REFERENCES public.proveedor(id_proveedor),
+  descripcion_presentacion  VARCHAR(200) NOT NULL,
+  unidad_compra             VARCHAR(50)  NOT NULL,
+  unidades_por_presentacion NUMERIC(14,6) NOT NULL CHECK (unidades_por_presentacion > 0),
+  costo_compra_unitario     NUMERIC(14,6) NOT NULL CHECK (costo_compra_unitario >= 0),
+  es_principal              BOOLEAN NOT NULL DEFAULT FALSE,
+  activo                    BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+-- Índices de apoyo
+CREATE INDEX IF NOT EXISTS ix_ip_id_insumo
+  ON public.insumo_presentacion(id_insumo);
+
+CREATE INDEX IF NOT EXISTS ix_ip_id_proveedor
+  ON public.insumo_presentacion(id_proveedor);
+
+-- una descripción por insumo puede repetirse entre proveedores; si quieres
+-- evitar duplicados por insumo + descripción, activa este UNIQUE:
+-- CREATE UNIQUE INDEX IF NOT EXISTS ux_ip_insumo_desc ON public.insumo_presentacion(id_insumo, descripcion_presentacion);
+
+
+-- ==========================================================
+-- 1.2) Limpiar columnas que ya NO se usan en insumo
+--     (quedamos solo con unidad_base en el catálogo)
+-- ==========================================================
+ALTER TABLE public.insumo
+  DROP COLUMN IF EXISTS id_proveedor_principal,
+  DROP COLUMN IF EXISTS unidad_compra,
+  DROP COLUMN IF EXISTS unidades_por_presentacion,
+  DROP COLUMN IF EXISTS presentacion_detalle;
+
+-- Asegurar unidad_base (por si alguna BD vieja no la tenía)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='insumo' AND column_name='unidad_base'
+  ) THEN
+    ALTER TABLE public.insumo ADD COLUMN unidad_base TEXT NOT NULL DEFAULT 'unidad';
+  END IF;
+END$$;
+
+
+-- ==========================================================
+-- 1.3) detalle_recepcion_mercaderia: reemplazar id_insumo → id_presentacion
+--      y documentar que 'cantidad_aceptada/recibida' es en PRESENTACIONES
+-- ==========================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='detalle_recepcion_mercaderia' AND column_name='id_presentacion'
+  ) THEN
+    ALTER TABLE public.detalle_recepcion_mercaderia
+      ADD COLUMN id_presentacion INTEGER NULL;
+    ALTER TABLE public.detalle_recepcion_mercaderia
+      ADD CONSTRAINT fk_drm_presentacion
+      FOREIGN KEY (id_presentacion) REFERENCES public.insumo_presentacion(id_presentacion);
+    CREATE INDEX IF NOT EXISTS ix_drm_id_presentacion
+      ON public.detalle_recepcion_mercaderia(id_presentacion);
+  END IF;
+
+  -- Si aún existe id_insumo, elimínalo (ya no se usa aquí)
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='detalle_recepcion_mercaderia' AND column_name='id_insumo'
+  ) THEN
+    ALTER TABLE public.detalle_recepcion_mercaderia
+      DROP COLUMN id_insumo;
+  END IF;
+END$$;
+
+-- (Opcional) renombra a 'cantidad_recibida' si te conviene
+-- DO $$ BEGIN
+--   IF EXISTS (
+--     SELECT 1 FROM information_schema.columns
+--     WHERE table_schema='public' AND table_name='detalle_recepcion_mercaderia' AND column_name='cantidad_aceptada'
+--   ) AND NOT EXISTS (
+--     SELECT 1 FROM information_schema.columns
+--     WHERE table_schema='public' AND table_name='detalle_recepcion_mercaderia' AND column_name='cantidad_recibida'
+--   ) THEN
+--     ALTER TABLE public.detalle_recepcion_mercaderia
+--       RENAME COLUMN cantidad_aceptada TO cantidad_recibida;
+--   END IF;
+-- END $$;
+
+
+-- Calcula costo ponderado usando costo por UNIDAD_BASE
+CREATE OR REPLACE FUNCTION public.fn_actualizar_costo_promedio(
+  p_id_insumo               INTEGER,
+  p_cantidad_base           NUMERIC,
+  p_costo_compra_unitario   NUMERIC,       -- costo de LA PRESENTACIÓN
+  p_unidades_por_present    NUMERIC        -- factor a unidad_base
+)
+RETURNS NUMERIC
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_costo_unit_base  NUMERIC;
+  v_stock_actual     NUMERIC;
+  v_costo_prom_anterior NUMERIC;
+  v_costo_prom_nuevo NUMERIC;
+BEGIN
+  IF COALESCE(p_unidades_por_present,0) <= 0 THEN
+    RAISE EXCEPTION 'unidades_por_presentacion inválido (<= 0) para insumo %', p_id_insumo;
+  END IF;
+
+  v_costo_unit_base := p_costo_compra_unitario / p_unidades_por_present;
+
+  -- stock actual en cantidad_base (suma de entradas - salidas)
+  SELECT COALESCE(SUM(
+           CASE WHEN mi.tipo_movimiento IN ('entrada_compra','entrada_ajuste')
+                THEN mi.cantidad_base
+                ELSE -mi.cantidad_base
+           END
+         ),0)
+    INTO v_stock_actual
+  FROM public.movimiento_inventario mi
+  WHERE mi.id_insumo = p_id_insumo;
+
+  SELECT COALESCE(i.costo_promedio,0) INTO v_costo_prom_anterior
+  FROM public.insumo i WHERE i.id_insumo = p_id_insumo;
+
+  v_costo_prom_nuevo :=
+    CASE
+      WHEN COALESCE(v_stock_actual,0) + COALESCE(p_cantidad_base,0) > 0
+      THEN (
+        (COALESCE(v_stock_actual,0) * COALESCE(v_costo_prom_anterior,0))
+        + (COALESCE(p_cantidad_base,0) * COALESCE(v_costo_unit_base,0))
+      )
+      / (COALESCE(v_stock_actual,0) + COALESCE(p_cantidad_base,0))
+      ELSE v_costo_unit_base
+    END;
+
+  UPDATE public.insumo
+     SET costo_promedio = v_costo_prom_nuevo
+   WHERE id_insumo = p_id_insumo;
+
+  RETURN v_costo_prom_nuevo;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.sp_recepcionar_mercaderia(p_id_recepcion INTEGER)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  r RECORD;
+  v_cant_base NUMERIC;
+  v_costo_prom NUMERIC;
+BEGIN
+  FOR r IN
+    SELECT
+      drm.id_detalle,               -- si existe
+      drm.id_presentacion,
+      COALESCE(drm.cantidad_recibida, drm.cantidad_aceptada, 0) AS cantidad_present,
+      ip.id_insumo,
+      ip.unidades_por_presentacion,
+      ip.costo_compra_unitario,
+      ip.unidad_compra,
+      i.unidad_base
+    FROM public.detalle_recepcion_mercaderia drm
+    JOIN public.insumo_presentacion ip ON ip.id_presentacion = drm.id_presentacion
+    JOIN public.insumo i               ON i.id_insumo        = ip.id_insumo
+    WHERE drm.id_recepcion = p_id_recepcion
+  LOOP
+    IF r.cantidad_present IS NULL OR r.cantidad_present <= 0 THEN
+      CONTINUE;
+    END IF;
+
+    v_cant_base := r.cantidad_present * r.unidades_por_presentacion;
+
+    -- Actualizar costo promedio con costo en unidad_base
+    v_costo_prom := public.fn_actualizar_costo_promedio(
+                      r.id_insumo,
+                      v_cant_base,
+                      r.costo_compra_unitario,
+                      r.unidades_por_presentacion
+                    );
+
+    -- Registrar ENTRADA en kárdex (siempre en unidad_base)
+    INSERT INTO public.movimiento_inventario (
+      id_insumo,
+      tipo_movimiento,
+      fecha_movimiento,
+      cantidad_registrada, unidad_registrada, factor_usado,
+      cantidad_base,
+      costo_unit_compra,  costo_unit_base,  costo_unitario_momento,
+      id_referencia, descripcion
+    )
+    VALUES (
+      r.id_insumo,
+      'entrada_compra',
+      now(),
+      r.cantidad_present, r.unidad_compra, r.unidades_por_presentacion,
+      v_cant_base,
+      r.costo_compra_unitario, (r.costo_compra_unitario / r.unidades_por_presentacion), v_costo_prom,
+      p_id_recepcion,
+      'Recepción mercadería (presentación '||r.id_presentacion||')'
+    );
+  END LOOP;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fn_descontar_inventario_venta()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v RECORD;
+BEGIN
+  -- Recorre receta del producto vendido (NEW.id_producto, NEW.cantidad)
+  FOR v IN
+    SELECT
+      rd.id_insumo,
+      (rd.cantidad_requerida * NEW.cantidad)::numeric AS cantidad_a_descontar, -- en unidad_base
+      p.nombre_producto,
+      i.tipo_categoria,
+      i.unidad_base
+    FROM public.receta_detalle rd
+    JOIN public.producto p ON p.id_producto = rd.id_producto
+    JOIN public.insumo   i ON i.id_insumo   = rd.id_insumo
+    WHERE rd.id_producto = NEW.id_producto
+  LOOP
+    IF lower(v.tipo_categoria) = 'perpetuo'
+       AND COALESCE(v.cantidad_a_descontar,0) > 0
+    THEN
+      INSERT INTO public.movimiento_inventario (
+        id_insumo, tipo_movimiento, fecha_movimiento,
+        cantidad_registrada, unidad_registrada, factor_usado,
+        cantidad_base,
+        costo_unitario_momento,
+        id_referencia, descripcion
+      )
+      VALUES (
+        v.id_insumo, 'salida_venta', now(),
+        v.cantidad_a_descontar, v.unidad_base, 1,
+        v.cantidad_a_descontar,
+        (SELECT COALESCE(i2.costo_promedio,0) FROM public.insumo i2 WHERE i2.id_insumo = v.id_insumo),
+        NEW.id_venta,
+        'Descuento por venta: '||COALESCE(v.nombre_producto,'')||' x '||NEW.cantidad
+      );
+    END IF;
+  END LOOP;
+
+  RETURN NEW;
+END;
+$$;
+
+-- 3.1) (Re)instalar el trigger de ventas (si no existe)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger t
+    JOIN pg_class  c ON c.oid = t.tgrelid
+    JOIN pg_proc   p ON p.oid = t.tgfoid
+    WHERE c.relname = 'detalle_venta' AND t.tgname = 'trg_descontar_inventario_venta'
+  ) THEN
+    CREATE TRIGGER trg_descontar_inventario_venta
+      AFTER INSERT ON public.detalle_venta
+      FOR EACH ROW
+      EXECUTE FUNCTION public.fn_descontar_inventario_venta();
+  END IF;
+END$$;
+
+
+-- 3.2) Helper para obtener la presentación principal de un insumo
+CREATE OR REPLACE FUNCTION public.fn_presentacion_principal(p_id_insumo INTEGER)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE v_id INTEGER;
+BEGIN
+  SELECT ip.id_presentacion
+    INTO v_id
+  FROM public.insumo_presentacion ip
+  WHERE ip.id_insumo = p_id_insumo
+    AND ip.es_principal IS TRUE
+    AND ip.activo IS TRUE
+  ORDER BY ip.id_presentacion DESC
+  LIMIT 1;
+
+  RETURN v_id;
+END;
+$$;
+
+
+-- 3.3) Trigger de verificación de stock bajo (opcional)
+--     Si tu esquema tiene orden_compra/detalle_orden_compra se intentará crear un pedido
+--     usando la presentación principal. Si no existen esas tablas, sólo hace NOTICE.
+CREATE OR REPLACE FUNCTION public.fn_verificar_stock_bajo_trigger()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_stock NUMERIC;
+  v_min   NUMERIC;
+  v_pres  INTEGER;
+  v_prov  INTEGER;
+  v_orden INTEGER;
+BEGIN
+  -- Stock actual del insumo afectado
+  SELECT COALESCE(SUM(
+           CASE WHEN tipo_movimiento IN ('entrada_compra','entrada_ajuste')
+                THEN cantidad_base ELSE -cantidad_base END
+         ),0)
+    INTO v_stock
+  FROM public.movimiento_inventario
+  WHERE id_insumo = NEW.id_insumo;
+
+  SELECT stock_minimo INTO v_min
+  FROM public.insumo WHERE id_insumo = NEW.id_insumo;
+
+  IF v_stock <= COALESCE(v_min,0) THEN
+    v_pres := public.fn_presentacion_principal(NEW.id_insumo);
+
+    IF v_pres IS NULL THEN
+      RAISE NOTICE 'Stock bajo en insumo %, pero no hay presentación principal configurada', NEW.id_insumo;
+      RETURN NEW;
+    END IF;
+
+    -- Si existen las tablas de compra, generar un pedido simple
+    IF to_regclass('public.orden_compra') IS NOT NULL
+       AND to_regclass('public.detalle_orden_compra') IS NOT NULL THEN
+
+      SELECT ip.id_proveedor INTO v_prov
+      FROM public.insumo_presentacion ip
+      WHERE ip.id_presentacion = v_pres;
+
+      INSERT INTO public.orden_compra (fecha_creacion, estado, id_proveedor)
+      VALUES (now(), 'pendiente', v_prov)
+      RETURNING id_orden_compra INTO v_orden;
+
+      INSERT INTO public.detalle_orden_compra (id_orden_compra, id_presentacion, cantidad)
+      VALUES (v_orden, v_pres, 1); -- cantidad por defecto
+
+      RAISE NOTICE 'OC % creada por stock bajo. insumo %, presentacion %', v_orden, NEW.id_insumo, v_pres;
+    ELSE
+      RAISE NOTICE 'Stock bajo en insumo % (presentación principal %). Integra tu flujo de pedidos.', NEW.id_insumo, v_pres;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+-- Instalar el trigger de stock bajo sobre movimiento_inventario (una vez)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    WHERE c.relname='movimiento_inventario' AND t.tgname='trg_stock_bajo_reabastecer'
+  ) THEN
+    CREATE TRIGGER trg_stock_bajo_reabastecer
+      AFTER INSERT ON public.movimiento_inventario
+      FOR EACH ROW
+      EXECUTE FUNCTION public.fn_verificar_stock_bajo_trigger();
+  END IF;
+END$$;
+
+-- ===============================================================  
+-- CAMBIOS REALIZADOS PARA CONSISTENCIA CON TYPESCRIPT
+-- ===============================================================  
+-- 
+-- 1. Tabla insumo:
+--    - Cambiado 'unidad_medida' → 'unidad_base' 
+--    - Removido 'stock_actual' (se calcula dinámicamente)
+--
+-- 2. Tabla producto_variante:
+--    - Cambiado 'costo_adicional' → 'costo_variante'
+--    - Cambiado 'precio_adicional' → 'precio_variante'
+--
+-- 3. Tabla receta_detalle:
+--    - Cambiado 'cantidad' → 'cantidad_requerida'
+--    - Agregado 'unidad_base'
+--
+-- 4. Funciones actualizadas para usar nuevos nombres de campos
+-- 5. Datos de ejemplo actualizados
+-- 6. Vistas y consultas corregidas
+--
+-- Estos cambios aseguran consistencia entre el esquema de BD 
+-- y los tipos definidos en el backend TypeScript.
+-- ===============================================================

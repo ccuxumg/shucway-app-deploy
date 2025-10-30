@@ -8,30 +8,31 @@ import {
   CreateInsumoDTO,
   UpdateInsumoDTO,
   CreateLoteDTO,
+  CreatePresentacionDTO,
   CreateMovimientoDTO,
   StockActual,
 } from '../types/inventario.types';
 
 // Interface for the raw query result from Supabase with joins
-interface CatalogoQueryResult {
-  id_insumo: number;
-  nombre_insumo: string;
-  unidad_medida: string;
-  stock_minimo: number;
-  stock_maximo: number;
-  costo_promedio: number;
-  activo: boolean;
-  fecha_registro: Date;
-  id_categoria: number;
-  id_proveedor_principal?: number;
-  categoria_insumo: Array<{
-    tipo_categoria: 'perpetuo' | 'operativo';
-    nombre: string;
-  }>;
-  lote_insumo: Array<{
-    cantidad_actual: number;
-  }>;
-}
+// interface CatalogoQueryResult {
+//   id_insumo: number;
+//   nombre_insumo: string;
+//   unidad_base: string;
+//   stock_minimo: number;
+//   stock_maximo: number;
+//   costo_promedio: number;
+//   activo: boolean;
+//   fecha_registro: Date;
+//   id_categoria: number;
+//   id_proveedor_principal?: number;
+//   categoria_insumo: Array<{
+//     tipo_categoria: 'perpetuo' | 'operativo';
+//     nombre: string;
+//   }>;
+//   lote_insumo: Array<{
+//     cantidad_actual: number;
+//   }>;
+// }
 
 // ================================================================
 // 📦 SERVICIO DE INVENTARIO
@@ -95,16 +96,61 @@ export class InventarioService {
   }
 
   async createInsumo(dto: CreateInsumoDTO): Promise<Insumo> {
+    // Extraer campos relacionados con presentaciones y lotes
+    const { fecha_vencimiento, ...insumoData } = dto;
+
     const { data, error } = await supabase
       .from('insumo')
       .insert({
-        ...dto,
+        ...insumoData,
         costo_promedio: dto.costo_promedio || 0,
       })
       .select()
       .single();
 
     if (error) throw new Error(`Error al crear insumo: ${error.message}`);
+
+    // Crear presentación principal para el insumo
+    if (data?.id_insumo) {
+      const presentacionData: CreatePresentacionDTO = {
+        id_insumo: data.id_insumo,
+        id_proveedor: dto.id_proveedor_principal,
+        descripcion_presentacion: dto.descripcion_presentacion,
+        unidad_compra: dto.unidad_base, // Usar la misma unidad base como unidad de compra por defecto
+        unidades_por_presentacion: 1, // 1 unidad por presentación por defecto
+        costo_compra_unitario: dto.costo_promedio || 0,
+        es_principal: true, // Esta es la presentación principal
+      };
+
+      const { error: presentacionError } = await supabase
+        .from('insumo_presentacion')
+        .insert(presentacionData);
+
+      if (presentacionError) {
+        console.warn(`Error al crear presentación para insumo ${data.id_insumo}: ${presentacionError.message}`);
+        // No lanzamos error aquí para no fallar la creación del insumo
+      }
+
+      // Si se proporcionó fecha_vencimiento, crear un lote inicial
+      if (fecha_vencimiento) {
+        const { error: loteError } = await supabase
+          .from('lote_insumo')
+          .insert({
+            id_insumo: data.id_insumo,
+            fecha_vencimiento: fecha_vencimiento,
+            cantidad_inicial: 0, // El lote se crea vacío inicialmente
+            cantidad_actual: 0,
+            costo_unitario: dto.costo_promedio || 0,
+            ubicacion: 'Bodega Principal' // Ubicación por defecto
+          });
+
+        if (loteError) {
+          console.warn(`Error al crear lote inicial para insumo ${data.id_insumo}: ${loteError.message}`);
+          // No lanzamos error aquí para no fallar la creación del insumo
+        }
+      }
+    }
+
     return data;
   }
 
@@ -129,62 +175,95 @@ export class InventarioService {
     if (error) throw new Error(`Error al eliminar insumo: ${error.message}`);
   }
 
+  async getProveedorPrincipal(idInsumo: number): Promise<number | null> {
+    const { data, error } = await supabase
+      .from('insumo_presentacion')
+      .select('id_proveedor')
+      .eq('id_insumo', idInsumo)
+      .eq('es_principal', true)
+      .eq('activo', true)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      throw new Error(`Error al obtener proveedor principal: ${error.message}`);
+    }
+    return data?.id_proveedor || null;
+  }
+
   // ================== CATÁLOGO ==================
 
   async getCatalogoInsumos(): Promise<CatalogoInsumo[]> {
+    console.log('Ejecutando consulta getCatalogoInsumos');
     const { data, error } = await supabase
       .from('insumo')
       .select(`
         id_insumo,
         nombre_insumo,
-        unidad_medida,
+        unidad_base,
         stock_minimo,
         stock_maximo,
         costo_promedio,
         activo,
         fecha_registro,
         id_categoria,
-        id_proveedor_principal,
-        categoria_insumo(tipo_categoria, nombre),
-        lote_insumo(cantidad_actual)
+        categoria_insumo:categoria_insumo(nombre, tipo_categoria),
+        lote_insumo:lote_insumo(ubicacion),
+        insumo_presentacion!inner(id_proveedor, descripcion_presentacion, es_principal, activo)
       `)
+      .eq('insumo_presentacion.es_principal', true)
+      .eq('insumo_presentacion.activo', true)
       .order('nombre_insumo', { ascending: true });
 
-    if (error) throw new Error(`Error al obtener catálogo de insumos: ${error.message}`);
+    if (error) {
+      console.error('Error en consulta:', error);
+      throw new Error(`Error al obtener catálogo de insumos: ${error.message}`);
+    }
 
-    // Mapeo igual que dashboard: incluye insumos sin lotes/categoría
-    return (data || []).map((item: CatalogoQueryResult) => {
-      // Calcular stock total desde lotes (si no hay, 0)
-      const lotes = Array.isArray(item.lote_insumo) ? item.lote_insumo : [];
-      const stock_actual = lotes.length ? lotes.reduce((sum, lote) => sum + (lote.cantidad_actual || 0), 0) : 0;
-
-      // Si no hay categoría, asigna tipo 'perpetuo' y nombre '—'
-      let categoriaObj: { nombre: string; tipo_categoria: 'perpetuo' | 'operativo' };
-      if (Array.isArray(item.categoria_insumo) && item.categoria_insumo.length > 0) {
-        const raw = item.categoria_insumo[0];
-        categoriaObj = {
-          nombre: raw.nombre || '—',
-          tipo_categoria: raw.tipo_categoria === 'operativo' ? 'operativo' : 'perpetuo'
-        };
-      } else {
-        categoriaObj = { nombre: '—', tipo_categoria: 'perpetuo' };
-      }
-
-      return {
-        id_insumo: item.id_insumo,
-        nombre: item.nombre_insumo,
-        unidad_medida: item.unidad_medida || 'unidades',
-        stock_actual,
-        stock_minimo: item.stock_minimo,
-        stock_maximo: item.stock_maximo,
-        costo_promedio: item.costo_promedio,
-        activo: item.activo,
-        fecha_creacion: item.fecha_registro,
-        id_categoria: item.id_categoria,
-        id_proveedor_principal: item.id_proveedor_principal,
-        categoria: categoriaObj,
-      };
-    });
+    console.log('Primeros 2 resultados:', data?.slice(0, 2));
+    
+    // Mapeo simplificado
+    return (data || []).map((item: {
+      id_insumo: number;
+      nombre_insumo: string;
+      unidad_base: string | null;
+      stock_minimo: number;
+      stock_maximo: number;
+      costo_promedio: number;
+      activo: boolean;
+      fecha_registro: string;
+      id_categoria: number;
+      categoria_insumo: {
+        nombre: string;
+        tipo_categoria: 'perpetuo' | 'operativo';
+      }[];
+      lote_insumo: {
+        ubicacion: string;
+      }[];
+      insumo_presentacion: {
+        id_proveedor: number;
+        descripcion_presentacion: string;
+        es_principal: boolean;
+        activo: boolean;
+      }[];
+    }) => ({
+      id_insumo: item.id_insumo,
+      nombre: item.nombre_insumo,
+      ubicacion: item.lote_insumo && item.lote_insumo.length > 0 ? item.lote_insumo[0].ubicacion : '—',
+      stock_actual: 0,
+      stock_minimo: item.stock_minimo,
+      stock_maximo: item.stock_maximo,
+      costo_promedio: item.costo_promedio,
+      activo: item.activo,
+      fecha_creacion: new Date(item.fecha_registro),
+      id_categoria: item.id_categoria,
+      categoria: item.categoria_insumo && item.categoria_insumo.length > 0 
+        ? { nombre: item.categoria_insumo[0].nombre, tipo_categoria: item.categoria_insumo[0].tipo_categoria }
+        : { nombre: '—', tipo_categoria: 'perpetuo' },
+      id_proveedor_principal: item.insumo_presentacion && item.insumo_presentacion.length > 0 
+        ? item.insumo_presentacion[0].id_proveedor : undefined,
+      descripcion_presentacion: item.insumo_presentacion && item.insumo_presentacion.length > 0 
+        ? item.insumo_presentacion[0].descripcion_presentacion : '',
+    }));
   }
 
   // ================== LOTES ==================
@@ -310,7 +389,7 @@ export class InventarioService {
       id_insumo: item.id_insumo as number,
       nombre_insumo: item.nombre_insumo as string,
       cantidad_actual: item.cantidad_actual as number,
-      unidad_medida: item.unidad_medida as string,
+      unidad_base: item.unidad_base as string,
       stock_minimo: item.stock_minimo as number,
       stock_maximo: item.stock_maximo as number,
       costo_promedio: item.costo_promedio as number,
@@ -367,7 +446,7 @@ export class InventarioService {
       .select(`
         id_insumo,
         nombre_insumo,
-        unidad_medida,
+        unidad_base,
         stock_minimo,
         stock_maximo,
         costo_promedio,

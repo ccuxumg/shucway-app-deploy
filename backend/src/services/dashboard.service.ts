@@ -309,10 +309,10 @@ export const dashboardService = {
           nombre_insumo,
           id_categoria,
           activo,
-          unidad_medida,
+          unidad_base,
           stock_minimo,
           stock_maximo,
-          categoria_insumo(tipo_categoria),
+          tipo_categoria,
           lote_insumo(cantidad_actual)
         `)
         .order('nombre_insumo', { ascending: true });
@@ -354,7 +354,7 @@ export const dashboardService = {
           qty: cantidad_actual.toString(),
           cantidad_actual,
           note: estado,
-          tipo_insumo: (row.categoria_insumo as { tipo_categoria?: string })?.tipo_categoria || 'perpetuo'
+          tipo_insumo: (row.tipo_categoria as string) || 'perpetuo'
         };
       });
 

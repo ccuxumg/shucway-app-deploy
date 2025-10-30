@@ -30,6 +30,26 @@ async function generateSQLBackup(dbConfig: DatabaseConfig): Promise<string> {
     let sql = '-- Backup generado automáticamente\n';
     sql += `-- Fecha: ${new Date().toISOString()}\n\n`;
 
+    // Obtener todas las secuencias
+    const sequencesResult = await client.query(`
+      SELECT sequence_name, start_value, increment, minimum_value, maximum_value, cycle_option
+      FROM information_schema.sequences
+      WHERE sequence_schema = 'public'
+      ORDER BY sequence_name
+    `);
+
+    for (const seqRow of sequencesResult.rows) {
+      sql += `DROP SEQUENCE IF EXISTS "${seqRow.sequence_name}" CASCADE;\n`;
+      sql += `CREATE SEQUENCE "${seqRow.sequence_name}"\n`;
+      sql += `  START WITH ${seqRow.start_value}\n`;
+      sql += `  INCREMENT BY ${seqRow.increment}\n`;
+      sql += `  MINVALUE ${seqRow.minimum_value}\n`;
+      sql += `  MAXVALUE ${seqRow.maximum_value}\n`;
+      if (seqRow.cycle_option === 'YES') sql += `  CYCLE\n`;
+      else sql += `  NO CYCLE\n`;
+      sql += `;\n\n`;
+    }
+
     // Obtener todas las tablas
     const tablesResult = await client.query(`
       SELECT tablename

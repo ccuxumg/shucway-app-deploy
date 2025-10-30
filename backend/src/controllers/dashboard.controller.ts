@@ -134,8 +134,7 @@ export const dashboardController = {
       console.error('Error al obtener datos de inventario:', error);
       res.status(500).json({ message: 'Error al obtener datos de inventario' });
     }
-  }
-,
+  },
 
   // Devuelve el conteo de tablas disponibles (utiliza la lista de dashboardService como referencia)
   async getTablesCount(_req: Request, res: Response) {
@@ -146,9 +145,7 @@ export const dashboardController = {
       console.error('Error al obtener conteo de tablas:', error);
       res.status(500).json({ message: 'Error al obtener conteo de tablas' });
     }
-  }
-
-,
+  },
 
   // Devuelve cambios recientes en los módulos del sistema
   async getRecentChanges(_req: Request, res: Response) {

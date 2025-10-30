@@ -67,7 +67,7 @@ async function startServer() {
     process.on('SIGINT', gracefulShutdown);
 
     process.on('unhandledRejection', (reason) => {
-      logger.error('❌ UnhandledRejection:', reason as any);
+      logger.error('❌ UnhandledRejection:', reason as Error);
     });
     process.on('uncaughtException', (err) => {
       logger.error('❌ UncaughtException:', err);
@@ -82,11 +82,7 @@ async function startServer() {
 
 // Arrancar sólo cuando corresponde (local por defecto)
 if (shouldStartHttp) {
-  // Nota: en Windows puedes forzar el arranque con:
-  //   cross-env FORCE_LOCAL=true SKIP_DB_CHECK=true tsx src/index.ts
-  // o con npm script "dev:fast"
-  // (asegúrate de que el front apunte a http://localhost:3001/api)
-  // @ts-ignore - no necesitamos usar el valor devuelto
+
   startServer();
 } else {
   logger.info('🧪 Entorno serverless detectado → no se levanta HTTP, se exporta app');

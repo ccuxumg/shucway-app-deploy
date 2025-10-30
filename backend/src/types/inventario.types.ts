@@ -13,19 +13,20 @@ export interface Insumo {
   id_insumo: number;
   nombre_insumo: string;
   id_categoria: number;
-  unidad_medida: string;
+  unidad_base: string;
   id_proveedor_principal?: number;
   stock_minimo: number;
   stock_maximo: number;
   costo_promedio: number;
   fecha_registro: Date;
   activo: boolean;
+  descripcion_presentacion?: string;
 }
 
 export interface CatalogoInsumo {
   id_insumo: number;
   nombre: string;
-  unidad_medida: string;
+  ubicacion: string;
   stock_actual: number;
   stock_minimo: number;
   stock_maximo: number;
@@ -38,6 +39,7 @@ export interface CatalogoInsumo {
     nombre: string;
     tipo_categoria: 'perpetuo' | 'operativo';
   };
+  descripcion_presentacion?: string;
 }
 
 export interface LoteInsumo {
@@ -48,6 +50,18 @@ export interface LoteInsumo {
   cantidad_actual: number;
   costo_unitario: number;
   ubicacion?: string;
+}
+
+export interface InsumoPresentacion {
+  id_presentacion: number;
+  id_insumo: number;
+  id_proveedor?: number;
+  descripcion_presentacion?: string;
+  unidad_compra: string;
+  unidades_por_presentacion: number;
+  costo_compra_unitario: number;
+  es_principal: boolean;
+  activo: boolean;
 }
 
 export interface MovimientoInventario {
@@ -82,21 +96,24 @@ export interface BitacoraInventario {
 export interface CreateInsumoDTO {
   nombre_insumo: string;
   id_categoria: number;
-  unidad_medida: string;
+  unidad_base: string;
   id_proveedor_principal?: number;
   stock_minimo: number;
   stock_maximo: number;
   costo_promedio?: number;
+  descripcion_presentacion?: string;
+  fecha_vencimiento?: string;
 }
 
 export interface UpdateInsumoDTO {
   nombre_insumo?: string;
   id_categoria?: number;
-  unidad_medida?: string;
+  unidad_base?: string;
   id_proveedor_principal?: number;
   stock_minimo?: number;
   stock_maximo?: number;
   costo_promedio?: number;
+  descripcion_presentacion?: string;
   activo?: boolean;
 }
 
@@ -106,6 +123,16 @@ export interface CreateLoteDTO {
   cantidad_inicial: number;
   costo_unitario: number;
   ubicacion?: string;
+}
+
+export interface CreatePresentacionDTO {
+  id_insumo: number;
+  id_proveedor?: number;
+  descripcion_presentacion?: string;
+  unidad_compra: string;
+  unidades_por_presentacion: number;
+  costo_compra_unitario: number;
+  es_principal: boolean;
 }
 
 export interface CreateMovimientoDTO {
@@ -121,7 +148,7 @@ export interface StockActual {
   id_insumo: number;
   nombre_insumo: string;
   cantidad_actual: number;
-  unidad_medida: string;
+  unidad_base: string;
   stock_minimo: number;
   stock_maximo: number;
   costo_promedio: number;

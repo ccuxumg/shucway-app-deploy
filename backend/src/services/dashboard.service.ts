@@ -313,7 +313,7 @@ export const dashboardService = {
           stock_minimo,
           stock_maximo,
           tipo_categoria,
-          lote_insumo(cantidad_actual)
+          categoria_insumo(nombre)
         `)
         .order('nombre_insumo', { ascending: true });
 
@@ -337,8 +337,9 @@ export const dashboardService = {
       // Mapear todos los insumos, aunque no tengan lotes
       const mappedAll = insumos.map((row: Record<string, unknown>) => {
         // Calcular stock sumando cantidades de lotes (si existen)
-        const lotes = Array.isArray(row.lote_insumo) ? row.lote_insumo as { cantidad_actual?: number }[] : [];
-        const cantidad_actual = lotes.length ? lotes.reduce((sum, lote) => sum + (lote.cantidad_actual || 0), 0) : 0;
+        // const lotes = Array.isArray(row.lote_insumo) ? row.lote_insumo as { cantidad_actual?: number }[] : [];
+        // const cantidad_actual = lotes.length ? lotes.reduce((sum, lote) => sum + (lote.cantidad_actual || 0), 0) : 0;
+        const cantidad_actual = 0; // Temporalmente 0, ya que no hay lotes
         const stockMinimo = Number(row.stock_minimo) || 0;
         let estado = 'Normal';
         if (cantidad_actual === 0) {
@@ -354,7 +355,8 @@ export const dashboardService = {
           qty: cantidad_actual.toString(),
           cantidad_actual,
           note: estado,
-          tipo_insumo: (row.tipo_categoria as string) || 'perpetuo'
+          tipo_insumo: (row.tipo_categoria as string) || 'perpetuo',
+          categoriaNombre: (row.categoria_insumo as { nombre: string })?.nombre || 'Sin Categoría'
         };
       });
 

@@ -26,7 +26,7 @@ export interface Insumo {
 export interface CatalogoInsumo {
   id_insumo: number;
   nombre: string;
-  ubicacion: string;
+  unidad_base: string;
   stock_actual: number;
   stock_minimo: number;
   stock_maximo: number;

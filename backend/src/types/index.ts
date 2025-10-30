@@ -138,6 +138,7 @@ export interface InventoryItem {
   name: string;
   qty?: string;
   note?: string;
+  categoriaNombre?: string;
 }
 
 export interface Insumo {

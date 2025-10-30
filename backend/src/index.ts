@@ -5,25 +5,12 @@ import { logger } from './utils/logger';
 import { testDatabaseConnection } from './config/database';
 
 // ─────────────────────────────────────────────────────────────
-// Detección de entorno
-//   - En local: queremos LEVANTAR el servidor HTTP.
-//   - En serverless (Vercel/AWS): NO levantamos servidor; solo exportamos `app`.
-//   - Puedes forzar el arranque con FORCE_LOCAL=true
+// Servidor local para desarrollo
 // ─────────────────────────────────────────────────────────────
-const isVercel = !!process.env.VERCEL;
-const isAwsLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME;
-const isServerless = isVercel || isAwsLambda || process.env.SERVERLESS === 'true';
-const forceLocal = process.env.FORCE_LOCAL === 'true';
-
-// Si no estamos en serverless (o lo forzamos), arrancamos el server.
-const shouldStartHttp = forceLocal || !isServerless;
 
 async function startServer() {
   try {
     logger.info('🚀 Iniciando servidor Shucway Backend...');
-    logger.info(
-      `🧭 Flags → isVercel=${isVercel} isAwsLambda=${isAwsLambda} forceLocal=${forceLocal} shouldStartHttp=${shouldStartHttp}`
-    );
 
     // Verificación de BD (saltable con SKIP_DB_CHECK=true)
     const skipDbCheck = process.env.SKIP_DB_CHECK === 'true';
@@ -80,13 +67,8 @@ async function startServer() {
   }
 }
 
-// Arrancar sólo cuando corresponde (local por defecto)
-if (shouldStartHttp) {
-
-  startServer();
-} else {
-  logger.info('🧪 Entorno serverless detectado → no se levanta HTTP, se exporta app');
-}
+// Arrancar el servidor localmente
+startServer();
 
 // Exportar la app para Vercel/serverless/tests
 export default app;

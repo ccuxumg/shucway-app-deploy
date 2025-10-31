@@ -16,8 +16,8 @@ import { supabase } from "../../../../api/supabaseClient";
 
 /** Tipos */
 type TipoInsumo = "Perpetuo" | "Operativo";
-type EstadoStock = "OK" | "Stock Bajo" | "Crítico";
-type UnidadMedida = "kg" | "litros" | "unidades";
+type EstadoStock = "OK" | "Stock Bajo" | "Crítico" | "Vacío";
+type UnidadMedida = "caneca" | "frasco" | "galón" | "garrafon" | "lata" | "libra" | "manojo" | "paquete" | "sobre" | "unidad";
 
 type Fila = {
   id: string;
@@ -25,18 +25,22 @@ type Fila = {
   tipo: TipoInsumo;
   stockCantidad: number;
   unidad: UnidadMedida;
+  ubicacion: string;
   estado: EstadoStock;
   ultimaActualizacion: string;
   categoria: string;
   descripcion?: string;
   proveedor?: string;
   costo?: number;
-  ubicacion?: string;
   activo?: boolean;
   automatica?: boolean;
   imagen?: string;
   categoriaId?: number;
   proveedorId?: number;
+  fecha_vencimiento?: string;
+  stock_minimo?: number;
+  stock_maximo?: number;
+  descripcion_presentacion?: string;
 };
 
 // Tipo para la respuesta de la API de catálogo
@@ -50,13 +54,13 @@ export default function Catalogo() {
   // Estado para el modal de confirmación de eliminación
   const [deleteModal, setDeleteModal] = useState<{ open: boolean; row: Fila | null }>({ open: false, row: null });
   // Valores y helpers mínimos necesarios para compilar y mantener funcionalidad básica
-  const UNIDADES: UnidadMedida[] = ['kg', 'litros', 'unidades'];
+  const UNIDADES: UnidadMedida[] = ['caneca', 'frasco', 'galón', 'garrafon', 'lata', 'libra', 'manojo', 'paquete', 'sobre', 'unidad'];
   const TABS = [
     { id: "todos", label: "Todos" },
     { id: "perpetuos", label: "Solo Perpetuos" },
     { id: "operativos", label: "Solo Operativos" },
   ] as const;
-  type SortKey = 'stock' | 'ultimaActualizacion' | 'nombre' | 'tipo' | 'estado' | 'categoria' | 'unidad';
+  type SortKey = 'stock' | 'ultimaActualizacion' | 'nombre' | 'tipo' | 'estado' | 'categoria' | 'unidad' | 'ubicacion';
 
   const [q, setQ] = useState<string>('');
   const [debouncedQ, setDebouncedQ] = useState<string>('');
@@ -67,12 +71,21 @@ export default function Catalogo() {
 
   const slugify = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-  const formatStock = (n: number, unidad: UnidadMedida) => `${n} ${unidad}`;
+  const formatStock = (n: number) => `${n}`;
   const formatDateHuman = (iso?: string) => (iso ? new Date(iso).toLocaleString('es-ES') : '—');
 
-  const TipoBadge = ({ tipo }: { tipo: TipoInsumo }) => (
-    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-xs">{tipo}</span>
-  );
+  const TipoBadge = ({ tipo }: { tipo: TipoInsumo }) => {
+    const isPerpetuo = tipo === "Perpetuo";
+    return (
+      <span className={`px-2 py-0.5 rounded text-xs ${
+        isPerpetuo
+          ? "bg-emerald-100 text-emerald-700"
+          : "bg-blue-100 text-blue-700"
+      }`}>
+        {tipo}
+      </span>
+    );
+  };
   const EstadoPill = ({ estado }: { estado: EstadoStock }) => (
     <span className="px-2 py-0.5 rounded text-xs bg-gray-100">{estado}</span>
   );
@@ -166,7 +179,8 @@ export default function Catalogo() {
         const stockLotes = Number(i.stock_actual ?? 0);
         const stockMinimo = Number(i.stock_minimo ?? 0);
         let estado: EstadoStock = "OK";
-        if (stockLotes <= stockMinimo * 0.5) estado = "Crítico";
+        if (stockLotes === 0) estado = "Vacío";
+        else if (stockLotes <= stockMinimo * 0.5) estado = "Crítico";
         else if (stockLotes <= stockMinimo) estado = "Stock Bajo";
 
         return {
@@ -174,19 +188,23 @@ export default function Catalogo() {
           nombre: i.nombre_insumo || i.nombre, // fallback por si el campo es diferente
           tipo,
           stockCantidad: stockLotes,
-          unidad: i.unidad_medida || "unidades",
+          unidad: (i.unidad_base as UnidadMedida) || "unidad",
+          ubicacion: i.ubicacion || '—',
           estado,
           ultimaActualizacion: i.fecha_registro || i.fecha_creacion || new Date().toISOString(),
           categoria: nombreCategoria,
           descripcion: "",
           proveedor: undefined,
           costo: i.costo_promedio ? Number(i.costo_promedio) : undefined,
-          ubicacion: undefined,
           activo: Boolean(i.activo ?? true),
           automatica: false,
           imagen: `/insumos/${slugify(String(i.nombre_insumo || i.nombre))}.png`,
           categoriaId: i.id_categoria,
           proveedorId: i.id_proveedor_principal,
+          fecha_vencimiento: i.fecha_vencimiento || undefined,
+          stock_minimo: i.stock_minimo ? Number(i.stock_minimo) : undefined,
+          stock_maximo: i.stock_maximo ? Number(i.stock_maximo) : undefined,
+          descripcion_presentacion: i.descripcion_presentacion || "",
         } as Fila;
       });
       setRows(mapped);
@@ -254,16 +272,20 @@ export default function Catalogo() {
     nombre: "",
     tipo: "Operativo",
     stockCantidad: 0,
-    unidad: "kg",
+    unidad: "unidad",
+    ubicacion: "—",
     estado: "OK",
     ultimaActualizacion: new Date().toISOString(),
     categoria: "",
     descripcion: "",
     proveedor: "",
     costo: undefined,
-    ubicacion: "Bodega Principal",
     activo: true,
     automatica: false,
+    fecha_vencimiento: undefined,
+    stock_minimo: undefined,
+    stock_maximo: undefined,
+    descripcion_presentacion: "",
   };
   const [form, setForm] = useState<Fila>(blankForm);
 
@@ -387,10 +409,14 @@ export default function Catalogo() {
     // Mapear campos del formulario a la estructura de la tabla `insumo`
     const payload: Record<string, unknown> = {
       nombre: form.nombre,
-      unidad_medida: form.unidad,
+      unidad_base: form.unidad,
       tipo_insumo: form.tipo.toLowerCase(),
       costo_promedio: form.costo ?? 0,
       activo: Boolean(form.activo),
+      stock_minimo: form.stock_minimo ?? 0,
+      stock_maximo: form.stock_maximo ?? 0,
+      descripcion_presentacion: form.descripcion_presentacion || undefined,
+      fecha_vencimiento: form.fecha_vencimiento || undefined,
     };
   // usar ids seleccionados si existen
   if (form.categoriaId != null) payload.id_categoria = form.categoriaId;
@@ -570,6 +596,7 @@ export default function Catalogo() {
                 <Th label="Tipo de Categoría" onSort={() => toggleSort("tipo")} active={sortBy === "tipo"} dir={sortDir} />
                 <Th label="Stock Actual" onSort={() => toggleSort("stock")} active={sortBy === "stock"} dir={sortDir} />
                 <Th label="Unidad" onSort={() => toggleSort("unidad")} active={sortBy === "unidad"} dir={sortDir} />
+                <Th label="Ubicación" onSort={() => toggleSort("ubicacion")} active={sortBy === "ubicacion"} dir={sortDir} />
                 <Th label="Estado" onSort={() => toggleSort("estado")} active={sortBy === "estado"} dir={sortDir} />
                 <Th label="Última Actualización" onSort={() => toggleSort("ultimaActualizacion")} active={sortBy === "ultimaActualizacion"} dir={sortDir} />
                 <th className="px-4 py-3 font-medium text-right">Acciones</th>
@@ -598,8 +625,9 @@ export default function Catalogo() {
                   </td>
                   <td className="px-4 py-3 align-top">{r.categoria}</td>
                   <td className="px-4 py-3 align-top">{r.tipo}</td>
-                  <td className="px-4 py-3 align-top">{formatStock(r.stockCantidad, r.unidad)}</td>
+                  <td className="px-4 py-3 align-top">{formatStock(r.stockCantidad)}</td>
                   <td className="px-4 py-3 align-top">{r.unidad}</td>
+                  <td className="px-4 py-3 align-top">{r.ubicacion}</td>
                   <td className="px-4 py-3 align-top"><EstadoPill estado={r.estado} /></td>
                   <td className="px-4 py-3 align-top">{formatDateHuman(r.ultimaActualizacion)}</td>
                   <td className="px-4 py-3 align-top">
@@ -696,7 +724,7 @@ export default function Catalogo() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="unidad">Unidad de Medida</label>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="unidad">Unidad Base</label>
                         <select id="unidad" value={form.unidad} onChange={(e) => setFormField("unidad", e.target.value as UnidadMedida)} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300">
                           {UNIDADES.map((u) => <option key={u}>{u}</option>)}
                         </select>
@@ -708,12 +736,7 @@ export default function Catalogo() {
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
                           <label className="block text-xs font-semibold text-gray-600 mb-1">Stock Actual</label>
-                          <div className="flex gap-2">
-                            <input type="number" inputMode="decimal" id="stockCantidad" value={form.stockCantidad} onChange={(e) => setFormField("stockCantidad", Number(e.target.value))} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300" />
-                            <select value={form.unidad} onChange={(e) => setFormField("unidad", e.target.value as UnidadMedida)} className="h-11 rounded-lg border border-gray-200 px-2 text-sm">
-                              {UNIDADES.map((u) => <option key={u}>{u}</option>)}
-                            </select>
-                          </div>
+                          <input type="number" inputMode="decimal" id="stockCantidad" value={form.stockCantidad} readOnly className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm bg-gray-50 cursor-not-allowed" />
                         </div>
                         <div>
                           <label className="block text-xs font-semibold text-gray-600 mb-1">Estado</label>
@@ -739,10 +762,6 @@ export default function Catalogo() {
                 <section className="bg-white rounded-xl border border-gray-200/70 shadow-sm p-4 md:p-5">
                   <div className="text-sm font-bold text-gray-800 mb-4">Información Adicional</div>
                   <div className="grid gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="desc">Descripción</label>
-                      <textarea id="desc" value={form.descripcion ?? ""} onChange={(e) => setFormField("descripcion", e.target.value)} className="w-full min-h-[110px] rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300" />
-                    </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
@@ -764,9 +783,11 @@ export default function Catalogo() {
                     <div>
                       <label className="block text-xs font-semibold text-gray-600 mb-1">Ubicación</label>
                       <select value={form.ubicacion ?? ""} onChange={(e) => setFormField("ubicacion", e.target.value)} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300">
-                        <option>Seleccionar ubicación</option>
-                        <option>Bodega Principal</option>
-                        <option>Cocina</option>
+                        <option value="">Seleccionar ubicación</option>
+                        <option value="Congelador">Congelador</option>
+                        <option value="Refrigerador">Refrigerador</option>
+                        <option value="Nevera">Nevera</option>
+                        <option value="Casa">Casa</option>
                       </select>
                     </div>
 
@@ -813,17 +834,73 @@ export default function Catalogo() {
                       </div>
                       <input value={form.imagen ?? ""} onChange={(e) => setFormField("imagen", e.target.value)} placeholder="https://.../imagen.png" className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300 mt-2" />
                     </div>
+                  </div>
+                </section>
 
-                    <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                      <button type="submit" disabled={loading} className="h-11 rounded-lg bg-emerald-500 px-4 text-sm font-semibold text-white hover:bg-emerald-600 disabled:opacity-60">
-                        {loading ? "Guardando..." : editingId ? "Guardar cambios" : "Crear Insumo"}
-                      </button>
-                      <button type="button" className="h-11 rounded-lg border px-4 text-sm font-semibold hover:bg-gray-50" onClick={() => setOpenDrawer(false)}>
-                        Cancelar
-                      </button>
+                {/* Información de Inventario */}
+                <section className="bg-white rounded-xl border border-gray-200/70 shadow-sm p-4 md:p-5">
+                  <div className="text-sm font-bold text-gray-800 mb-4">Información de Inventario</div>
+                  <div className="grid gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="stock_minimo">Stock Mínimo</label>
+                        <input
+                          id="stock_minimo"
+                          type="number"
+                          inputMode="decimal"
+                          value={form.stock_minimo ?? ""}
+                          onChange={(e) => setFormField("stock_minimo", e.target.value === "" ? undefined : Number(e.target.value))}
+                          placeholder="0"
+                          className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="stock_maximo">Stock Máximo</label>
+                        <input
+                          id="stock_maximo"
+                          type="number"
+                          inputMode="decimal"
+                          value={form.stock_maximo ?? ""}
+                          onChange={(e) => setFormField("stock_maximo", e.target.value === "" ? undefined : Number(e.target.value))}
+                          placeholder="0"
+                          className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="fecha_vencimiento">Fecha de Vencimiento</label>
+                      <input
+                        id="fecha_vencimiento"
+                        type="date"
+                        value={form.fecha_vencimiento ?? ""}
+                        onChange={(e) => setFormField("fecha_vencimiento", e.target.value === "" ? undefined : e.target.value)}
+                        className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="descripcion_presentacion">Descripción de Presentación</label>
+                      <textarea
+                        id="descripcion_presentacion"
+                        value={form.descripcion_presentacion ?? ""}
+                        onChange={(e) => setFormField("descripcion_presentacion", e.target.value)}
+                        placeholder="Ej: Bolsa de 1kg, Caja de 24 unidades, etc."
+                        className="w-full min-h-[40px] rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                      />
                     </div>
                   </div>
                 </section>
+
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                  <button type="submit" disabled={loading} className="h-11 rounded-lg bg-emerald-500 px-4 text-sm font-semibold text-white hover:bg-emerald-600 disabled:opacity-60">
+                    {loading ? "Guardando..." : editingId ? "Guardar cambios" : "Crear Insumo"}
+                  </button>
+                  <button type="button" className="h-11 rounded-lg border px-4 text-sm font-semibold hover:bg-gray-50" onClick={() => setOpenDrawer(false)}>
+                    Cancelar
+                  </button>
+                </div>
+
                   {error && (
                     <div className="p-3 text-sm text-rose-700 bg-rose-50 rounded-md">Error: {error}</div>
                   )}
@@ -839,7 +916,7 @@ export default function Catalogo() {
                         <ResumenRow label="ID del Insumo:">{form.id || "—"}</ResumenRow>
                         <ResumenRow label="Tipo:"><EstadoPill estado={form.estado} /></ResumenRow>
                         <ResumenRow label="Categoría:">{(form.categoriaId != null ? (categoriasBD.find(c => c.id_categoria === form.categoriaId)?.nombre) : form.categoria) || "No seleccionada"}</ResumenRow>
-                        <ResumenRow label="Stock:">{formatStock(form.stockCantidad, form.unidad)}</ResumenRow>
+                        <ResumenRow label="Stock:">{formatStock(form.stockCantidad)}</ResumenRow>
                         <ResumenRow label="Actualización:">{form.automatica ? "Automática" : "Manual"}</ResumenRow>
                       </div>
                       <div className="mt-5 flex gap-3">
@@ -912,7 +989,7 @@ export default function Catalogo() {
                   {/* Grid detalle */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                     <DetailRow label="Categoría" value={detail.categoria} />
-                    <DetailRow label="Stock" value={formatStock(detail.stockCantidad, detail.unidad)} />
+                    <DetailRow label="Stock" value={formatStock(detail.stockCantidad)} />
                     <DetailRow label="Última actualización" value={formatDateHuman(detail.ultimaActualizacion)} />
                     <DetailRow label="Unidad" value={detail.unidad} />
                     <DetailRow label="Proveedor" value={detail.proveedor ?? "—"} />
@@ -920,13 +997,6 @@ export default function Catalogo() {
                     <DetailRow label="Costo Promedio (Q)" value={detail.costo != null ? String(detail.costo) : "—"} />
                     <DetailRow label="Estado" value={detail.activo ? "Activo" : "Inactivo"} />
                   </div>
-
-                  {detail.descripcion && (
-                    <div>
-                      <div className="text-xs font-semibold text-gray-600 mb-1">Descripción</div>
-                      <p className="text-sm text-gray-700">{detail.descripcion}</p>
-                    </div>
-                  )}
 
                   {/* Kárdex incrustado dentro del modal de detalle */}
                   <div ref={kardexRef}>

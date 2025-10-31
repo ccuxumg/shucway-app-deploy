@@ -1,8 +1,10 @@
 import { Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import { jwt } from '../utils/jwt';                 // ⬅️ usa el wrapper
 import { config } from '../config/env';
 import { AuthRequest, AuthUser } from '../types/express.types';
 import { logger } from '../utils/logger';
+
+const JWT_SECRET = config.jwt.secret;
 
 // Middleware para verificar el token JWT
 export const authenticateToken = (
@@ -12,54 +14,48 @@ export const authenticateToken = (
 ): void => {
   try {
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+    const token = authHeader && authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7)
+      : null;
 
     logger.info(`🔍 Auth Check - Path: ${req.path}`);
     logger.info(`🔍 Auth Header: ${authHeader ? 'Presente' : 'Ausente'}`);
-    logger.info(`🔍 Token: ${token ? 'Presente (primeros 20 chars): ' + token.substring(0, 20) + '...' : 'Ausente'}`);
+    logger.info(
+      `🔍 Token: ${
+        token ? 'Presente (primeros 20 chars): ' + token.substring(0, 20) + '...' : 'Ausente'
+      }`
+    );
 
     if (!token) {
       logger.warn('❌ Token no proporcionado');
-      res.status(401).json({
-        success: false,
-        error: 'Token no proporcionado'
-      });
+      res.status(401).json({ success: false, error: 'Token no proporcionado' });
       return;
     }
 
     // Verificar token
-    jwt.verify(token, config.jwt.secret, (err, decoded) => {
-      if (err) {
-        logger.warn(`❌ Token inválido: ${err.message}`);
-        res.status(403).json({
-          success: false,
-          error: 'Token inválido o expirado',
-          details: err.message
-        });
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
+
+      if (!decoded.role || !decoded.role.nombre_rol) {
+        logger.error('❌ Token no contiene información de rol válida');
+        res.status(403).json({ success: false, error: 'Token inválido - falta información de rol' });
         return;
       }
 
-      // Agregar usuario al request con verificación de rol
-      const decodedUser = decoded as AuthUser;
-      if (!decodedUser.role || !decodedUser.role.nombre_rol) {
-        logger.error('❌ Token no contiene información de rol válida');
-        res.status(403).json({
-          success: false,
-          error: 'Token inválido - falta información de rol'
-        });
-        return;
-      }
-      
-      req.user = decodedUser as AuthUser;
+      req.user = decoded;
       logger.info(`✅ Token válido - Usuario: ${req.user.email} (${req.user.role.nombre_rol})`);
       next();
-    });
+    } catch (err: any) {
+      logger.warn(`❌ Token inválido: ${err?.message || 'verify error'}`);
+      res.status(403).json({
+        success: false,
+        error: 'Token inválido o expirado',
+        details: err?.message
+      });
+    }
   } catch (error) {
     logger.error('Error en authenticateToken:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Error al verificar autenticación'
-    });
+    res.status(500).json({ success: false, error: 'Error al verificar autenticación' });
   }
 };
 
@@ -68,10 +64,7 @@ export const requireRoles = (...allowedRoles: string[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
     try {
       if (!req.user) {
-        res.status(401).json({
-          success: false,
-          error: 'Usuario no autenticado'
-        });
+        res.status(401).json({ success: false, error: 'Usuario no autenticado' });
         return;
       }
 
@@ -80,28 +73,21 @@ export const requireRoles = (...allowedRoles: string[]) => {
 
       if (!hasRole) {
         logger.warn(
-          `Usuario ${req.user.id_perfil} sin permisos. ` +
-          `Requerido: ${allowedRoles.join(', ')}. Tiene: ${userRole}`
+          `Usuario ${req.user.id_perfil} sin permisos. Requerido: ${allowedRoles.join(', ')}. Tiene: ${userRole}`
         );
-        res.status(403).json({
-          success: false,
-          error: 'No tienes permisos para realizar esta acción'
-        });
+        res.status(403).json({ success: false, error: 'No tienes permisos para realizar esta acción' });
         return;
       }
 
       next();
     } catch (error) {
       logger.error('Error en requireRoles:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Error al verificar permisos'
-      });
+      res.status(500).json({ success: false, error: 'Error al verificar permisos' });
     }
   };
 };
 
-// Middleware opcional de autenticación (no falla si no hay token)
+// Autenticación opcional (no falla si no hay token)
 export const optionalAuth = (
   req: AuthRequest,
   _res: Response,
@@ -109,14 +95,16 @@ export const optionalAuth = (
 ): void => {
   try {
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    const token = authHeader && authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7)
+      : null;
 
     if (token) {
-      jwt.verify(token, config.jwt.secret, (err, decoded) => {
-        if (!err) {
-          req.user = decoded as AuthUser;
-        }
-      });
+      try {
+        req.user = jwt.verify(token, JWT_SECRET) as AuthUser;
+      } catch {
+        // Silencioso: si falla el token opcional, seguimos sin user
+      }
     }
 
     next();

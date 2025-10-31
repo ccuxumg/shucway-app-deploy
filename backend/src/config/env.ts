@@ -7,7 +7,7 @@ dotenv.config();
 // Esquema de validación para las variables de entorno
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  PORT: z.string().default('3001'),
+  PORT: z.string().default('3002'),
   
   // Supabase (solo como base de datos PostgreSQL)
   SUPABASE_URL: z.string().url(),

@@ -138,6 +138,7 @@ export interface InventoryItem {
   name: string;
   qty?: string;
   note?: string;
+  categoriaNombre?: string;
 }
 
 export interface Insumo {
@@ -145,7 +146,7 @@ export interface Insumo {
   nombre_insumo: string;
   id_categoria: number;
   activo: boolean;
-  unidad_medida?: string;
+  unidad_base?: string;
   stock_minimo?: number;
   stock?: number;
 }

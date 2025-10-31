@@ -35,7 +35,7 @@ export interface RecetaDetalle {
   id_producto: number;
   id_insumo: number;
   cantidad_requerida: number;
-  unidad_medida: string;
+  unidad_base: string;
 }
 
 export interface BitacoraProductos {
@@ -83,7 +83,7 @@ export interface CreateRecetaDTO {
   id_producto: number;
   id_insumo: number;
   cantidad_requerida: number;
-  unidad_medida: string;
+  unidad_base: string;
 }
 
 export interface ProductoConReceta extends Producto {

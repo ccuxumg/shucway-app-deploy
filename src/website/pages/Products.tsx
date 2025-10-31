@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import './Products.css';
 import { FaClock } from 'react-icons/fa';
 
@@ -57,6 +58,7 @@ const galeria = [
 const Products = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [timeLeft, setTimeLeft] = useState(604800); // 7 días en segundos
+    const location = useLocation();
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -73,6 +75,19 @@ const Products = () => {
 
     return () => clearInterval(timer);
   }, []);
+
+   useEffect(() => {
+    if (location.hash) {
+      const target = document.querySelector(location.hash);
+      if (target) {
+        setTimeout(() => {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 200);
+      }
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [location]);
 
   const formatTime = (seconds: number): string => {
     const days = Math.floor(seconds / 86400);
@@ -101,7 +116,7 @@ const Products = () => {
       </section>
 
       {/* Menú visual */}
-      <section className="products-menu-section animate-fade-in-delay">
+      <section id="menu" className="products-menu-section animate-fade-in-delay">
         <div className="products-menu-bg"></div>
         <div className="products-menu-list">
           <div className="products-menu-title">Nuestro Menú</div>
@@ -129,7 +144,7 @@ const Products = () => {
       </section>
 
       {/* Productos más vendidos */}
-      <section className="products-destacados-section animate-fade-in-delay">
+      <section id="destacados" className="products-destacados-section animate-fade-in-delay">
         <h2>Productos más Vendidos</h2>
         <div className="products-counter">
           <FaClock /> Tiempo restante: {formatTime(timeLeft)}

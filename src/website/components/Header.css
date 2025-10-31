@@ -102,7 +102,7 @@
   gap: 0.5rem;
   padding: 0.5rem 1.2rem;
   border-radius: 1.5rem;
-  background: linear-gradient(90deg, rgba(255,212,13,0.08) 40%, rgba(255,212,13,0.03) 100%);
+  background: linear-gradient(90deg, rgba(255, 212, 13, 0.08) 40%, rgba(255, 212, 13, 0.03) 100%);
   color: #ffd40d;
   cursor: pointer;
   transition: background 0.3s, box-shadow 0.3s, transform 0.2s;
@@ -207,6 +207,7 @@
     opacity: 0;
     transform: translateY(10px) scale(0.98);
   }
+
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
@@ -218,6 +219,7 @@
   .nav-list {
     gap: 0.5rem;
   }
+
   .header-login-btn {
     margin-left: 0.5rem;
     padding: 0.5rem 1rem;
@@ -229,12 +231,15 @@
   .nav-list {
     display: none;
   }
+
   .hamburger {
     display: flex;
   }
+
   .header-container {
     padding: 0 1rem;
   }
+
   .logo h1 {
     font-size: 1.4rem;
   }
@@ -243,33 +248,45 @@
 /* Scrolled state: turn header white and adapt nav */
 .header.scrolled {
   background: #fff;
-  box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
 }
+
 .header.scrolled .logo h1 {
   color: #1a202c;
 }
+
 .header.scrolled .header-logo {
-  filter: none; /* keep original logo colors */
+  filter: none;
+  /* keep original logo colors */
 }
 
 /* Transition and smaller logo when scrolled */
 .header-logo {
   transition: height 0.22s ease, transform 0.22s ease, filter 0.22s ease;
 }
+
 .header.scrolled .header-logo {
   height: 44px;
 }
+
 .header.scrolled .nav-module {
   background: transparent;
 }
+
 .header.scrolled .nav-link {
   color: #1a202c;
   font-size: 1.05rem;
 }
+
 .header.scrolled .nav-icon {
   color: #1a202c;
 }
+
 .header.scrolled .dropdown-menu {
   background: #fff;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+}
+
+html {
+  scroll-behavior: smooth;
 }

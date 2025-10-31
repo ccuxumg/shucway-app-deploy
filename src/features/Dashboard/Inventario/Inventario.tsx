@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import './Inventario.css';
 import { MdInventory2, MdAddShoppingCart, MdAssignmentTurnedIn } from 'react-icons/md';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -56,7 +57,37 @@ type InventoryItem = { id?: number; name: string; qty?: string; cantidad_actual?
 type Tab = 'overview'|'catalogo'|'ingreso'|'auditoria';
 
 const Inventario: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const location = useLocation();
+  const navigate = useNavigate();
+  
+  // Obtener la pestaña inicial desde la URL (query param 'tab')
+  const getInitialTab = useCallback((): Tab => {
+    const urlParams = new URLSearchParams(location.search);
+    const tabParam = urlParams.get('tab');
+    if (tabParam && ['overview', 'catalogo', 'ingreso', 'auditoria'].includes(tabParam)) {
+      return tabParam as Tab;
+    }
+    return 'overview';
+  }, [location.search]);
+
+  const [activeTab, setActiveTab] = useState<Tab>(getInitialTab);
+
+  // Función para cambiar pestaña y actualizar URL
+  const changeTab = (newTab: Tab) => {
+    setActiveTab(newTab);
+    const newUrl = newTab === 'overview' 
+      ? '/inventario' 
+      : `/inventario?tab=${newTab}`;
+    navigate(newUrl, { replace: true });
+  };
+
+  // Sincronizar estado cuando cambia la URL (por ejemplo, al usar botón atrás/adelante del navegador)
+  useEffect(() => {
+    const currentTab = getInitialTab();
+    if (currentTab !== activeTab) {
+      setActiveTab(currentTab);
+    }
+  }, [getInitialTab, activeTab]);
 
   // Estado dinámico para reemplazar los arrays estáticos
   const [perpetualData, setPerpetualData] = useState<InventoryItem[]>([]);
@@ -124,14 +155,14 @@ const Inventario: React.FC = () => {
         {activeTab === 'overview' ? (
           <div className="w-full mb-6">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 w-full">
-              <InvActionCard title="CATÁLOGO DE INSUMOS" subtitle="Ver y administrar insumos" icon={<MdInventory2 />} tone={primary} onClick={() => setActiveTab('catalogo')} active={activeTab === ('catalogo' as Tab)} />   
-              <InvActionCard title="INGRESO COMPRA" subtitle="Registrar nueva entrada" icon={<MdAddShoppingCart />} tone={mid} onClick={() => setActiveTab('ingreso')} active={activeTab === ('ingreso' as Tab)} />
-              <InvActionCard title="AUDITORÍA DE INVENTARIO" subtitle="Revisión y auditorías" icon={<MdAssignmentTurnedIn />} tone={yellow} onClick={() => setActiveTab('auditoria')} active={activeTab === ('auditoria' as Tab)} />
+              <InvActionCard title="CATÁLOGO DE INSUMOS" subtitle="Ver y administrar insumos" icon={<MdInventory2 />} tone={primary} onClick={() => changeTab('catalogo')} active={activeTab === ('catalogo' as Tab)} />   
+              <InvActionCard title="INGRESO COMPRA" subtitle="Registrar nueva entrada" icon={<MdAddShoppingCart />} tone={mid} onClick={() => changeTab('ingreso')} active={activeTab === ('ingreso' as Tab)} />
+              <InvActionCard title="AUDITORÍA DE INVENTARIO" subtitle="Revisión y auditorías" icon={<MdAssignmentTurnedIn />} tone={yellow} onClick={() => changeTab('auditoria')} active={activeTab === ('auditoria' as Tab)} />
             </div>
           </div>
         ) : (
           <div className="mb-4">
-            <button onClick={() => setActiveTab('overview')} className="px-3 py-2 rounded-md border bg-white hover:bg-gray-50">← Regresar</button>
+            <button onClick={() => changeTab('overview')} className="px-3 py-2 rounded-md border bg-white hover:bg-gray-50">← Regresar</button>
           </div>
         )}
             {/* Contenido por pestaña */}
@@ -165,7 +196,7 @@ const Inventario: React.FC = () => {
                     <div className="inv-list">
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <h4>Inventario Perpetuo</h4>
-                        <button className="see-all" onClick={() => setActiveTab('catalogo')}>Ver todos</button>
+                        <button className="see-all" onClick={() => changeTab('catalogo')}>Ver todos</button>
                       </div>
                       <table className="inv-table">
                         <thead>
@@ -192,7 +223,7 @@ const Inventario: React.FC = () => {
                     <div className="inv-list">
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <h4>Inventario Operativo</h4>
-                        <button className="see-all" onClick={() => setActiveTab('catalogo')}>Ver todos</button>
+                        <button className="see-all" onClick={() => changeTab('catalogo')}>Ver todos</button>
                       </div>
                       <table className="inv-table">
                         <thead>

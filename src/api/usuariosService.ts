@@ -30,7 +30,7 @@ export interface PerfilUsuario {
 
 export interface PerfilConRoles extends PerfilUsuario {
   roles: string;
-  nivel_permiso: number;
+  nivel_permisos: number;
 }
 
 export interface UpdateUsuarioDTO {

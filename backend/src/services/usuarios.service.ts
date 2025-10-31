@@ -24,7 +24,7 @@ export interface PerfilUsuario {
 
 export interface PerfilConRoles extends PerfilUsuario {
   roles: string; // String concatenado de roles
-  nivel_permiso: number;
+  nivel_permisos: number;
 }
 
 export interface CreateUsuarioDTO {
@@ -149,7 +149,7 @@ export class UsuariosService {
       return {
         ...perfil,
         roles: rolUsuario?.nombre_rol as string || 'Sin rol',
-        nivel_permiso: rolUsuario?.nivel_permisos as number || 0,
+        nivel_permisos: rolUsuario?.nivel_permisos as number || 0,
       };
     }) as PerfilConRoles[];
 
@@ -181,12 +181,12 @@ export class UsuariosService {
 
     const rolUsuario = (perfil as Record<string, unknown>).rol_usuario as Record<string, unknown>;
     const roles = rolUsuario?.nombre_rol as string || 'Sin rol';
-    const nivel_permiso = rolUsuario?.nivel_permisos as number || 0;
+    const nivel_permisos = rolUsuario?.nivel_permisos as number || 0;
 
     return {
       ...perfil,
       roles,
-      nivel_permiso,
+      nivel_permisos,
     } as PerfilConRoles;
   }
 

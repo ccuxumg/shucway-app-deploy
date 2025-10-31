@@ -1,7 +1,7 @@
 import express, { Application } from "express";
 import cors, { CorsOptions } from "cors";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
+// import rateLimit from "express-rate-limit";
 import { config } from "./config/env";
 import { logger } from "./utils/logger";
 import { errorHandler, notFoundHandler } from "./middlewares/errorHandler.middleware";
@@ -32,13 +32,15 @@ const corsOptions: CorsOptions =
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
-// Rate limit solo a /api/*
-app.use("/api/", rateLimit({
-  windowMs: config.rateLimit.windowMs,
-  max: config.rateLimit.maxRequests,
-  standardHeaders: true,
-  legacyHeaders: false
-}));
+// Rate limit DESHABILITADO para desarrollo/debugging
+// if (config.env !== "development") {
+//   app.use("/api/", rateLimit({
+//     windowMs: config.rateLimit.windowMs,
+//     max: config.rateLimit.maxRequests,
+//     standardHeaders: true,
+//     legacyHeaders: false
+//   }));
+// }
 
 // Parsers
 app.use(express.json({ limit: "10mb" }));

@@ -12,7 +12,7 @@ export interface AuthUser {
   role: {
     id_rol: number;
     nombre_rol: string;
-    nivel_permiso: number;
+    nivel_permisos: number;
   };
 }
 

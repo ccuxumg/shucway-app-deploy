@@ -65,7 +65,7 @@ export interface UsuarioDataType {
   email?: string;
   nombre?: string; // Campo adicional del backend
   roles?: string; // Roles concatenados del backend
-  nivel_permiso?: number; // Nivel de permiso del backend
+  nivel_permisos?: number; // Nivel de permisos del backend
 }
 
 export type TColumns = TableProps<UsuarioDataType>["columns"];

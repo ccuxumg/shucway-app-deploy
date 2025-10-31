@@ -42,7 +42,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (validatedUser) {
         setUser(validatedUser);
         setRole(validatedUser.role.nombre_rol);
-        setRoleLevel(validatedUser.role.nivel_permiso);
+        setRoleLevel(validatedUser.role.nivel_permisos);
       } else {
         // Token inválido, limpiar todo
         setUser(null);

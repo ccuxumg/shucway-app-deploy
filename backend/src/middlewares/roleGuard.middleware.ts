@@ -34,7 +34,7 @@ export const requirePermission = (requiredLevel: PermissionLevel) => {
       }
 
       // Verificar si tiene el rol con su nivel
-      const userLevel = user.role?.nivel_permiso || 0;
+      const userLevel = user.role?.nivel_permisos || 0;
 
       if (userLevel < requiredLevel) {
         res.status(403).json({
@@ -83,7 +83,7 @@ export const requireOwnerOrPropietario = (userIdParam: string = 'id') => {
         return;
       }
 
-      const userLevel = user.role?.nivel_permiso || 0;
+      const userLevel = user.role?.nivel_permisos || 0;
       const targetUserId = parseInt(req.params[userIdParam]);
 
       // Es propietario O está accediendo a su propio perfil

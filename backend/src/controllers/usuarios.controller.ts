@@ -70,7 +70,7 @@ export class UsuariosController {
       const { logger } = await import('../utils/logger');
 
       logger.info(`[CREATE USUARIO] Creando nuevo usuario`);
-      logger.info(`[CREATE USUARIO] Usuario solicitante: ${req.user?.email} (Rol: ${req.user?.role?.nombre_rol}, Nivel: ${req.user?.role?.nivel_permiso})`);
+      logger.info(`[CREATE USUARIO] Usuario solicitante: ${req.user?.email} (Rol: ${req.user?.role?.nombre_rol}, Nivel: ${req.user?.role?.nivel_permisos})`);
 
       const usuarioData = req.body;
       const nuevoUsuario = await new UsuariosService().createUsuario(usuarioData);
@@ -177,7 +177,7 @@ export class UsuariosController {
       const { logger } = await import('../utils/logger');
 
       logger.info(`[DELETE ROL] Intentando eliminar rol con ID: ${req.params.id}`);
-      logger.info(`[DELETE ROL] Usuario: ${req.user?.email} (Rol: ${req.user?.role?.nombre_rol}, Nivel: ${req.user?.role?.nivel_permiso})`);
+      logger.info(`[DELETE ROL] Usuario: ${req.user?.email} (Rol: ${req.user?.role?.nombre_rol}, Nivel: ${req.user?.role?.nivel_permisos})`);
 
       const id = parseInt(req.params.id);
 
@@ -419,7 +419,7 @@ export class UsuariosController {
       const { logger } = await import('../utils/logger');
 
       logger.info(`[DELETE USUARIO] Intentando eliminar usuario con ID: ${req.params.id}`);
-      logger.info(`[DELETE USUARIO] Usuario solicitante: ${req.user?.email} (Rol: ${req.user?.role?.nombre_rol}, Nivel: ${req.user?.role?.nivel_permiso})`);
+      logger.info(`[DELETE USUARIO] Usuario solicitante: ${req.user?.email} (Rol: ${req.user?.role?.nombre_rol}, Nivel: ${req.user?.role?.nivel_permisos})`);
 
       const id = parseInt(req.params.id);
 

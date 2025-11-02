@@ -11,6 +11,16 @@ import {
   AuthUser
 } from '../types';
 
+interface DatabaseUser {
+  id_perfil: number;
+  nombre: string;
+  email: string;
+  username: string;
+  password_hash: string;
+  estado: string;
+  ultimo_acceso?: string;
+}
+
 const JWT_SECRET = config.jwt.secret;
 
 export class AuthService {
@@ -90,7 +100,7 @@ export class AuthService {
   async login(credentials: LoginCredentials): Promise<LoginResponse> {
     try {
       // Buscar por email o username
-      let user: any = null;
+      let user: DatabaseUser | null = null;
 
       const { data: userByEmail } = await supabase
         .from('perfil_usuario')

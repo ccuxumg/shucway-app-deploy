@@ -230,6 +230,18 @@ export const dashboardService = {
 
   async createRecord(tableName: string, values: Record<string, unknown>) {
     try {
+      if (tableName === 'categoria_insumo' && !values.id_categoria) {
+        // Obtener el máximo id_categoria usando rpc o consulta directa
+        const { data: maxData, error: maxError } = await supabase
+          .from('categoria_insumo')
+          .select('id_categoria')
+          .order('id_categoria', { ascending: false })
+          .limit(1);
+
+        if (maxError) throw maxError;
+        const maxId = maxData && maxData.length > 0 ? maxData[0].id_categoria : 0;
+        values.id_categoria = maxId + 1;
+      }
       const { data, error } = await supabase.from(tableName).insert(values).select().single();
       if (error) {
         console.error('Error creando registro en', tableName, error.message);
@@ -301,6 +313,26 @@ export const dashboardService = {
     totalOperationalItems: number; 
   }> {
     try {
+      // Obtener stock actual por insumo desde lotes
+      const { data: lotesData, error: lotesError } = await supabase
+        .from('lote_insumo')
+        .select('id_insumo, cantidad_actual');
+
+      if (lotesError) {
+        console.error('Error leyendo lotes:', lotesError);
+        throw lotesError;
+      }
+
+      // Agrupar stock por id_insumo
+      const stockMap = new Map<number, number>();
+      if (Array.isArray(lotesData)) {
+        lotesData.forEach((lote: { id_insumo: number; cantidad_actual: string | number }) => {
+          const id = lote.id_insumo;
+          const qty = Number(lote.cantidad_actual) || 0;
+          stockMap.set(id, (stockMap.get(id) || 0) + qty);
+        });
+      }
+
       // Obtener todos los insumos y su categoría
       const { data: insumos, error } = await supabase
         .from('insumo')
@@ -312,8 +344,7 @@ export const dashboardService = {
           unidad_base,
           stock_minimo,
           stock_maximo,
-          tipo_categoria,
-          categoria_insumo(nombre)
+          categoria_insumo(id_categoria, nombre, tipo_categoria)
         `)
         .order('nombre_insumo', { ascending: true });
 
@@ -336,10 +367,8 @@ export const dashboardService = {
 
       // Mapear todos los insumos, aunque no tengan lotes
       const mappedAll = insumos.map((row: Record<string, unknown>) => {
-        // Calcular stock sumando cantidades de lotes (si existen)
-        // const lotes = Array.isArray(row.lote_insumo) ? row.lote_insumo as { cantidad_actual?: number }[] : [];
-        // const cantidad_actual = lotes.length ? lotes.reduce((sum, lote) => sum + (lote.cantidad_actual || 0), 0) : 0;
-        const cantidad_actual = 0; // Temporalmente 0, ya que no hay lotes
+        // Obtener stock desde el map
+        const cantidad_actual = stockMap.get(row.id_insumo as number) || 0;
         const stockMinimo = Number(row.stock_minimo) || 0;
         let estado = 'Normal';
         if (cantidad_actual === 0) {
@@ -355,7 +384,7 @@ export const dashboardService = {
           qty: cantidad_actual.toString(),
           cantidad_actual,
           note: estado,
-          tipo_insumo: (row.tipo_categoria as string) || 'perpetuo',
+          tipo_insumo: (row.categoria_insumo as { tipo_categoria: string })?.tipo_categoria || 'perpetuo',
           categoriaNombre: (row.categoria_insumo as { nombre: string })?.nombre || 'Sin Categoría'
         };
       });

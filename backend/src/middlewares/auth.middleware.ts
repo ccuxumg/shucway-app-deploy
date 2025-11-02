@@ -45,12 +45,13 @@ export const authenticateToken = (
       req.user = decoded;
       logger.info(`✅ Token válido - Usuario: ${req.user.email} (${req.user.role.nombre_rol})`);
       next();
-    } catch (err: any) {
-      logger.warn(`❌ Token inválido: ${err?.message || 'verify error'}`);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'verify error';
+      logger.warn(`❌ Token inválido: ${errorMessage}`);
       res.status(403).json({
         success: false,
         error: 'Token inválido o expirado',
-        details: err?.message
+        details: errorMessage
       });
     }
   } catch (error) {

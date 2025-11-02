@@ -2,6 +2,7 @@ import express, { Application } from "express";
 import cors, { CorsOptions } from "cors";
 import helmet from "helmet";
 // import rateLimit from "express-rate-limit";
+import path from "path";
 import { config } from "./config/env";
 import { logger } from "./utils/logger";
 import { errorHandler, notFoundHandler } from "./middlewares/errorHandler.middleware";
@@ -53,6 +54,17 @@ if (config.env === "development") {
 
 // MONTAJE DE RUTAS: prefijo /api AQUÍ
 app.use("/api", routes);
+
+// Servir frontend estático en producción
+if (config.env === 'production') {
+  const frontendPath = path.join(__dirname, '../../dist');
+  app.use(express.static(frontendPath));
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api')) {
+      res.sendFile(path.join(frontendPath, 'index.html'));
+    }
+  });
+}
 
 // Healthcheck y raíz
 app.get("/api/health", (_req, res) => {

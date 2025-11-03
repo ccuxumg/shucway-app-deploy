@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import './Products.css';
-import { FaClock } from 'react-icons/fa';
 
 const heroSlides = [
   {
@@ -26,17 +25,10 @@ const heroSlides = [
 
 const menuItems = [
   { name: 'Shucos', img: '/image/shucos/salami.jpeg', desc: 'Variedad de clásicos' },
-  { name: 'Hamburger', img: '/image/hamburguesas/bacon.jpg', desc: 'Muchos tipos' },
+  { name: 'Hamburguesa', img: '/image/hamburguesas/bacon.jpg', desc: 'Muchos tipos' },
   { name: 'Gringa', img: '/image/gringa/adobada.jpeg', desc: 'Delicias estilo gringa' },
   { name: 'Salchipapas', img: '/image/papas/salchipapas.jpg', desc: 'Sabor único' },
   { name: 'Papas Fritas', img: '/image/papas/french_fries.jpg', desc: 'Acompañamiento dorado, hecho en el local' },
-];
-
-const destacados = [
-  { name: 'Shuco de Salchicha', img: '/image/shucos/salchicha.jpg', price: 'Q12.00' },
-  { name: 'Torito', img: '/image/hamburguesas/torito.jpeg', price: 'Q21.00' },
-  { name: 'French Fries', img: '/image/papas/french_fries.jpg', price: 'Q9.00' },
-  { name: 'Shuco de Longaniza', img: '/image/shucos/longaniza.jpeg', price: 'Q13.00' },
 ];
 
 const ingredientes = [
@@ -50,14 +42,14 @@ const ingredientes = [
 
 const galeria = [
   '/image/fotos-local/local.jpg',
-  '/image/fotos-local/menu.jpg',
-  '/image/fotos-local/dani-2.jpg',
-  '/image/fotos-local/dani-3.jpg',
+  '/image/fotos-local/local5.jpg',
+  '/image/fotos-local/local1.jpg',
+  '/image/fotos-local/local4.jpg',
 ];
 
 const Products = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(604800); // 7 días en segundos
+  const [, setTimeLeft] = useState(604800); // 7 días en segundos
     const location = useLocation();
 
   useEffect(() => {
@@ -88,14 +80,6 @@ const Products = () => {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [location]);
-
-  const formatTime = (seconds: number): string => {
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor((seconds % 86400) / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    return `${days}d ${hours}h ${minutes}m ${secs}s`;
-  };
 
   return (
     <div className="products">
@@ -143,28 +127,9 @@ const Products = () => {
         </div>
       </section>
 
-      {/* Productos más vendidos */}
-      <section id="destacados" className="products-destacados-section animate-fade-in-delay">
-        <h2>Productos más Vendidos</h2>
-        <div className="products-counter">
-          <FaClock /> Tiempo restante: {formatTime(timeLeft)}
-        </div>
-        <div className="products-destacados-grid">
-          {destacados.map((prod) => (
-            <div className="products-destacado-card animate-zoom-in" key={prod.name}>
-              <img src={prod.img} alt={prod.name} />
-              <div className="products-destacado-info">
-                <div className="products-destacado-title">{prod.name}</div>
-                <div className="products-destacado-price">{prod.price}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
       {/* Ingredientes frecuentes */}
       <section className="products-ingredientes-section animate-fade-in">
-        <h2>Ingredientes Frecuentes</h2>
+        <h2>Ingredientes</h2>
         <div className="products-ingredientes-grid">
           {ingredientes.map((ing) => (
             <div className="products-ingrediente-card animate-slide-up" key={ing.name}>

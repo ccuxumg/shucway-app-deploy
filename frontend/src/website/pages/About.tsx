@@ -75,8 +75,8 @@ const About = () => {
       <section className="about-gallery-section animate-fade-in">
         <div className="about-gallery-grid">
           <img src="/image/fotos-local/local.jpg" alt="Local Shucway" className="about-gallery-img animate-zoom-in" />
-          <img src="/image/fotos-local/dani-1.jpg" alt="Shucway equipo" className="about-gallery-img animate-zoom-in" />
-          <img src="/image/fotos-local/menu.jpg" alt="Menú Shucway" className="about-gallery-img animate-zoom-in" />
+          <img src="/image/fotos-local/local2.jpg" alt="Shucway equipo" className="about-gallery-img animate-zoom-in" />
+          <img src="/image/fotos-local/local4.jpg" alt="Menú Shucway" className="about-gallery-img animate-zoom-in" />
         </div>
       </section>
     </div>

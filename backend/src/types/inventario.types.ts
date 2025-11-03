@@ -40,6 +40,7 @@ export interface CatalogoInsumo {
     tipo_categoria: 'perpetuo' | 'operativo';
   };
   descripcion_presentacion?: string;
+  ubicacion?: string;
 }
 
 export interface LoteInsumo {
@@ -103,6 +104,7 @@ export interface CreateInsumoDTO {
   costo_promedio?: number;
   descripcion_presentacion?: string;
   fecha_vencimiento?: string;
+  ubicacion?: string;
 }
 
 export interface UpdateInsumoDTO {
@@ -115,6 +117,8 @@ export interface UpdateInsumoDTO {
   costo_promedio?: number;
   descripcion_presentacion?: string;
   activo?: boolean;
+  fecha_vencimiento?: string;
+  ubicacion?: string;
 }
 
 export interface CreateLoteDTO {

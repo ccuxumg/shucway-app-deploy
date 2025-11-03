@@ -15,6 +15,7 @@ const VentasProducto = React.lazy(() => import("../features/Dashboard/Ventas/Ven
 const VentasCierreCaja = React.lazy(() => import("../features/Dashboard/Ventas/Ventas/CierreCaja"));
 const Inventario = React.lazy(() => import("../features/Dashboard/Inventario"));
 const GestionCategorias = React.lazy(() => import("../features/Dashboard/Inventario/Categorias"));
+const RecepcionMercaderia = React.lazy(() => import("../features/Dashboard/Inventario/RecepcionMercaderia"));
 const Reportes = React.lazy(() => import("../features/Dashboard/Reportes"));
 const Perfil = React.lazy(() => import("../features/Dashboard/Perfil"));
 const Soporte = React.lazy(() => import("../views/Soporte"));
@@ -127,6 +128,13 @@ const protectedRoutes: IRoute[] = [
   {
     path: "/inventario/categorias",
     element: GestionCategorias,
+    guard: AuthGuard,
+    layout: DashboardLayout,
+    requiredLevel: MODULE_PERMISSIONS.INVENTARIO,
+  },
+  {
+    path: "/inventario/recepcion-mercaderia",
+    element: RecepcionMercaderia,
     guard: AuthGuard,
     layout: DashboardLayout,
     requiredLevel: MODULE_PERMISSIONS.INVENTARIO,

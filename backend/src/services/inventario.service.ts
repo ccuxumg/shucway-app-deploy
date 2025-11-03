@@ -31,6 +31,13 @@ interface CatalogoQueryResult {
   }>;
   lote_insumo: Array<{
     cantidad_actual: number;
+    ubicacion?: string;
+  }>;
+  insumo_presentacion?: Array<{
+    id_proveedor?: number;
+    descripcion_presentacion?: string;
+    es_principal?: boolean;
+    activo?: boolean;
   }>;
 }
 
@@ -39,6 +46,47 @@ interface CatalogoQueryResult {
 // ================================================================
 
 export class InventarioService {
+  // ================== HELPERS ==================
+
+  /**
+   * Actualiza el id_proveedor_principal del insumo basado en sus presentaciones activas
+   */
+  private async updateProveedorPrincipal(idInsumo: number): Promise<void> {
+    try {
+      // Obtener presentaciones activas del insumo
+      const { data: presentaciones, error } = await supabase
+        .from('insumo_presentacion')
+        .select('id_proveedor')
+        .eq('id_insumo', idInsumo)
+        .eq('activo', true)
+        .order('es_principal', { ascending: false }); // Primero las principales
+
+      if (error) {
+        console.warn(`Error al obtener presentaciones para actualizar proveedor principal: ${error.message}`);
+        return;
+      }
+
+      let nuevoProveedorPrincipal = null;
+      if (presentaciones && presentaciones.length > 0) {
+        // Usar el proveedor de la primera presentación (ya ordenada por es_principal)
+        nuevoProveedorPrincipal = presentaciones[0].id_proveedor;
+      }
+
+      // Actualizar el insumo
+      const { error: updateError } = await supabase
+        .from('insumo')
+        .update({ id_proveedor_principal: nuevoProveedorPrincipal })
+        .eq('id_insumo', idInsumo);
+
+      if (updateError) {
+        console.warn(`Error al actualizar proveedor principal del insumo ${idInsumo}: ${updateError.message}`);
+      } else {
+        console.log(`Proveedor principal actualizado para insumo ${idInsumo}: ${nuevoProveedorPrincipal}`);
+      }
+    } catch (error) {
+      console.error(`Error en updateProveedorPrincipal para insumo ${idInsumo}:`, error);
+    }
+  }
   // ================== CATEGORÍAS DE INSUMOS ==================
 
   async getCategoriasInsumo(): Promise<CategoriaInsumo[]> {
@@ -96,8 +144,8 @@ export class InventarioService {
   }
 
   async createInsumo(dto: CreateInsumoDTO): Promise<Insumo> {
-    // Extraer campos relacionados con presentaciones y lotes
-    const { fecha_vencimiento, ...insumoData } = dto;
+    // Extraer campos que no pertenecen a la tabla insumo
+    const { fecha_vencimiento, ubicacion, descripcion_presentacion, ...insumoData } = dto;
 
     const { data, error } = await supabase
       .from('insumo')
@@ -110,12 +158,14 @@ export class InventarioService {
 
     if (error) throw new Error(`Error al crear insumo: ${error.message}`);
 
-    // Crear presentación principal para el insumo
+    // Crear presentación principal para el insumo SIEMPRE
     if (data?.id_insumo) {
+      console.log(`Creando presentación y lote para insumo ${data.id_insumo} (${dto.nombre_insumo})`);
+      
       const presentacionData: CreatePresentacionDTO = {
         id_insumo: data.id_insumo,
         id_proveedor: dto.id_proveedor_principal,
-        descripcion_presentacion: dto.descripcion_presentacion,
+        descripcion_presentacion: descripcion_presentacion || `Presentación principal de ${dto.nombre_insumo}`,
         unidad_compra: dto.unidad_base, // Usar la misma unidad base como unidad de compra por defecto
         unidades_por_presentacion: 1, // 1 unidad por presentación por defecto
         costo_compra_unitario: dto.costo_promedio || 0,
@@ -129,25 +179,41 @@ export class InventarioService {
       if (presentacionError) {
         console.warn(`Error al crear presentación para insumo ${data.id_insumo}: ${presentacionError.message}`);
         // No lanzamos error aquí para no fallar la creación del insumo
+      } else {
+        console.log(`Presentación creada exitosamente para insumo ${data.id_insumo}`);
+        // Actualizar el proveedor principal del insumo
+        await this.updateProveedorPrincipal(data.id_insumo);
       }
 
-      // Si se proporcionó fecha_vencimiento, crear un lote inicial
-      if (fecha_vencimiento) {
-        const { error: loteError } = await supabase
-          .from('lote_insumo')
-          .insert({
-            id_insumo: data.id_insumo,
-            fecha_vencimiento: fecha_vencimiento,
-            cantidad_inicial: 0, // El lote se crea vacío inicialmente
-            cantidad_actual: 0,
-            costo_unitario: dto.costo_promedio || 0,
-            ubicacion: 'Bodega Principal' // Ubicación por defecto
-          });
+      // Crear lote inicial SIEMPRE (incluso sin fecha de vencimiento)
+      console.log(`Creando lote para insumo ${data.id_insumo}, fecha_vencimiento proporcionada:`, fecha_vencimiento);
+      
+      const loteData: Record<string, unknown> = {
+        id_insumo: data.id_insumo,
+        cantidad_inicial: 0,
+        cantidad_actual: 0,
+        costo_unitario: dto.costo_promedio || 0,
+        ubicacion: ubicacion || 'Bodega Principal'
+      };
 
-        if (loteError) {
-          console.warn(`Error al crear lote inicial para insumo ${data.id_insumo}: ${loteError.message}`);
-          // No lanzamos error aquí para no fallar la creación del insumo
-        }
+      // Solo agregar fecha_vencimiento si se proporcionó
+      if (fecha_vencimiento) {
+        loteData.fecha_vencimiento = fecha_vencimiento;
+      }
+
+      console.log('Datos del lote a insertar:', loteData);
+
+      const { data: loteInsertado, error: loteError } = await supabase
+        .from('lote_insumo')
+        .insert(loteData)
+        .select();
+
+      if (loteError) {
+        console.error(`Error al crear lote inicial para insumo ${data.id_insumo}:`, loteError);
+        console.warn(`Error al crear lote inicial para insumo ${data.id_insumo}: ${loteError.message}`);
+        // No lanzamos error aquí para no fallar la creación del insumo
+      } else {
+        console.log(`Lote creado exitosamente para insumo ${data.id_insumo}:`, loteInsertado);
       }
     }
 
@@ -155,18 +221,126 @@ export class InventarioService {
   }
 
   async updateInsumo(id: number, dto: UpdateInsumoDTO): Promise<Insumo> {
+    // Extraer campos relacionados con presentaciones y lotes
+    const { fecha_vencimiento, ubicacion, id_proveedor_principal, descripcion_presentacion, ...insumoData } = dto;
+
+    // Actualizar el insumo principal
     const { data, error } = await supabase
       .from('insumo')
-      .update(dto)
+      .update(insumoData)
       .eq('id_insumo', id)
       .select()
       .single();
 
     if (error) throw new Error(`Error al actualizar insumo: ${error.message}`);
+
+    // Actualizar presentación principal si se proporcionaron datos
+    if (id_proveedor_principal || descripcion_presentacion) {
+      const presentacionUpdate: Partial<CreatePresentacionDTO> = {};
+      if (id_proveedor_principal) presentacionUpdate.id_proveedor = id_proveedor_principal;
+      if (descripcion_presentacion) presentacionUpdate.descripcion_presentacion = descripcion_presentacion;
+
+      if (Object.keys(presentacionUpdate).length > 0) {
+        const { error: presentacionError } = await supabase
+          .from('insumo_presentacion')
+          .update(presentacionUpdate)
+          .eq('id_insumo', id)
+          .eq('es_principal', true);
+
+        if (presentacionError) {
+          console.warn(`Error al actualizar presentación para insumo ${id}: ${presentacionError.message}`);
+        }
+      }
+    }
+
+    // Actualizar ubicación en lotes si se proporcionó
+    if (ubicacion) {
+      const { error: loteError } = await supabase
+        .from('lote_insumo')
+        .update({ ubicacion })
+        .eq('id_insumo', id);
+
+      if (loteError) {
+        console.warn(`Error al actualizar ubicación en lotes para insumo ${id}: ${loteError.message}`);
+      }
+    }
+
+    // Si se proporcionó fecha_vencimiento, actualizar o crear lote
+    if (fecha_vencimiento) {
+      // Verificar si ya existe un lote para este insumo
+      const { data: existingLote, error: loteCheckError } = await supabase
+        .from('lote_insumo')
+        .select('id_lote')
+        .eq('id_insumo', id)
+        .limit(1)
+        .single();
+
+      if (loteCheckError && loteCheckError.code !== 'PGRST116') {
+        console.warn(`Error al verificar lote existente para insumo ${id}: ${loteCheckError.message}`);
+      } else if (existingLote) {
+        // Actualizar lote existente
+        const { error: loteUpdateError } = await supabase
+          .from('lote_insumo')
+          .update({ fecha_vencimiento })
+          .eq('id_insumo', id);
+
+        if (loteUpdateError) {
+          console.warn(`Error al actualizar lote para insumo ${id}: ${loteUpdateError.message}`);
+        }
+      } else {
+        // Crear nuevo lote si no existe
+        const { error: loteCreateError } = await supabase
+          .from('lote_insumo')
+          .insert({
+            id_insumo: id,
+            fecha_vencimiento: fecha_vencimiento,
+            cantidad_inicial: 0,
+            cantidad_actual: 0,
+            costo_unitario: data.costo_promedio || 0,
+            ubicacion: ubicacion || 'Bodega Principal'
+          });
+
+        if (loteCreateError) {
+          console.warn(`Error al crear lote para insumo ${id}: ${loteCreateError.message}`);
+        }
+      }
+    }
+
     return data;
   }
 
   async deleteInsumo(id: number): Promise<void> {
+    // Primero eliminar movimientos de inventario relacionados
+    const { error: movimientosError } = await supabase
+      .from('movimiento_inventario')
+      .delete()
+      .eq('id_insumo', id);
+
+    if (movimientosError) {
+      throw new Error(`Error al eliminar movimientos para insumo ${id}: ${movimientosError.message}`);
+    }
+
+    // Eliminar lotes relacionados
+    const { error: lotesError } = await supabase
+      .from('lote_insumo')
+      .delete()
+      .eq('id_insumo', id);
+
+    if (lotesError) {
+      throw new Error(`Error al eliminar lotes para insumo ${id}: ${lotesError.message}`);
+    }
+
+    // Eliminar presentaciones relacionadas
+    const { error: presentacionesError } = await supabase
+      .from('insumo_presentacion')
+      .delete()
+      .eq('id_insumo', id);
+
+    if (presentacionesError) {
+      throw new Error(`Error al eliminar presentaciones para insumo ${id}: ${presentacionesError.message}`);
+    }
+
+    // Finalmente eliminar el insumo principal
     const { error } = await supabase
       .from('insumo')
       .delete()
@@ -193,7 +367,6 @@ export class InventarioService {
   // ================== CATÁLOGO ==================
 
   async getCatalogoInsumos(): Promise<CatalogoInsumo[]> {
-    console.log('Ejecutando consulta getCatalogoInsumos');
     const { data, error } = await supabase
       .from('insumo')
       .select(`
@@ -207,11 +380,9 @@ export class InventarioService {
         fecha_registro,
         id_categoria,
         categoria_insumo:categoria_insumo(nombre, tipo_categoria),
-        lote_insumo:lote_insumo(cantidad_actual),
-        insumo_presentacion!inner(id_proveedor, descripcion_presentacion, es_principal, activo)
+        lote_insumo:lote_insumo(cantidad_actual, ubicacion),
+        insumo_presentacion(id_proveedor, descripcion_presentacion, es_principal, activo)
       `)
-      .eq('insumo_presentacion.es_principal', true)
-      .eq('insumo_presentacion.activo', true)
       .order('nombre_insumo', { ascending: true });
 
     if (error) {
@@ -220,10 +391,16 @@ export class InventarioService {
     }
 
     // Mapeo igual que dashboard: incluye insumos sin lotes/categoría
-    return (data || []).map((item: CatalogoQueryResult) => {
+    const result = (data || []).map((item: CatalogoQueryResult) => {
       // Calcular stock total desde lotes (si no hay, 0)
       const lotes = Array.isArray(item.lote_insumo) ? item.lote_insumo : [];
       const stock_actual = lotes.length ? lotes.reduce((sum, lote) => sum + (lote.cantidad_actual || 0), 0) : 0;
+
+      // Calcular ubicación: tomar ubicaciones únicas de los lotes
+      const ubicaciones = lotes
+        .map(lote => lote.ubicacion)
+        .filter(ubicacion => ubicacion && ubicacion.trim() !== '');
+      const ubicacion = ubicaciones.length > 0 ? [...new Set(ubicaciones)].join(', ') : undefined;
 
       // Si no hay categoría, asigna tipo 'perpetuo' y nombre '—'
       let categoriaObj: { nombre: string; tipo_categoria: 'perpetuo' | 'operativo' };
@@ -237,6 +414,27 @@ export class InventarioService {
         categoriaObj = { nombre: '—', tipo_categoria: 'perpetuo' };
       }
 
+      // Obtener proveedor principal SIEMPRE de las presentaciones activas
+      let id_proveedor_principal = undefined;
+      if (Array.isArray(item.insumo_presentacion) && item.insumo_presentacion.length > 0) {
+        // Buscar la presentación principal (es_principal = true)
+        let presentacionPrincipal = item.insumo_presentacion.find(p => p.es_principal && p.activo);
+        
+        // Si no hay presentación principal, usar la primera activa
+        if (!presentacionPrincipal) {
+          presentacionPrincipal = item.insumo_presentacion.find(p => p.activo);
+        }
+        
+        if (presentacionPrincipal) {
+          id_proveedor_principal = presentacionPrincipal.id_proveedor;
+        }
+      }
+      
+      // Si no hay presentaciones, usar el campo del insumo como fallback
+      if (!id_proveedor_principal) {
+        id_proveedor_principal = item.id_proveedor_principal;
+      }
+
       return {
         id_insumo: item.id_insumo,
         nombre: item.nombre_insumo,
@@ -248,10 +446,12 @@ export class InventarioService {
         activo: item.activo,
         fecha_creacion: item.fecha_registro,
         id_categoria: item.id_categoria,
-        id_proveedor_principal: item.id_proveedor_principal,
+        id_proveedor_principal,
         categoria: categoriaObj,
+        ubicacion,
       };
     });
+    return result;
   }
 
   // ================== LOTES ==================
@@ -429,7 +629,8 @@ export class InventarioService {
   // ================== DETALLES DE INSUMO ==================
 
   async getInsumoDetails(idInsumo: number) {
-    const { data, error } = await supabase
+    // Obtener datos básicos del insumo SIN JOIN con proveedor para evitar conflictos
+    const { data: insumoData, error: insumoError } = await supabase
       .from('insumo')
       .select(`
         id_insumo,
@@ -440,14 +641,158 @@ export class InventarioService {
         costo_promedio,
         activo,
         fecha_registro,
-        categoria_insumo:categoria_insumo(nombre, tipo_categoria),
-        proveedor:proveedor(nombre_proveedor, metodo_entrega)
+        id_categoria,
+        id_proveedor_principal,
+        categoria_insumo:categoria_insumo(nombre, tipo_categoria)
       `)
       .eq('id_insumo', idInsumo)
       .single();
 
-    if (error) throw new Error(`Error al obtener detalles del insumo: ${error.message}`);
-    return data;
+    if (insumoError) throw new Error(`Error al obtener detalles del insumo: ${insumoError.message}`);
+
+    // Obtener proveedor principal por separado si existe
+    let proveedorPrincipal = null;
+    if (insumoData.id_proveedor_principal) {
+      const { data: provData } = await supabase
+        .from('proveedor')
+        .select('nombre_proveedor, metodo_entrega')
+        .eq('id_proveedor', insumoData.id_proveedor_principal)
+        .single();
+      if (provData) {
+        proveedorPrincipal = provData;
+      }
+    }
+
+    // Obtener presentaciones activas (no solo principal)
+    let presentacionesData: unknown[] = [];
+    try {
+      const { data } = await supabase
+        .from('insumo_presentacion')
+        .select(`
+          id_presentacion,
+          id_proveedor,
+          descripcion_presentacion,
+          es_principal,
+          activo,
+          costo_compra_unitario,
+          unidades_por_presentacion
+        `)
+        .eq('id_insumo', idInsumo)
+        .eq('activo', true)
+        .order('es_principal', { ascending: false }); // Principales primero
+      presentacionesData = data || [];
+    } catch (error) {
+      console.warn(`Error al obtener presentaciones del insumo ${idInsumo}:`, error);
+    }
+
+    // Obtener lotes del insumo
+    let lotesData: unknown[] = [];
+    try {
+      const { data } = await supabase
+        .from('lote_insumo')
+        .select(`
+          id_lote,
+          cantidad_inicial,
+          cantidad_actual,
+          costo_unitario,
+          ubicacion,
+          fecha_vencimiento
+        `)
+        .eq('id_insumo', idInsumo);
+      lotesData = data || [];
+    } catch (error) {
+      console.warn(`Error al obtener lotes del insumo ${idInsumo}:`, error);
+    }
+
+    // Combinar los datos - mantener estructura compatible con frontend
+    const result = {
+      ...insumoData,
+      // Agregar proveedor principal directamente al objeto insumo
+      ...(proveedorPrincipal && { proveedor_principal: proveedorPrincipal }),
+      insumo_presentacion: presentacionesData,
+      lote_insumo: lotesData
+    };
+
+    // Si tenemos presentaciones con proveedor, obtener datos del proveedor para cada una
+    if (result.insumo_presentacion && result.insumo_presentacion.length > 0) {
+      for (const presentacion of result.insumo_presentacion) {
+        if ((presentacion as Record<string, unknown>).id_proveedor) {
+          const { data: proveedorData, error: proveedorError } = await supabase
+            .from('proveedor')
+            .select('nombre_proveedor, metodo_entrega')
+            .eq('id_proveedor', (presentacion as Record<string, unknown>).id_proveedor)
+            .single();
+
+          if (!proveedorError && proveedorData) {
+            (presentacion as Record<string, unknown>).proveedor = proveedorData;
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  // ================== RECEPCIONES DE MERCADERÍA ==================
+
+  async getRecepcionesMercaderia() {
+    const { data, error } = await supabase
+      .from('recepcion_mercaderia')
+      .select(`
+        id_recepcion,
+        id_orden,
+        fecha_recepcion,
+        numero_factura,
+        id_perfil,
+        perfil_usuario!inner (
+          primer_nombre,
+          primer_apellido
+        ),
+        orden_compra!inner (
+          numero_orden,
+          proveedor!inner (
+            nombre_empresa
+          )
+        ),
+        detalle_recepcion_mercaderia (
+          id_detalle,
+          id_recepcion,
+          id_detalle_orden,
+          cantidad_recibida,
+          cantidad_aceptada,
+          id_lote,
+          id_presentacion
+        )
+      `)
+      .order('fecha_recepcion', { ascending: false });
+
+    if (error) {
+      throw new Error(`Error al obtener recepciones de mercadería: ${error.message}`);
+    }
+
+    // Transformar los datos para incluir el conteo de items
+    // y mantener compatibilidad con frontend (exponer proveedor.nombre)
+    const result = data?.map(recepcion => {
+      // Si el proveedor viene con nombre_empresa, crear el campo nombre para compatibilidad
+      const orden = (recepcion as any).orden_compra as any | undefined;
+      if (orden && orden.proveedor && (orden.proveedor as any).nombre_empresa) {
+        // Copiar y añadir nombre
+        orden.proveedor = {
+          ...orden.proveedor,
+          nombre: (orden.proveedor as any).nombre_empresa
+        };
+      }
+
+      return {
+        ...recepcion,
+        orden_compra: orden,
+        _count: {
+          detalle_recepcion_mercaderia: recepcion.detalle_recepcion_mercaderia?.length || 0
+        }
+      };
+    }) || [];
+
+    return result;
   }
 }
 

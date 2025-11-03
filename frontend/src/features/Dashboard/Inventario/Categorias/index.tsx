@@ -10,8 +10,9 @@ function TipoCategoriaCard({ title, desc, examples, active, onClick }: { title: 
   );
 }
 import { useNavigate } from 'react-router-dom';
-import { PiPlusBold, PiEyeBold, PiPencilSimpleBold, PiTrashBold, PiBroomBold } from 'react-icons/pi';
-import { MdClose, MdError, MdCheckCircle } from 'react-icons/md';
+import { PiPlusBold, PiEyeBold, PiPencilSimpleBold, PiTrashBold, PiBroomBold, PiWarning, PiX } from 'react-icons/pi';
+import { MdClose, MdError } from 'react-icons/md';
+import { App } from 'antd';
 import api from '../../../../api/apiClient';
 import { useAlerts } from '../../../../hooks/useAlerts';
 
@@ -23,6 +24,7 @@ type Categoria = {
 };
 
 export default function Categorias() {
+  const { message } = App.useApp();
   const [rows, setRows] = useState<Categoria[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,20 +42,25 @@ export default function Categorias() {
   const [filterTipo, setFilterTipo] = useState<string>('Todas');
   const navigate = useNavigate();
   const { addAlert } = useAlerts();
-  const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false);
-  const [successModalMessage, setSuccessModalMessage] = useState<string>('');
+
+  const handleInputChange = (field: string, value: string) => {
+    switch (field) {
+      case 'nombre':
+        setFormNombre(value);
+        break;
+      case 'descripcion':
+        setFormDescripcion(value);
+        break;
+      case 'tipo':
+        setFormTipo(value);
+        break;
+    }
+  };
 
   useEffect(() => {
     fetchCategorias();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    if (showSuccessModal) {
-      const timer = setTimeout(() => setShowSuccessModal(false), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [showSuccessModal]);
 
   async function fetchCategorias() {
     setLoading(true);
@@ -119,12 +126,12 @@ export default function Categorias() {
     // Validar campos obligatorios
     const errors: { nombre?: string; descripcion?: string; tipo?: string } = {};
     if (!formNombre.trim()) {
-      errors.nombre = 'El nombre es obligatorio';
+      errors.nombre = 'El nombre de la categoría es obligatorio';
     }
     if (!formDescripcion.trim()) {
-      errors.descripcion = 'La descripción es obligatoria';
+      errors.descripcion = 'La descripción de la categoría es obligatoria';
     }
-    if (!formTipo) {
+    if (!formTipo.trim()) {
       errors.tipo = 'Debe seleccionar un tipo de categoría';
     }
 
@@ -163,14 +170,7 @@ export default function Categorias() {
       }
   await fetchCategorias();
   setOpenDrawer(false);
-  addAlert({
-    message: `Categoría ${editing ? 'actualizada' : 'creada'} exitosamente`,
-    icon: <MdCheckCircle />,
-    module: 'Categorías',
-    action: () => {},
-  });
-  setSuccessModalMessage(editing ? 'La categoría ha sido actualizada correctamente.' : 'La categoría ha sido creada correctamente.');
-  setShowSuccessModal(true);
+  message.success(`¡Categoría ${editing ? 'actualizada' : 'creada'} correctamente!`);
     } catch (err: unknown) {
       console.error('Error guardando categoría:', err);
       const m = err instanceof Error ? err.message : String(err);
@@ -192,14 +192,7 @@ export default function Categorias() {
       if (!resp || resp.status >= 400) throw new Error('Error al eliminar categoría');
       await fetchCategorias();
       setConfirmDelete(null);
-      addAlert({
-        message: 'Categoría eliminada exitosamente',
-        icon: <MdCheckCircle />,
-        module: 'Categorías',
-        action: () => {},
-      });
-      setSuccessModalMessage('La categoría ha sido eliminada correctamente.');
-      setShowSuccessModal(true);
+      message.success('¡Categoría eliminada correctamente!');
     } catch (err: unknown) {
       console.error('Error eliminando categoría:', err);
       const m = err instanceof Error ? err.message : String(err);
@@ -216,23 +209,6 @@ export default function Categorias() {
 
   return (
     <>
-      {showSuccessModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl p-8 w-full max-w-md border text-center relative">
-            <button 
-              onClick={() => setShowSuccessModal(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
-            >
-              ✕
-            </button>
-            <div className="text-6xl mb-4">✅</div>
-            <div className="text-xl font-bold mb-2 text-gray-800">¡Operación exitosa!</div>
-            <div className="text-gray-600">
-              {successModalMessage}
-            </div>
-          </div>
-        </div>
-      )}
       <div className="w-full">
       <div className="mb-4">
         <div className="flex items-center justify-between gap-3 bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
@@ -331,9 +307,7 @@ export default function Categorias() {
             <div className="flex-1" onClick={() => setOpenDrawer(false)}>
               <div className="absolute inset-0 bg-black/40" />
             </div>
-            <aside className={`relative w-full md:w-[520px] bg-white shadow-2xl border-l z-[61] ml-auto transition-transform duration-300 ${
-              Object.keys(formErrors).length > 0 ? 'animate-shake' : ''
-            }`}>
+            <aside className="relative w-full md:w-[520px] bg-white shadow-2xl border-l z-[61] ml-auto transition-transform duration-300">
               <div className="h-14 px-5 flex items-center justify-between border-b">
                 <h3 className="text-base md:text-lg font-bold text-gray-800">{viewing ? 'Ver categoría' : (editing ? 'Editar categoría' : 'Crear categoría')}</h3>
                 <button onClick={() => setOpenDrawer(false)} className="p-2 rounded-lg hover:bg-gray-100" aria-label="Cerrar"><MdClose /></button>
@@ -341,8 +315,12 @@ export default function Categorias() {
               <div className="p-5">
                 <form onSubmit={submitForm}>
                   {Object.keys(formErrors).length > 0 && (
-                    <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                      <p className="text-sm text-red-700 font-medium">Por favor complete todos los campos obligatorios marcados con *</p>
+                    <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg animate-pulse">
+                      <div className="flex items-center gap-2 mb-2">
+                        <PiWarning className="text-red-600 text-lg" />
+                        <p className="text-sm font-semibold text-red-800">Campos obligatorios incompletos</p>
+                      </div>
+                      <p className="text-sm text-red-700">Por favor complete todos los campos marcados con * antes de continuar.</p>
                     </div>
                   )}
                   <div className="grid gap-3">
@@ -352,7 +330,7 @@ export default function Categorias() {
                       </label>
                       <input
                         value={formNombre}
-                        onChange={(e) => setFormNombre(e.target.value)}
+                        onChange={(e) => handleInputChange('nombre', e.target.value)}
                         className={`w-full h-11 rounded-lg border px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300 ${
                           formErrors.nombre ? 'border-red-300 bg-red-50' : 'border-gray-200'
                         }`}
@@ -370,7 +348,7 @@ export default function Categorias() {
                       />
                       {formErrors.nombre && (
                         <p className="text-sm text-red-600 mt-1 font-medium flex items-center gap-1">
-                          <span>⚠️</span> {formErrors.nombre}
+                          <PiX className="text-red-500" size={16} /> {formErrors.nombre}
                         </p>
                       )}
                     </div>
@@ -380,7 +358,7 @@ export default function Categorias() {
                       </label>
                       <textarea
                         value={formDescripcion}
-                        onChange={(e) => setFormDescripcion(e.target.value)}
+                        onChange={(e) => handleInputChange('descripcion', e.target.value)}
                         className={`w-full h-20 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300 resize-none ${
                           formErrors.descripcion ? 'border-red-300 bg-red-50' : 'border-gray-200'
                         }`}
@@ -399,7 +377,7 @@ export default function Categorias() {
                       />
                       {formErrors.descripcion && (
                         <p className="text-sm text-red-600 mt-1 font-medium flex items-center gap-1">
-                          <span>⚠️</span> {formErrors.descripcion}
+                          <PiX className="text-red-500" size={16} /> {formErrors.descripcion}
                         </p>
                       )}
                     </div>
@@ -416,20 +394,20 @@ export default function Categorias() {
                             desc="Categoría para insumos básicos que se consumen directamente."
                             examples="Ej: Pan, Verduras, Aceite"
                             active={formTipo.toLowerCase() === 'operativo'}
-                            onClick={() => setFormTipo('operativo')}
+                            onClick={() => handleInputChange('tipo', 'operativo')}
                           />
                           <TipoCategoriaCard
                             title="Perpetuo"
                             desc="Categoría para productos elaborados que requieren receta."
                             examples="Ej: Shuco, Hamburguesa, Salsa Especial"
                             active={formTipo.toLowerCase() === 'perpetuo'}
-                            onClick={() => setFormTipo('perpetuo')}
+                            onClick={() => handleInputChange('tipo', 'perpetuo')}
                           />
                         </div>
                       )}
                       {formErrors.tipo && (
                         <p className="text-sm text-red-600 mt-1 font-medium flex items-center gap-1">
-                          <span>⚠️</span> {formErrors.tipo}
+                          <PiX className="text-red-500" size={16} /> {formErrors.tipo}
                         </p>
                       )}
                     </div>

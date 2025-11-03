@@ -53,7 +53,7 @@ export const dashboardService = {
     bitacora_productos: 'id_bitacora_producto'
   } as Record<string, string>,
   async getStats(): Promise<StatsData> {
-    // TODO: Convertir consultas SQL complejas a usar Supabase API
+
     // Por ahora devolver datos de ejemplo para que compile
     return {
       ventas: {
@@ -289,10 +289,119 @@ export const dashboardService = {
 
   async deleteRecord(tableName: string, id: string) {
     try {
-    // Usar primaryKeyMap si existe, sino fallback a 'id'
-    const pk = (this.primaryKeyMap && this.primaryKeyMap[tableName]) || 'id';
+      // Usar primaryKeyMap si existe, sino fallback a 'id'
+      const pk = (this.primaryKeyMap && this.primaryKeyMap[tableName]) || 'id';
 
-    const { error } = await supabase.from(tableName).delete().eq(pk, id);
+      // Manejo especial para insumo: eliminar dependencias primero
+      if (tableName === 'insumo') {
+        // Primero obtener los lotes relacionados para eliminar sus dependencias
+        const { data: lotesRelacionados, error: lotesQueryError } = await supabase
+          .from('lote_insumo')
+          .select('id_lote')
+          .eq('id_insumo', id);
+
+        if (lotesQueryError) {
+          console.error('Error obteniendo lotes para insumo', id, lotesQueryError.message);
+          throw lotesQueryError;
+        }
+
+        const loteIds = lotesRelacionados ? lotesRelacionados.map(l => l.id_lote) : [];
+
+        // 1. Eliminar movimiento_inventario que referencian directamente el insumo (primero)
+        const { error: movimientosInsumoError } = await supabase
+          .from('movimiento_inventario')
+          .delete()
+          .eq('id_insumo', id);
+
+        if (movimientosInsumoError) {
+          console.error('Error eliminando movimientos para insumo', id, movimientosInsumoError.message);
+          throw movimientosInsumoError;
+        }
+
+        // 2. Eliminar movimiento_inventario que referencian estos lotes
+        if (loteIds.length > 0) {
+          const { error: movimientosLotesError } = await supabase
+            .from('movimiento_inventario')
+            .delete()
+            .in('id_lote', loteIds);
+
+          if (movimientosLotesError) {
+            console.error('Error eliminando movimientos para lotes', loteIds, movimientosLotesError.message);
+            throw movimientosLotesError;
+          }
+        }
+
+        // 3. Eliminar detalle_recepcion_mercaderia que referencia estos lotes
+        if (loteIds.length > 0) {
+          const { error: detalleRecepcionError } = await supabase
+            .from('detalle_recepcion_mercaderia')
+            .delete()
+            .in('id_lote', loteIds);
+
+          if (detalleRecepcionError) {
+            console.error('Error eliminando detalle_recepcion_mercaderia para lotes', loteIds, detalleRecepcionError.message);
+            throw detalleRecepcionError;
+          }
+        }
+
+        // 4. Eliminar detalle_orden_compra que referencia el insumo
+        const { error: detalleOrdenError } = await supabase
+          .from('detalle_orden_compra')
+          .delete()
+          .eq('id_insumo', id);
+
+        if (detalleOrdenError) {
+          console.error('Error eliminando detalle_orden_compra para insumo', id, detalleOrdenError.message);
+          throw detalleOrdenError;
+        }
+
+        // 5. Eliminar presentaciones relacionadas (antes de lotes para evitar restricciones)
+        const { error: presentacionesError } = await supabase
+          .from('insumo_presentacion')
+          .delete()
+          .eq('id_insumo', id);
+
+        if (presentacionesError) {
+          console.error('Error eliminando presentaciones para insumo', id, presentacionesError.message);
+          throw presentacionesError;
+        }
+
+        // 6. Eliminar lotes relacionados (usar los lotes específicos obtenidos)
+        if (loteIds.length > 0) {
+          const { error: lotesError } = await supabase
+            .from('lote_insumo')
+            .delete()
+            .in('id_lote', loteIds);
+
+          if (lotesError) {
+            console.error('Error eliminando lotes específicos', loteIds, lotesError.message);
+            throw lotesError;
+          }
+        }
+
+        // 7. Eliminar otros registros relacionados que referencian insumo
+        const { error: recetaDetalleError } = await supabase
+          .from('receta_detalle')
+          .delete()
+          .eq('id_insumo', id);
+
+        if (recetaDetalleError) {
+          console.error('Error eliminando receta_detalle para insumo', id, recetaDetalleError.message);
+          throw recetaDetalleError;
+        }
+
+        const { error: bitacoraError } = await supabase
+          .from('bitacora_inventario')
+          .delete()
+          .eq('id_insumo', id);
+
+        if (bitacoraError) {
+          console.error('Error eliminando bitacora_inventario para insumo', id, bitacoraError.message);
+          throw bitacoraError;
+        }
+      }
+
+      const { error } = await supabase.from(tableName).delete().eq(pk, id);
       if (error) {
         console.error('Error eliminando registro en', tableName, error.message);
         throw error;

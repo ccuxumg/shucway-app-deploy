@@ -27,5 +27,6 @@ router.put(
   comprasController.updateProveedor.bind(comprasController)
 );
 router.delete('/proveedores/:id', authenticateToken, comprasController.deleteProveedor.bind(comprasController));
+router.get('/proveedores/:id/insumos', authenticateToken, comprasController.getInsumosByProveedor.bind(comprasController));
 
 export default router;

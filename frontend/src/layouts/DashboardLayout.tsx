@@ -224,6 +224,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     { name: 'Cierre de Caja', route: '/ventas/cierre-caja', section: 'Ventas' },
     { name: 'Inventario', route: '/inventario', section: 'Operaciones' },
     { name: 'Categorias', route: '/inventario/categorias', section: 'Operaciones' },
+    { name: 'Recepción de Mercadería', route: '/inventario/recepcion-mercaderia', section: 'Operaciones' },
     { name: 'Reportes', route: '/reportes', section: 'Operaciones' },
     { name: 'Perfil', route: '/perfil', section: 'General' },
     { name: 'Soporte', route: '/soporte', section: 'General' },

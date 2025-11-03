@@ -6,7 +6,7 @@ import './Header.css';
 const Header = () => {
   const [scrolled, setScrolled] = useState(false);
   const [hoveredDropdown, setHoveredDropdown] = useState<string | null>(null);
-  const dropdownTimeouts = useRef<{ [key: string]: NodeJS.Timeout }>({});
+  const dropdownTimeouts = useRef<{ [key: string]: ReturnType<typeof setTimeout> }>({});
 
   useEffect(() => {
     const onScroll = () => {

@@ -2,10 +2,6 @@
 import { RcFile } from "antd/es/upload";
 import { supabase } from "./supabaseClient";
 
-// src/api/uploadFile.ts
-import { RcFile } from "antd/es/upload";
-import { supabase } from "./supabaseClient";
-
 export const uploadFile = async (file?: RcFile, userId?: string): Promise<string | null> => {
   if (!file || !userId) return null;
 

@@ -9,14 +9,17 @@ import {
   PiArrowUpBold,
   PiPlusBold,
   PiBroomBold,
+  PiChartBar,
+  PiX,
 } from "react-icons/pi";
 import { MdClose } from "react-icons/md";
 import Kardex from './Kardex';
 import { supabase } from "../../../../api/supabaseClient";
+import { message } from "antd";
 
 /** Tipos */
 type TipoInsumo = "Perpetuo" | "Operativo";
-type EstadoStock = "OK" | "Stock Bajo" | "Crítico" | "Vacío";
+type EstadoStock = "OK" | "Stock Bajo" | "Crítico" | "Vacío" | "Sobre stock";
 type UnidadMedida = "caneca" | "frasco" | "galón" | "garrafon" | "lata" | "libra" | "manojo" | "paquete" | "sobre" | "unidad";
 
 type Fila = {
@@ -69,6 +72,8 @@ export default function Catalogo() {
   const [categoria, setCategoria] = useState<string>("Todas las categorías");
   const [sortBy, setSortBy] = useState<SortKey>('nombre' as SortKey);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  // Ventana ampliada para ver Kárdex en pantalla aparte
+  const [showKardexFull, setShowKardexFull] = useState(false);
 
   useEffect(() => {
     const urlParams = new URLSearchParams(location.search);
@@ -76,9 +81,25 @@ export default function Catalogo() {
     if (filterParam && ['todos', 'perpetuos', 'operativos'].includes(filterParam)) {
       setActiveTab(filterParam as 'todos' | 'perpetuos' | 'operativos');
     }
+    // Si la URL contiene ?editProveedor=ID navegada desde otros puntos (ej: IngresoCompra), abrir edición
+    const editProv = urlParams.get('editProveedor');
+    if (editProv) {
+      const id = Number(editProv);
+      if (!Number.isNaN(id)) {
+        // llamar a la función que abre el drawer de edición de proveedor
+        // usar setTimeout para asegurar que openEditProveedor esté definido en el mismo render
+        setTimeout(() => {
+          try {
+            if (typeof (openEditProveedor as unknown) === 'function') (openEditProveedor as unknown as (n: number) => void)(id);
+          } catch (e) {
+            console.error('No se pudo abrir edición de proveedor desde query param:', e);
+          }
+        }, 0);
+      }
+    }
   }, [location.search]);
 
-  const slugify = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
 
   const formatStock = (n: number) => `${n}`;
   const formatDateHuman = (iso?: string) => (iso ? new Date(iso).toLocaleString('es-ES') : '—');
@@ -95,9 +116,30 @@ export default function Catalogo() {
       </span>
     );
   };
-  const EstadoPill = ({ estado }: { estado: EstadoStock }) => (
-    <span className="px-2 py-0.5 rounded text-xs bg-gray-100">{estado}</span>
-  );
+  const EstadoPill = ({ estado }: { estado: EstadoStock }) => {
+    const getEstadoStyles = (estado: EstadoStock) => {
+      switch (estado) {
+        case "Vacío":
+          return "bg-red-100 text-red-800 border-red-200";
+        case "Crítico":
+          return "bg-red-100 text-red-700 border-red-200";
+        case "Stock Bajo":
+          return "bg-yellow-100 text-yellow-800 border-yellow-200";
+        case "OK":
+          return "bg-green-100 text-green-800 border-green-200";
+        case "Sobre stock":
+          return "bg-blue-100 text-blue-800 border-blue-200";
+        default:
+          return "bg-gray-100 text-gray-800 border-gray-200";
+      }
+    };
+
+    return (
+      <span className={`px-2 py-0.5 rounded text-xs border ${getEstadoStyles(estado)}`}>
+        {estado}
+      </span>
+    );
+  };
  
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
@@ -113,45 +155,77 @@ export default function Catalogo() {
   // Opciones de categorías para el filtro
   const categoriasOptions = useMemo(() => ["Todas las categorías", ...categoriasBD.map(c => c.nombre)], [categoriasBD]);
 
-  // Cargar datos desde Supabase directamente
-  useEffect(() => {
-    let mounted = true;
-
-    async function load() {
+  // Función para recargar datos desde la API
+  const reloadData = useCallback(async () => {
+    console.log('reloadData ejecutándose...');
+    try {
       setLoading(true);
       setError(null);
-      try {
-        // Cargar insumos desde la API de catálogo
-        const insumosResponse = await fetch(`${import.meta.env.VITE_API_URL}/inventario/catalogo`, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-          },
-        });
-        const insumosData = await insumosResponse.json();
-        const insumos = Array.isArray(insumosData) ? insumosData : (insumosData.data || []);
 
+      // Cargar insumos desde la API de catálogo
+      const insumosResponse = await fetch(`${import.meta.env.VITE_API_URL}/inventario/catalogo`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+        },
+      });
 
-        if (mounted) {
-          setRawInsumos(insumos);
-        }
-      } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : String(e);
-        console.error("Error cargando catálogo:", message);
-        if (mounted) setError(message);
-      } finally {
-        if (mounted) setLoading(false);
+      if (!insumosResponse.ok) {
+        throw new Error(`HTTP ${insumosResponse.status}: ${insumosResponse.statusText}`);
       }
-    }
 
-    load();
-    return () => {
-      mounted = false;
-    };
+      const insumosData = await insumosResponse.json();
+      const insumos = Array.isArray(insumosData) ? insumosData : (insumosData.data || []);
+
+      setRawInsumos(insumos);
+      console.log('Insumos cargados:', insumos.length);
+      console.log('Primeros 3 insumos:', insumos.slice(0, 3));
+
+      // Cargar categorías
+      const categoriasResponse = await fetch(`${import.meta.env.VITE_API_URL}/dashboard/table-data/categoria_insumo`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+        },
+      });
+
+      if (categoriasResponse.ok) {
+        const categoriasData = await categoriasResponse.json();
+        const categorias = Array.isArray(categoriasData) ? categoriasData : (categoriasData.data || []);
+        console.log('Categorías cargadas:', categorias.length);
+        setCategoriasBD(categorias);
+      }
+
+      // Cargar proveedores
+      const proveedoresResponse = await fetch(`${import.meta.env.VITE_API_URL}/dashboard/table-data/proveedor`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+        },
+      });
+
+      if (proveedoresResponse.ok) {
+        const proveedoresData = await proveedoresResponse.json();
+        const proveedores = Array.isArray(proveedoresData) ? proveedoresData : (proveedoresData.data || []);
+        setProveedoresBD(proveedores);
+      }
+
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("Error recargando datos:", message);
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  // Cargar datos inicialmente
+  useEffect(() => {
+    reloadData();
+  }, [reloadData]);
 
   // Mapear insumos cuando se carguen las categorías
   useEffect(() => {
-    if (rawInsumos.length > 0 && categoriasBD.length > 0) {
+    if (rawInsumos.length > 0) {
+      console.log('Mapeando insumos:', rawInsumos.length, 'categorías:', categoriasBD.length);
+      console.log('Primeros 3 rawInsumos:', rawInsumos.slice(0, 3));
       const mapped = rawInsumos.map((i: Record<string, unknown>) => {
         // Determinar el tipo basado en la categoría, no en tipo_categoria de la API
         const categoriaObj = categoriasBD.find((c: { id_categoria: number; nombre: string; tipo_categoria?: string }) => c.id_categoria === i.id_categoria);
@@ -180,17 +254,26 @@ export default function Catalogo() {
             // Si no contiene ninguna, queda como "Operativo" por defecto
 
           }
-  }
-
-        const nombreCategoria = categoriaObj?.nombre ?? '—';
+        }        const nombreCategoria = categoriaObj?.nombre ?? '—';
 
         // Stock: usa 0 si no tienes stock_actual
         const stockLotes = Number(i.stock_actual ?? 0);
         const stockMinimo = Number(i.stock_minimo ?? 0);
+        const stockMaximo = Number(i.stock_maximo ?? 0);
+        
+        // Calcular estado basado en stock actual, mínimo y máximo
         let estado: EstadoStock = "OK";
-        if (stockLotes === 0) estado = "Vacío";
-        else if (stockLotes <= stockMinimo * 0.5) estado = "Crítico";
-        else if (stockLotes <= stockMinimo) estado = "Stock Bajo";
+        if (stockLotes === 0) {
+          estado = "Vacío";
+        } else if (stockLotes < stockMinimo) {
+          estado = "Crítico";
+        } else if (stockLotes <= stockMinimo * 1.2) { // 20% por encima del mínimo = stock bajo
+          estado = "Stock Bajo";
+        } else if (stockMaximo > 0 && stockLotes > stockMaximo) {
+          estado = "Sobre stock"; // Nuevo estado para cuando excede el stock máximo
+        }
+
+        const proveedorNombre = proveedoresBD.find(p => p.id_proveedor === i.id_proveedor_principal)?.nombre_empresa;
 
         return {
           id: String(i.id_insumo),
@@ -203,11 +286,11 @@ export default function Catalogo() {
           ultimaActualizacion: i.fecha_registro || i.fecha_creacion || new Date().toISOString(),
           categoria: nombreCategoria,
           descripcion: "",
-          proveedor: undefined,
+          proveedor: proveedorNombre,
           costo: i.costo_promedio ? Number(i.costo_promedio) : undefined,
           activo: Boolean(i.activo ?? true),
           automatica: false,
-          imagen: `/insumos/${slugify(String(i.nombre_insumo || i.nombre))}.png`,
+          imagen: undefined, // No generar URLs de imágenes inexistentes
           categoriaId: i.id_categoria,
           proveedorId: i.id_proveedor_principal,
           fecha_vencimiento: i.fecha_vencimiento || undefined,
@@ -216,9 +299,10 @@ export default function Catalogo() {
           descripcion_presentacion: i.descripcion_presentacion || "",
         } as Fila;
       });
+      console.log('Insumos mapeados:', mapped.length, 'primer insumo:', mapped[0]);
       setRows(mapped);
     }
-  }, [rawInsumos, categoriasBD]);
+  }, [rawInsumos, categoriasBD, proveedoresBD]);
 
   // Cargar categorías y proveedores desde las APIs del backend
   useEffect(() => {
@@ -271,6 +355,10 @@ export default function Catalogo() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const navigate = useNavigate();
 
+  // Drawer para editar proveedor
+  const [openProveedorDrawer, setOpenProveedorDrawer] = useState(false);
+  const [editingProveedorId, setEditingProveedorId] = useState<number | null>(null);
+
   // MODAL de detalle
   const [detail, setDetail] = useState<Fila | null>(null);
   const kardexRef = useRef<HTMLDivElement | null>(null);
@@ -297,6 +385,16 @@ export default function Catalogo() {
     descripcion_presentacion: "",
   };
   const [form, setForm] = useState<Fila>(blankForm);
+
+  // Form para proveedor
+  const [proveedorForm, setProveedorForm] = useState({
+    nombre: "",
+    contacto: "",
+    telefono: "",
+    email: "",
+    direccion: "",
+    notas: "",
+  });
 
 
   // Debounce búsqueda
@@ -362,16 +460,159 @@ export default function Catalogo() {
     setForm({ ...blankForm, id: "", categoriaId: categoriasBD.length > 0 ? categoriasBD[0].id_categoria : undefined });
     setOpenDrawer(true);
   };
-  const openEdit = (row: Fila) => {
+  const openEdit = async (row: Fila) => {
     setEditingId(row.id);
-    // intentar completar categoriaId/proveedorId si no vienen en la fila
-    const cat = categoriasBD.find((c) => c.nombre === row.categoria);
-    const prov = proveedoresBD.find((p) => p.nombre_empresa === (row.proveedor ?? ""));
-    setForm({ ...row, categoriaId: row.categoriaId ?? (cat ? cat.id_categoria : undefined), proveedorId: row.proveedorId ?? (prov ? prov.id_proveedor : undefined) });
-    setOpenDrawer(true);
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Obtener detalles completos del insumo incluyendo presentaciones y lotes
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/inventario/insumos/${row.id}/details`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error(`Error al obtener detalles del insumo: ${res.status}`);
+      }
+
+      const response = await res.json();
+      const insumoDetails = response.data;
+
+      // Mapear datos del backend al formato del formulario
+      const presentacion = insumoDetails.insumo_presentacion?.[0] || {};
+      const lote = insumoDetails.lote_insumo?.[0] || {};
+
+      const formData = {
+        id: String(insumoDetails.id_insumo),
+        nombre: insumoDetails.nombre_insumo,
+        tipo: (insumoDetails.categoria_insumo?.tipo_categoria === 'perpetuo' ? 'Perpetuo' : 'Operativo') as TipoInsumo,
+        unidad: insumoDetails.unidad_base || 'unidad',
+        stockCantidad: lote.cantidad_actual || 0,
+        ubicacion: lote.ubicacion || '',
+        estado: 'OK' as EstadoStock, // Se calculará después
+        ultimaActualizacion: insumoDetails.fecha_registro,
+        categoria: insumoDetails.categoria_insumo?.nombre || '',
+        descripcion: '',
+        proveedor: insumoDetails.proveedor_principal?.nombre_proveedor || presentacion.proveedor?.nombre_proveedor || '',
+        costo: insumoDetails.costo_promedio || 0,
+        activo: insumoDetails.activo,
+        automatica: false,
+        imagen: undefined,
+        categoriaId: insumoDetails.id_categoria,
+        proveedorId: presentacion.id_proveedor || insumoDetails.id_proveedor_principal,
+        fecha_vencimiento: lote.fecha_vencimiento || '',
+        stock_minimo: insumoDetails.stock_minimo || undefined,
+        stock_maximo: insumoDetails.stock_maximo || undefined,
+        descripcion_presentacion: presentacion.descripcion_presentacion || '',
+      };
+      setForm(formData);
+
+      setOpenDrawer(true);
+    } catch (err) {
+      console.error('Error cargando detalles del insumo:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      setError(`Error al cargar datos del insumo: ${message}`);
+      // Fallback: usar datos básicos de la fila
+      const cat = categoriasBD.find((c) => c.nombre === row.categoria);
+      const prov = proveedoresBD.find((p) => p.nombre_empresa === (row.proveedor ?? ""));
+      setForm({ ...row, categoriaId: row.categoriaId ?? (cat ? cat.id_categoria : undefined), proveedorId: row.proveedorId ?? (prov ? prov.id_proveedor : undefined) });
+      setOpenDrawer(true);
+    } finally {
+      setLoading(false);
+    }
   };
   const deleteRow = async (row: Fila) => {
     setDeleteModal({ open: true, row });
+  };
+
+  // Funciones para drawer de proveedor
+  const openEditProveedor = async (proveedorId: number) => {
+    setEditingProveedorId(proveedorId);
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Cargar datos del proveedor
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/dashboard/table-data/proveedor/${proveedorId}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const proveedorData = await response.json();
+      const proveedor = Array.isArray(proveedorData) ? proveedorData[0] : proveedorData;
+
+      setProveedorForm({
+        nombre: proveedor.nombre_empresa || '',
+        contacto: proveedor.nombre_contacto || '',
+        telefono: proveedor.telefono || '',
+        email: proveedor.email || '',
+        direccion: proveedor.direccion || '',
+        notas: proveedor.notas || '',
+      });
+
+      setOpenProveedorDrawer(true);
+    } catch (err) {
+      console.error('Error cargando datos del proveedor:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      setError(`Error al cargar datos del proveedor: ${message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveProveedor = async () => {
+    if (!proveedorForm.nombre.trim()) {
+      alert("El nombre del proveedor es obligatorio");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const payload = {
+        nombre_empresa: proveedorForm.nombre,
+        nombre_contacto: proveedorForm.contacto,
+        telefono: proveedorForm.telefono,
+        email: proveedorForm.email,
+        direccion: proveedorForm.direccion,
+        notas: proveedorForm.notas,
+      };
+
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/dashboard/table-data/proveedor/${editingProveedorId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body?.message || `HTTP ${response.status}`);
+      }
+
+      // Recargar datos para reflejar cambios
+      await reloadData();
+      setOpenProveedorDrawer(false);
+      setEditingProveedorId(null);
+
+      message.success('Proveedor actualizado correctamente');
+    } catch (err) {
+      console.error('Error guardando proveedor:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      setError(`Error guardando proveedor: ${message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Acción real de eliminación tras confirmar en el modal
@@ -395,15 +636,18 @@ export default function Catalogo() {
       // recargar catálogo
       await fetchInsumosFromTable();
       setDeleteModal({ open: false, row: null });
+      
+      // Mostrar notificación de éxito
+      message.success('Insumo eliminado correctamente');
     } catch (e: unknown) {
       console.error('Error eliminando insumo:', e);
-      const message = e instanceof Error ? e.message : String(e);
-      setError(message);
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      setError(errorMessage);
       setDeleteModal({ open: false, row: null });
-      if (message.toLowerCase().includes('permission') || message.toLowerCase().includes('forbidden') || message.toLowerCase().includes('policy')) {
-        alert('Error eliminando insumo: permiso denegado. Si quieres que CRUD sea público, revisa las políticas RLS en Supabase o marca la tabla como accesible para el rol `authenticated`/público.\nDetalles: ' + message);
+      if (errorMessage.toLowerCase().includes('permission') || errorMessage.toLowerCase().includes('forbidden') || errorMessage.toLowerCase().includes('policy')) {
+        message.error(`Error eliminando insumo: permiso denegado. Si quieres que CRUD sea público, revisa las políticas RLS en Supabase o marca la tabla como accesible para el rol \`authenticated\`/público. Detalles: ${errorMessage}`);
       } else {
-        alert('Error eliminando insumo. Revisa la consola para más detalles.\n' + message);
+        message.error(`Error al eliminar el insumo: ${errorMessage}`);
       }
     } finally {
       setLoading(false);
@@ -415,21 +659,20 @@ export default function Catalogo() {
   if (!form.nombre.trim()) return alert("El nombre es obligatorio");
   if (categoriasBD.length > 0 && (form.categoriaId == null || form.categoriaId === undefined)) return alert("Seleccione una categoría");
 
-    // Mapear campos del formulario a la estructura de la tabla `insumo`
+    // Mapear campos del formulario a la estructura esperada por CreateInsumoDTO
     const payload: Record<string, unknown> = {
-      nombre: form.nombre,
+      nombre_insumo: form.nombre,
       unidad_base: form.unidad,
-      tipo_insumo: form.tipo.toLowerCase(),
-      costo_promedio: form.costo ?? 0,
-      activo: Boolean(form.activo),
+      costo_promedio: form.costo || 0,
       stock_minimo: form.stock_minimo ?? 0,
       stock_maximo: form.stock_maximo ?? 0,
-      descripcion_presentacion: form.descripcion_presentacion || undefined,
-      fecha_vencimiento: form.fecha_vencimiento || undefined,
+      descripcion_presentacion: form.descripcion || "",
+      ubicacion: form.ubicacion || "Bodega Principal",
     };
-  // usar ids seleccionados si existen
-  if (form.categoriaId != null) payload.id_categoria = form.categoriaId;
-  if (form.proveedorId != null) payload.id_proveedor_principal = form.proveedorId;
+
+    // Agregar campos opcionales solo si tienen valor
+    if (form.categoriaId != null) payload.id_categoria = form.categoriaId;
+    if (form.proveedorId != null) payload.id_proveedor_principal = form.proveedorId;
 
     (async () => {
       setLoading(true);
@@ -437,7 +680,7 @@ export default function Catalogo() {
       try {
         if (editingId) {
           // actualizar via backend
-          const res = await fetch(`${import.meta.env.VITE_API_URL}/dashboard/table-data/insumo/${editingId}`, {
+          const res = await fetch(`${import.meta.env.VITE_API_URL}/inventario/insumos/${editingId}`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
@@ -450,8 +693,9 @@ export default function Catalogo() {
             throw new Error(body?.message || `HTTP ${res.status}`);
           }
         } else {
-          // crear via backend
-          const res = await fetch(`${import.meta.env.VITE_API_URL}/dashboard/table-data/insumo`, {
+          // crear via backend - usar endpoint específico de inventario
+          console.log('Creando insumo con payload:', payload);
+          const res = await fetch(`${import.meta.env.VITE_API_URL}/inventario/insumos`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -464,6 +708,7 @@ export default function Catalogo() {
             throw new Error(body?.message || `HTTP ${res.status}`);
           }
           const body = await res.json().catch(() => ({}));
+          console.log('Respuesta de creación:', body);
           const created = body?.data;
           if (created) {
             // buscar posibles campos id comunes
@@ -472,17 +717,22 @@ export default function Catalogo() {
           }
         }
         // recargar listado desde el backend para reflejar cambios
-        await fetchInsumosFromTable();
+        console.log('Llamando reloadData después de guardar...');
+        await reloadData();
+        console.log('reloadData completado');
         setOpenDrawer(false);
+
+        // Mostrar notificación de éxito
+        message.success(editingId ? 'Insumo actualizado correctamente' : 'Insumo creado correctamente');
       } catch (e: unknown) {
         console.error('Error guardando insumo - raw error:', e);
-        const message = e instanceof Error ? e.message : String(e);
-        setError(message);
-        const lower = message.toLowerCase();
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        setError(errorMessage);
+        const lower = errorMessage.toLowerCase();
         if (lower.includes('forbidden') || lower.includes('permission') || lower.includes('policy')) {
-          alert('Error de permisos al guardar insumo. Revisa roles/permisos en el backend.\nDetalles: ' + message);
+          message.error(`Error de permisos al guardar insumo. Revisa roles/permisos en el backend. Detalles: ${errorMessage}`);
         } else {
-          alert('Error guardando insumo. Revisa la consola para más detalles.\n' + message);
+          message.error(`Error guardando insumo. Revisa la consola para más detalles. ${errorMessage}`);
         }
       } finally {
         setLoading(false);
@@ -556,7 +806,7 @@ export default function Catalogo() {
               onChange={(e) => setCategoria(e.target.value)}
               className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700"
             >
-              {categoriasOptions.map((cat, index) => (
+              {categoriasOptions.map((cat: string, index: number) => (
                 <option key={index} value={cat}>{cat}</option>
               ))}
             </select>
@@ -641,8 +891,13 @@ export default function Catalogo() {
                   <td className="px-4 py-3 align-top">{formatDateHuman(r.ultimaActualizacion)}</td>
                   <td className="px-4 py-3 align-top">
                     <div className="flex items-center gap-2 justify-end">
-                      <IconBtn title="Ver" onClick={() => { setDetail(r); }}><PiEyeBold /></IconBtn>
+                      <IconBtn title={`Ver ${r.nombre}`} onClick={() => { setDetail(r); }}><PiEyeBold /></IconBtn>
                       <IconBtn title="Editar" onClick={() => openEdit(r)}><PiPencilSimpleBold /></IconBtn>
+                      {r.proveedorId && (
+                        <IconBtn title="Editar Proveedor" onClick={() => openEditProveedor(r.proveedorId!)} style={{ color: '#7c3aed' }}>
+                          <PiPencilSimpleBold />
+                        </IconBtn>
+                      )}
                       <IconBtn title="Eliminar" onClick={() => deleteRow(r)}><PiTrashBold /></IconBtn>
                     </div>
                   </td>
@@ -747,12 +1002,13 @@ export default function Catalogo() {
                           <label className="block text-xs font-semibold text-gray-600 mb-1">Stock Actual</label>
                           <input type="number" inputMode="decimal" id="stockCantidad" value={form.stockCantidad} readOnly className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm bg-gray-50 cursor-not-allowed" />
                         </div>
-                        <div>
+                        {/* Campo Estado oculto según requerimiento del usuario */}
+                        {/* <div>
                           <label className="block text-xs font-semibold text-gray-600 mb-1">Estado</label>
                           <select value={form.estado} onChange={(e) => setFormField("estado", e.target.value as EstadoStock)} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300">
-                            {(["OK", "Stock Bajo", "Crítico"] as EstadoStock[]).map((s) => <option key={s} value={s}>{s}</option>)}
+                            {(["OK", "Stock Bajo", "Crítico", "Vacío", "Sobre stock"] as EstadoStock[]).map((s) => <option key={s} value={s}>{s}</option>)}
                           </select>
-                        </div>
+                        </div> */}
                         <div>
                           <label className="block text-xs font-semibold text-gray-600 mb-1">Actualización</label>
                           <select value={form.automatica ? "auto" : "manual"} onChange={(e) => setFormField("automatica", e.target.value === "auto")} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300">
@@ -772,32 +1028,20 @@ export default function Catalogo() {
                   <div className="text-sm font-bold text-gray-800 mb-4">Información Adicional</div>
                   <div className="grid gap-4">
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Proveedor Principal</label>
-                        <select value={form.proveedorId ?? ""} onChange={(e) => setFormField("proveedorId", e.target.value === "" ? undefined : Number(e.target.value))} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300">
-                          <option value="">Seleccionar proveedor</option>
-                          {proveedoresBD.length > 0 ? proveedoresBD.map((p) => <option key={p.id_proveedor} value={p.id_proveedor}>{p.nombre_empresa}</option>) : (<>
-                            <option value={1}>Carnes del Valle</option>
-                            <option value={2}>La Bodeguita</option>
-                          </>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Costo Promedio (Q)</label>
-                        <input type="number" inputMode="decimal" value={form.costo ?? ""} onChange={(e) => setFormField("costo", e.target.value === "" ? undefined : Number(e.target.value))} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300" />
-                      </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Proveedor Principal</label>
+                      <select value={form.proveedorId ?? ""} onChange={(e) => setFormField("proveedorId", e.target.value === "" ? undefined : Number(e.target.value))} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300">
+                        <option value="">Seleccionar proveedor</option>
+                        {proveedoresBD.length > 0 ? proveedoresBD.map((p) => <option key={p.id_proveedor} value={p.id_proveedor}>{p.nombre_empresa}</option>) : (<>
+                          <option value={1}>Carnes del Valle</option>
+                          <option value={2}>La Bodeguita</option>
+                        </>)}
+                      </select>
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold text-gray-600 mb-1">Ubicación</label>
-                      <select value={form.ubicacion ?? ""} onChange={(e) => setFormField("ubicacion", e.target.value)} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300">
-                        <option value="">Seleccionar ubicación</option>
-                        <option value="Congelador">Congelador</option>
-                        <option value="Refrigerador">Refrigerador</option>
-                        <option value="Nevera">Nevera</option>
-                        <option value="Casa">Casa</option>
-                      </select>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Costo Promedio (Q)</label>
+                      <input type="number" inputMode="decimal" value={form.costo ?? ""} onChange={(e) => setFormField("costo", e.target.value === "" ? undefined : Number(e.target.value))} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300" />
                     </div>
 
                     <div>
@@ -889,6 +1133,18 @@ export default function Catalogo() {
                     </div>
 
                     <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="ubicacion">Ubicación</label>
+                      <input
+                        id="ubicacion"
+                        type="text"
+                        value={form.ubicacion ?? ""}
+                        onChange={(e) => setFormField("ubicacion", e.target.value)}
+                        placeholder="Ej: Bodega Principal, Estante A-3, etc."
+                        className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                      />
+                    </div>
+
+                    <div>
                       <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="descripcion_presentacion">Descripción de Presentación</label>
                       <textarea
                         id="descripcion_presentacion"
@@ -922,10 +1178,19 @@ export default function Catalogo() {
                     <div className="bg-white rounded-xl border border-gray-200/70 shadow-sm p-5">
                       <div className="text-sm font-bold text-gray-800 mb-4">Resumen</div>
                       <div className="space-y-3 text-sm">
-                        <ResumenRow label="ID del Insumo:">{form.id || "—"}</ResumenRow>
-                        <ResumenRow label="Tipo:"><EstadoPill estado={form.estado} /></ResumenRow>
+                        <ResumenRow label="ID del Insumo:">{editingId || form.id || "Nuevo"}</ResumenRow>
+                        <ResumenRow label="Nombre:">{form.nombre || "—"}</ResumenRow>
                         <ResumenRow label="Categoría:">{(form.categoriaId != null ? (categoriasBD.find(c => c.id_categoria === form.categoriaId)?.nombre) : form.categoria) || "No seleccionada"}</ResumenRow>
-                        <ResumenRow label="Stock:">{formatStock(form.stockCantidad)}</ResumenRow>
+                        <ResumenRow label="Proveedor:">{(form.proveedorId != null ? (proveedoresBD.find(p => p.id_proveedor === form.proveedorId)?.nombre_empresa) : form.proveedor) || "No seleccionado"}</ResumenRow>
+                        <ResumenRow label="Unidad:">{form.unidad || "unidad"}</ResumenRow>
+                        <ResumenRow label="Stock Mínimo:">{form.stock_minimo ?? "0"}</ResumenRow>
+                        <ResumenRow label="Stock Máximo:">{form.stock_maximo ?? "Sin límite"}</ResumenRow>
+                        <ResumenRow label="Costo:">Q {form.costo ?? "0.00"}</ResumenRow>
+                        <ResumenRow label="Ubicación:">{form.ubicacion || "No especificada"}</ResumenRow>
+                        <ResumenRow label="Fecha Vencimiento:">{form.fecha_vencimiento || "Sin vencimiento"}</ResumenRow>
+                        <ResumenRow label="Tipo:">{form.tipo || "operativo"}</ResumenRow>
+                        <ResumenRow label="Estado:"><EstadoPill estado={form.estado} /></ResumenRow>
+                        <ResumenRow label="Stock Actual:">{formatStock(form.stockCantidad)}</ResumenRow>
                         <ResumenRow label="Actualización:">{form.automatica ? "Automática" : "Manual"}</ResumenRow>
                       </div>
                       <div className="mt-5 flex gap-3">
@@ -940,6 +1205,130 @@ export default function Catalogo() {
                   </div>
                 </div>
               </div>
+            </div>
+          </motion.aside>
+        )}
+      </AnimatePresence>
+
+      {/* Drawer editar proveedor */}
+      <AnimatePresence>
+        {openProveedorDrawer && (
+          <motion.aside
+            initial={{ x: 520, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 520, opacity: 0 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+            className="fixed inset-y-0 right-0 z-50 w-full md:max-w-[600px] bg-white shadow-2xl border-l border-gray-100"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="h-14 px-5 flex items-center justify-between border-b border-gray-100">
+              <h3 className="text-base md:text-lg font-bold text-gray-800">
+                Editar Proveedor
+              </h3>
+              <button onClick={() => setOpenProveedorDrawer(false)} className="p-2 rounded-lg hover:bg-gray-100" aria-label="Cerrar">
+                <MdClose size={20} />
+              </button>
+            </div>
+
+            <div className="h-[calc(100vh-56px)] overflow-y-auto p-5 md:p-6 space-y-5">
+              {/* Información del Proveedor */}
+              <section className="bg-white rounded-xl border border-gray-200/70 shadow-sm p-4 md:p-5">
+                <div className="text-sm font-bold text-gray-800 mb-4">Información del Proveedor</div>
+                <div className="grid gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="proveedor-nombre">Nombre de la Empresa *</label>
+                    <input
+                      id="proveedor-nombre"
+                      value={proveedorForm.nombre}
+                      onChange={(e) => setProveedorForm(prev => ({ ...prev, nombre: e.target.value }))}
+                      placeholder="Ej: Distribuidora ABC"
+                      className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="proveedor-contacto">Nombre del Contacto</label>
+                    <input
+                      id="proveedor-contacto"
+                      value={proveedorForm.contacto}
+                      onChange={(e) => setProveedorForm(prev => ({ ...prev, contacto: e.target.value }))}
+                      placeholder="Ej: Juan Pérez"
+                      className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="proveedor-telefono">Teléfono</label>
+                      <input
+                        id="proveedor-telefono"
+                        value={proveedorForm.telefono}
+                        onChange={(e) => setProveedorForm(prev => ({ ...prev, telefono: e.target.value }))}
+                        placeholder="Ej: 5555-1234"
+                        className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="proveedor-email">Email</label>
+                      <input
+                        id="proveedor-email"
+                        type="email"
+                        value={proveedorForm.email}
+                        onChange={(e) => setProveedorForm(prev => ({ ...prev, email: e.target.value }))}
+                        placeholder="Ej: contacto@empresa.com"
+                        className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="proveedor-direccion">Dirección</label>
+                    <textarea
+                      id="proveedor-direccion"
+                      value={proveedorForm.direccion}
+                      onChange={(e) => setProveedorForm(prev => ({ ...prev, direccion: e.target.value }))}
+                      placeholder="Dirección completa del proveedor"
+                      rows={3}
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="proveedor-notas">Notas Adicionales</label>
+                    <textarea
+                      id="proveedor-notas"
+                      value={proveedorForm.notas}
+                      onChange={(e) => setProveedorForm(prev => ({ ...prev, notas: e.target.value }))}
+                      placeholder="Información adicional sobre el proveedor"
+                      rows={2}
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                <button
+                  onClick={saveProveedor}
+                  disabled={loading}
+                  className="h-11 rounded-lg bg-purple-500 px-4 text-sm font-semibold text-white hover:bg-purple-600 disabled:opacity-60 flex items-center justify-center gap-2"
+                >
+                  {loading ? "Guardando..." : "Guardar Cambios"}
+                </button>
+                <button
+                  type="button"
+                  className="h-11 rounded-lg border px-4 text-sm font-semibold hover:bg-gray-50"
+                  onClick={() => setOpenProveedorDrawer(false)}
+                >
+                  Cancelar
+                </button>
+              </div>
+
+              {error && (
+                <div className="p-3 text-sm text-rose-700 bg-rose-50 rounded-md">Error: {error}</div>
+              )}
             </div>
           </motion.aside>
         )}
@@ -968,8 +1357,8 @@ export default function Catalogo() {
               aria-modal="true"
               aria-labelledby="insumo-detail-title"
             >
-              <div className="w-full max-w-6xl min-h-[620px] rounded-2xl bg-white shadow-2xl border border-gray-100">
-                <div className="flex items-center justify-between px-5 h-14 border-b">
+              <div className="w-full max-w-7xl min-h-[620px] rounded-2xl bg-white shadow-2xl border border-gray-100">
+                <div className="flex items-center justify-between px-4 h-12 border-b">
                   <h3 id="insumo-detail-title" className="text-lg font-bold text-gray-800">
                     {detail.nombre}
                   </h3>
@@ -978,58 +1367,172 @@ export default function Catalogo() {
                   </button>
                 </div>
 
-                <div className="p-6 space-y-6 max-h-[78vh] overflow-auto">
-                  {/* Header info */}
-                  <div className="flex flex-wrap items-center gap-2">
-                      <img
-                        src={detail.imagen ?? "/insumos/_placeholder.svg"}
-                        alt={detail.nombre}
-                        className="h-28 w-28 object-contain"
-                        onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/insumos/_placeholder.svg"; }}
-                      />
-                    <TipoBadge tipo={detail.tipo} />
-                    <EstadoPill estado={detail.estado} />
-                    <span className="text-xs text-gray-500">•</span>
-                    <span className="text-xs text-gray-500">
-                      {detail.automatica ? "Actualización automática" : "Conteo manual"}
-                    </span>
+                <div className="p-6 space-y-6 max-h-[82vh] overflow-auto">
+                  {/* Header con imagen y badges */}
+                  <div className="flex flex-col lg:flex-row gap-6">
+                    <div className="flex-shrink-0">
+                      <div className="h-32 w-32 bg-gradient-to-br from-blue-50 to-indigo-100 rounded-xl flex items-center justify-center text-gray-400 border border-gray-200">
+                        <span className="text-4xl">📦</span>
+                      </div>
+                    </div>
+                    <div className="flex-1 space-y-3">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <TipoBadge tipo={detail.tipo} />
+                        <EstadoPill estado={detail.estado} />
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          detail.activo ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        }`}>
+                          {detail.activo ? 'Activo' : 'Inactivo'}
+                        </span>
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                          {detail.automatica ? "Actualización automática" : "Conteo manual"}
+                        </span>
+                      </div>
+                      <div className="text-sm text-gray-600 space-y-1">
+                        <div>ID: <span className="font-mono text-gray-800">{detail.id}</span></div>
+                        <div>Categoría: <span className="font-medium text-gray-800">{detail.categoria}</span></div>
+                        <div>Unidad: <span className="font-medium text-gray-800">{detail.unidad}</span></div>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Grid detalle */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                    <DetailRow label="Categoría" value={detail.categoria} />
-                    <DetailRow label="Stock" value={formatStock(detail.stockCantidad)} />
-                    <DetailRow label="Última actualización" value={formatDateHuman(detail.ultimaActualizacion)} />
-                    <DetailRow label="Unidad" value={detail.unidad} />
-                    <DetailRow label="Proveedor" value={detail.proveedor ?? "—"} />
-                    <DetailRow label="Ubicación" value={detail.ubicacion ?? "—"} />
-                    <DetailRow label="Costo Promedio (Q)" value={detail.costo != null ? String(detail.costo) : "—"} />
-                    <DetailRow label="Estado" value={detail.activo ? "Activo" : "Inactivo"} />
+                  {/* Información Principal */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-3">Stock y Costos</h4>
+                      <div className="space-y-2 text-sm">
+                        <DetailRow label="Stock Actual" value={formatStock(detail.stockCantidad)} />
+                        <DetailRow label="Stock Mínimo" value={detail.stock_minimo != null ? String(detail.stock_minimo) : "No definido"} />
+                        <DetailRow label="Stock Máximo" value={detail.stock_maximo != null ? String(detail.stock_maximo) : "Sin límite"} />
+                        <DetailRow label="Costo Promedio" value={detail.costo != null ? `Q ${detail.costo.toFixed(2)}` : "—"} />
+                      </div>
+                    </div>
+
+                    <div className="bg-blue-50 rounded-lg p-4">
+                      <h4 className="text-sm font-semibold text-blue-700 mb-3">Proveedor y Ubicación</h4>
+                      <div className="space-y-2 text-sm">
+                        <DetailRow label="Proveedor" value={detail.proveedor ?? "No asignado"} />
+                        <DetailRow label="Ubicación" value={detail.ubicacion ?? "No especificada"} />
+                        <DetailRow label="Última Actualización" value={formatDateHuman(detail.ultimaActualizacion)} />
+                      </div>
+                    </div>
+
+                    <div className="bg-amber-50 rounded-lg p-4">
+                      <h4 className="text-sm font-semibold text-amber-700 mb-3">Información Adicional</h4>
+                      <div className="space-y-2 text-sm">
+                        <DetailRow label="Fecha Vencimiento" value={detail.fecha_vencimiento ? new Date(detail.fecha_vencimiento).toLocaleDateString() : "Sin vencimiento"} />
+                        <DetailRow label="Presentación" value={detail.descripcion_presentacion ?? "No especificada"} />
+                        <DetailRow label="Valor Total" value={detail.costo != null && detail.stockCantidad > 0 ? `Q ${(detail.costo * detail.stockCantidad).toFixed(2)}` : "—"} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Estadísticas rápidas */}
+                  <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-4">
+                    <h4 className="text-sm font-semibold text-indigo-700 mb-3">Estadísticas Rápidas</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-indigo-600">{formatStock(detail.stockCantidad)}</div>
+                        <div className="text-xs text-gray-600">Stock Actual</div>
+                      </div>
+                      {detail.stock_minimo != null && (
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-gray-600">
+                            {formatStock(detail.stock_minimo)}
+                          </div>
+                          <div className="text-xs text-gray-600">Stock Mínimo</div>
+                        </div>
+                      )}
+                      {detail.stock_maximo != null && (
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-gray-600">
+                            {formatStock(detail.stock_maximo)}
+                          </div>
+                          <div className="text-xs text-gray-600">Stock Máximo</div>
+                        </div>
+                      )}
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-purple-600">
+                          {detail.costo != null ? `Q ${detail.costo.toFixed(0)}` : '—'}
+                        </div>
+                        <div className="text-xs text-gray-600">Costo Unit.</div>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Kárdex incrustado dentro del modal de detalle */}
                   <div ref={kardexRef}>
-                    <div className="text-sm font-semibold text-gray-700 mt-2 mb-2">Historial de Movimientos (Kárdex)</div>
-                    <div className="border rounded-lg p-3 bg-white">
+                    <div className="bg-white border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-lg font-semibold text-gray-800">Historial de Movimientos (Kárdex)</h4>
+                        <div className="text-sm text-gray-500">
+                          Últimos 30 días
+                        </div>
+                      </div>
                       <Kardex id_insumo={Number(detail.id)} onClose={() => setDetail(null)} />
                     </div>
                   </div>
                 </div>
 
-                <div className="px-5 py-4 border-t flex items-center justify-end gap-2">
-                  <button className="h-10 rounded-lg border px-4 text-sm font-semibold hover:bg-gray-50" onClick={() => setDetail(null)}>
-                    Cerrar
-                  </button>
-                  <button className="h-10 rounded-lg border px-4 text-sm font-semibold hover:bg-gray-50" onClick={() => {
-                    if (kardexRef?.current) kardexRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                  }}>
-                    Kárdex
-                  </button>
-                  <button className="h-10 rounded-lg bg-emerald-500 px-4 text-sm font-semibold text-white hover:bg-emerald-600" onClick={() => { setDetail(null); openEdit(detail); }}>
-                    Editar
-                  </button>
+                <div className="px-6 py-4 border-t bg-gray-50">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-4 text-sm text-gray-600">
+                      <div>
+                        <span className="font-medium">ID:</span> {detail.id}
+                      </div>
+                      <div>
+                        <span className="font-medium">Creado:</span> {formatDateHuman(detail.ultimaActualizacion)}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+                      <button className="h-9 px-3 rounded-md border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-colors flex items-center gap-2" onClick={() => setDetail(null)}>
+                        <PiX size={16} />
+                        Cerrar
+                      </button>
+                      <button className="h-9 px-3 rounded-md border border-blue-300 text-sm font-medium text-blue-700 hover:bg-blue-50 hover:border-blue-400 transition-colors flex items-center gap-2" onClick={() => setShowKardexFull(true)}>
+                        <PiChartBar size={16} />
+                        Ver Kárdex
+                      </button>
+                      {detail.proveedorId && (
+                        <button 
+                          className="h-9 px-3 rounded-md border border-purple-300 text-sm font-medium text-purple-700 hover:bg-purple-50 hover:border-purple-400 transition-colors flex items-center gap-2" 
+                          onClick={() => { setDetail(null); openEditProveedor(detail.proveedorId!); }}
+                        >
+                          <PiPencilSimpleBold size={16} />
+                          Editar Proveedor
+                        </button>
+                      )}
+                      <button 
+                        className="h-9 px-3 rounded-md text-sm font-medium text-white transition-colors flex items-center gap-2" 
+                        style={{ backgroundColor: '#12443d' }}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#0d3630'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#12443d'}
+                        onClick={() => { setDetail(null); openEdit(detail); }}
+                      >
+                        <PiPencilSimpleBold size={16} />
+                        Editar Insumo
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
+              {/* Modal / vista amplia del Kárdex */}
+              {showKardexFull && (
+                <div className="fixed inset-0 z-50 flex items-start justify-center p-4">
+                  <div className="absolute inset-0 bg-black/40" onClick={() => setShowKardexFull(false)} />
+                  <div className="relative w-full max-w-[95vw] h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden">
+                    <div className="flex items-center justify-between p-4 border-b">
+                      <h3 className="text-lg font-semibold">Kárdex — Insumo #{detail.id}</h3>
+                      <button className="p-2 rounded hover:bg-gray-100" onClick={() => setShowKardexFull(false)} aria-label="Cerrar Kárdex">
+                        <MdClose size={20} />
+                      </button>
+                    </div>
+                    <div className="p-4 h-[calc(100%-64px)] overflow-auto">
+                      <Kardex id_insumo={Number(detail.id)} onClose={() => setShowKardexFull(false)} fullScreen />
+                    </div>
+                  </div>
+                </div>
+              )}
             </motion.div>
           </>
         )}
@@ -1059,9 +1562,9 @@ function ResumenRow({ label, children }: { label: string; children: React.ReactN
   );
 }
 
-function IconBtn({ title, children, onClick }: { title: string; children: React.ReactNode; onClick?: () => void }) {
+function IconBtn({ title, children, onClick, style }: { title: string; children: React.ReactNode; onClick?: () => void; style?: React.CSSProperties }) {
   return (
-    <button title={title} onClick={onClick} className="p-2 rounded-lg hover:bg-gray-100 text-gray-700" type="button" aria-label={title}>
+    <button title={title} onClick={onClick} style={style} className="p-2 rounded-lg hover:bg-gray-100 text-gray-700" type="button" aria-label={title}>
       {children}
     </button>
   );

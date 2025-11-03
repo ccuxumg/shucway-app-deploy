@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Table, Button, Input, Select, Space, Modal, Form, message, Popconfirm, Tag } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, FilterOutlined } from '@ant-design/icons';
-import { GenericMaintenanceService, TableMetadata, QueryParams, formatFieldValue } from '../../api/generic-maintenance.service';
+import { GenericMaintenanceService, TableMetadata, QueryParams, formatFieldValue, FieldMetadata } from '@/api/generic-maintenance.service';
 import type { ColumnsType } from 'antd/es/table';
 
 interface GenericTableProps {
@@ -82,7 +82,7 @@ export const GenericTable: React.FC<GenericTableProps> = ({
       const queryParams: QueryParams = {
         page: params.page || pagination.current,
         pageSize: params.pageSize || pagination.pageSize,
-        searchValue: searchValue || undefined,
+        search: searchValue || undefined,
         ...params
       };
 
@@ -91,9 +91,9 @@ export const GenericTable: React.FC<GenericTableProps> = ({
       setData(result.data);
       setPagination(prev => ({
         ...prev,
-        current: result.pagination.page,
-        pageSize: result.pagination.pageSize,
-        total: result.pagination.total
+        current: result.page,
+        pageSize: result.pageSize,
+        total: result.total
       }));
     } catch (error) {
       message.error('Error al cargar los datos');
@@ -147,11 +147,12 @@ export const GenericTable: React.FC<GenericTableProps> = ({
 
     try {
       const id = record[metadata.primaryKey] as number;
-      await GenericMaintenanceService.deleteRecord(tableName, id);
+      await GenericMaintenanceService.deleteRecord(tableName, id, metadata.primaryKey);
       message.success('Registro eliminado exitosamente');
       loadData();
     } catch (error) {
-      message.error('Error al eliminar el registro');
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido al eliminar el registro';
+      message.error(`Error al eliminar el registro: ${errorMessage}`);
       console.error('Error deleting record:', error);
     }
   };
@@ -165,12 +166,12 @@ export const GenericTable: React.FC<GenericTableProps> = ({
     if (!metadata) return [];
 
     const columns: ColumnsType<RecordData> = metadata.fields
-      .filter(field => !field.hidden)
-      .map(field => ({
-        title: field.displayName,
+      .filter((field: FieldMetadata) => !field.hidden)
+      .map((field: FieldMetadata) => ({
+        title: field.label,
         dataIndex: field.name,
         key: field.name,
-        sorter: metadata.sortableFields.includes(field.name),
+        sorter: true, // Simplificado
         render: (value: unknown) => {
           if (field.type === 'boolean') {
             return <Tag color={value ? 'green' : 'red'}>{value ? 'Sí' : 'No'}</Tag>;
@@ -227,15 +228,15 @@ export const GenericTable: React.FC<GenericTableProps> = ({
     if (!metadata) return null;
 
     return metadata.fields
-      .filter(field => !field.readonly && !field.hidden)
-      .map(field => {
+      .filter((field: FieldMetadata) => !field.readonly && !field.hidden)
+      .map((field: FieldMetadata) => {
         let inputComponent;
 
         switch (field.type) {
           case 'select':
             inputComponent = (
-              <Select placeholder={`Seleccione ${field.displayName.toLowerCase()}`}>
-                {field.options?.map(option => (
+              <Select placeholder={`Seleccione ${field.label.toLowerCase()}`}>
+                {field.options?.map((option: { value: string | number; label: string }) => (
                   <Select.Option key={String(option.value)} value={option.value}>
                     {option.label}
                   </Select.Option>
@@ -247,7 +248,7 @@ export const GenericTable: React.FC<GenericTableProps> = ({
             inputComponent = <Input.TextArea rows={4} />;
             break;
           case 'boolean':
-            inputComponent = <Select placeholder={`Seleccione ${field.displayName.toLowerCase()}`}>
+            inputComponent = <Select placeholder={`Seleccione ${field.displayName || field.label}`}>
               <Select.Option value={true}>Sí</Select.Option>
               <Select.Option value={false}>No</Select.Option>
             </Select>;

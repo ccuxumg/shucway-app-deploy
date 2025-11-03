@@ -111,11 +111,11 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
           message.error("No se obtuvo el archivo a subir");
           return;
         }
-        if (!currentUser?.id) {
+        if (!currentUser?.id_perfil) {
           message.error("No se encontró la sesión de usuario. Vuelve a iniciar sesión.");
           return;
         }
-        const url = await uploadAvatarToUserBucket(file, currentUser.id);
+        const url = await uploadAvatarToUserBucket(file, currentUser.id_perfil.toString());
         setAvatar(url);                         // URL pública de Supabase
         message.success(`${info.file.name} se subió correctamente`);
       } else if (status === "error") {

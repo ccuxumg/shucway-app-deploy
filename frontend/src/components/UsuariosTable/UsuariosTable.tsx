@@ -439,7 +439,7 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
       email: perfil.email,
       nombre: perfil.nombre,
       roles: perfil.roles,
-      nivel_permiso: perfil.nivel_permiso,
+      nivel_permiso: perfil.nivel_permisos,
     }));
 
     // Aplicar ordenamiento si hay un criterio de ordenamiento activo

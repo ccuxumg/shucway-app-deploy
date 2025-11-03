@@ -13,7 +13,9 @@ const Home = () => {
       colors: {
         background: '#346C60',
         primary: '#FFD40D',
-        secondary: '#0AA06E'
+        secondary: '#0AA06E',
+        primaryText: 'white',     // color del texto del botón primario
+        secondaryText: 'white'    // color del texto del botón secundario
       }
     },
     {
@@ -23,7 +25,9 @@ const Home = () => {
       colors: {
         background: '#0AA06E',
         primary: '#FFD40D',
-        secondary: '#346C60'
+        secondary: '#346C60',
+        primaryText: '#346C60',   // este slide llevaba texto oscuro en primario
+        secondaryText: 'white'
       }
     },
     {
@@ -33,7 +37,9 @@ const Home = () => {
       colors: {
         background: '#00A149',
         primary: '#346C60',
-        secondary: '#FFD40D'
+        secondary: '#FFD40D',
+        primaryText: 'white',
+        secondaryText: '#346C60'
       }
     }
   ];
@@ -42,31 +48,14 @@ const Home = () => {
     const timer = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % slides.length);
     }, 5000);
-
     return () => clearInterval(timer);
   }, [slides.length]);
 
   const features = [
-    {
-      icon: <FaClock />,
-      title: "Alta Apertura",
-      description: "Desde 2020"
-    },
-    {
-      icon: <FaTruck />,
-      title: "Despacho Rápido",
-      description: "Entrega en el menor tiempo posible"
-    },
-    {
-      icon: <FaCreditCard />,
-      title: "Pago Seguro",
-      description: "Aceptamos todas las tarjetas y pagos digitales"
-    },
-    {
-      icon: <FaUserFriends />,
-      title: "Atención Personalizada",
-      description: "Siempre cercanos a nuestros clientes"
-    }
+    { icon: <FaClock />, title: "Alta Apertura", description: "Desde 2020" },
+    { icon: <FaTruck />, title: "Despacho Rápido", description: "Entrega en el menor tiempo posible" },
+    { icon: <FaCreditCard />, title: "Pago Seguro", description: "Aceptamos todas las tarjetas y pagos digitales" },
+    { icon: <FaUserFriends />, title: "Atención Personalizada", description: "Siempre cercanos a nuestros clientes" }
   ];
 
   const foodImages = [
@@ -92,32 +81,24 @@ const Home = () => {
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
                 backgroundColor: slide.colors.background,
-                backgroundBlendMode: 'soft-light'
+                backgroundBlendMode: 'soft-light',
+                // === CSS variables por slide ===
+                // (evita inline en los <a> y permite que el hover gane siempre)
+                ['--btn-primary' as any]: slide.colors.primary,
+                ['--btn-secondary' as any]: slide.colors.secondary,
+                ['--btn-primary-text' as any]: slide.colors.primaryText,
+                ['--btn-secondary-text' as any]: slide.colors.secondaryText
               }}
             >
               <div className="hero-content">
                 <h1 className="hero-title">{slide.title}</h1>
                 <p className="hero-subtitle">{slide.subtitle}</p>
                 <div className="hero-buttons">
-                  <a
-                    href="/productos"
-                    className="btn btn-primary"
-                    style={{
-                      backgroundColor: slide.colors.primary,
-                      color: index === 1 ? '#346C60' : 'white'
-                    }}
-                  >
-                    Ver Menú
+                  <a href="/productos" className="btn btn-primary">
+                    <span>Ver Menú</span>
                   </a>
-                  <a
-                    href="/contacto"
-                    className="btn btn-secondary"
-                    style={{
-                      backgroundColor: slide.colors.secondary,
-                      color: 'white'
-                    }}
-                  >
-                    Contáctanos
+                  <a href="/contacto" className="btn btn-secondary">
+                    <span>Contáctanos</span>
                   </a>
                 </div>
               </div>
@@ -168,7 +149,6 @@ const Home = () => {
       </section>
 
       {/* Visit Section */}
-      
       <section className="visit-section" style={{ lineHeight: 0, fontSize: 0 }}>
         <a
           href="https://maps.app.goo.gl/s5bHJLDKRp4qvboB6"
@@ -194,7 +174,6 @@ const Home = () => {
           </div>
         </a>
       </section>
-
     </div>
   );
 };

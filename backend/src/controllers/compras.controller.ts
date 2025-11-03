@@ -107,4 +107,18 @@ export class ComprasController {
       next(error);
     }
   }
+
+  async getInsumosByProveedor(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const id = parseInt(req.params.id);
+      const insumos = await this.comprasService.getInsumosByProveedor(id);
+
+      res.json({
+        success: true,
+        data: insumos,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

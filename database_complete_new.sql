@@ -1769,10 +1769,10 @@ BEGIN
             mi.tipo_movimiento,
             CASE 
                 WHEN mi.tipo_movimiento IN ('entrada_compra', 'salida_venta') THEN 
-                    'Ref: #' || COALESCE(mi.id_referencia::TEXT, 'N/A')
+                    'Ref: #' || COALESCE(mi.id_referencia::VARCHAR(100), 'N/A')
                 ELSE 
                     'Ajuste manual'
-            END as referencia,
+            END::VARCHAR(100) as referencia,
             CASE 
                 WHEN mi.tipo_movimiento IN ('entrada_compra', 'entrada_ajuste', 'devolucion') THEN mi.cantidad
                 ELSE 0

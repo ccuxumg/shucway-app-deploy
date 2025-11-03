@@ -66,9 +66,8 @@ export const fetchOrdenesCompra = async () => {
 };
 
 export const fetchInsumos = async () => {
-  const { data, error } = await supabase.from("insumo").select("*");
-  if (error) throw new Error(error.message);
-  return data;
+  const response = await api.get("/inventario/insumos");
+  return response.data;
 };
 
 export const saveInsumo = async (insumo: InsumoDataType) => {

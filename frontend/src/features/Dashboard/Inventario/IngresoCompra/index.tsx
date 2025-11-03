@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  PiEyeBold, PiPencilSimpleBold, PiTrashBold,
-  PiSpinnerBold, PiFloppyDiskBold, PiPlusBold
+  PiEyeBold, PiTrashBold,
+  PiSpinnerBold, PiFloppyDiskBold, PiPlusBold, PiPackageBold, PiPencilSimpleBold
 } from "react-icons/pi";
-import { fetchProveedores, fetchOrdenesCompra, saveProveedor } from "../../../../api/inventarioService";
+import { fetchProveedores, fetchOrdenesCompra } from "../../../../api/inventarioService";
 
 /* =============== Tipos API =============== */
 type ProveedorAPI = {
@@ -237,12 +238,13 @@ function PaginationControls({
 }
 
 /* =============== Botones chicos =============== */
-function IconBtn({ children, onClick, title }: { children: React.ReactNode; onClick?: () => void; title?: string }) {
+function IconBtn({ children, onClick, title, style }: { children: React.ReactNode; onClick?: () => void; title?: string; style?: React.CSSProperties }) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
+      style={style}
       className="p-2 rounded-lg hover:bg-emerald-50 text-gray-700 hover:text-emerald-700"
     >
       {children}
@@ -354,10 +356,12 @@ export default function IngresoCompra(): JSX.Element {
   const [detail, setDetail] = useState<Orden | null>(null);
   const [readOnly, setReadOnly] = useState(false);
 
+  // Hook de navegación
+  const navigate = useNavigate();
+
   // Drawer proveedor
   const [openProvDrawer, setOpenProvDrawer] = useState(false);
   const [provDetail, setProvDetail] = useState<Proveedor | null>(null);
-  const [provReadOnly, setProvReadOnly] = useState(false);
 
   // Bloquea scroll al abrir drawers
   useEffect(() => {
@@ -454,9 +458,7 @@ export default function IngresoCompra(): JSX.Element {
   }, [filteredOrders, orderPage, orderPageSize]);
 
   /* ---- Acciones Proveedores ---- */
-  const openNewProvider = () => { setProvDetail(null); setProvReadOnly(false); setOpenProvDrawer(true); };
-  const openEditProvider = (p: Proveedor) => { setProvDetail(p); setProvReadOnly(false); setOpenProvDrawer(true); };
-  const openViewProvider = (p: Proveedor) => { setProvDetail(p); setProvReadOnly(true); setOpenProvDrawer(true); };
+  const openViewProvider = (p: Proveedor) => { setProvDetail(p); setOpenProvDrawer(true); };
   const deleteProvider = (p: Proveedor) => {
     setDeleteProviderModal({ open: true, provider: p });
   };
@@ -468,50 +470,12 @@ export default function IngresoCompra(): JSX.Element {
     setDeleteProviderModal({ open: false, provider: null });
   }, [deleteProviderModal.provider]);
 
-  const onProviderSaved = async (saved: Proveedor) => {
-    try {
-      // Guardar en la API
-      const savedProvider = await saveProveedor(saved);
-
-      // Transformar el proveedor guardado al formato del frontend
-      const transformedProvider: Proveedor = {
-        id_proveedor: savedProvider.id_proveedor,
-        nombre: savedProvider.nombre_empresa,
-        contacto: savedProvider.nombre_contacto,
-        telefono: savedProvider.telefono,
-        correo: savedProvider.correo,
-        direccion: savedProvider.direccion,
-        activo: savedProvider.estado,
-        es_preferido: savedProvider.es_preferido ?? false,
-        dias_entrega: null,
-        tiempo_entrega_promedio: null,
-        metodo_entrega: savedProvider.metodo_entrega
-      };
-
-      // Actualizar el estado local con los datos transformados
-      setProveedores(prev => {
-        const exists = prev.some(p => p.id_proveedor === transformedProvider.id_proveedor);
-        return exists ? prev.map(p => p.id_proveedor === transformedProvider.id_proveedor ? transformedProvider : p) : [transformedProvider, ...prev];
-      });
-
-      // Actualizar también allProveedores para el dropdown de filtro
-      setAllProveedores(prev => {
-        const exists = prev.some(p => p.id_proveedor === transformedProvider.id_proveedor);
-        return exists ? prev.map(p => p.id_proveedor === transformedProvider.id_proveedor ? transformedProvider : p) : [transformedProvider, ...prev];
-      });
-    } catch (error) {
-      console.error('Error guardando proveedor:', error);
-      // Si falla la API, al menos actualizar localmente
-      setProveedores(prev => {
-        const exists = prev.some(p => p.id_proveedor === saved.id_proveedor);
-        return exists ? prev.map(p => p.id_proveedor === saved.id_proveedor ? saved : p) : [saved, ...prev];
-      });
-    }
-  };
-
   /* ---- Helpers Drawer Órdenes ---- */
   const openNewOrder  = () => { setDetail(null); setReadOnly(false); setOpenDrawer(true); };
   const openViewOrder = (r: Orden) => { setDetail(r);  setReadOnly(true);  setOpenDrawer(true); };
+  const openRecepcionMercaderia = () => {
+    navigate('/inventario/recepcion-mercaderia');
+  };
 
   return (
     <div className="w-full p-6 lg:p-8 space-y-8">
@@ -537,14 +501,13 @@ export default function IngresoCompra(): JSX.Element {
         <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h3 className="text-2xl font-bold text-gray-800">Proveedores</h3>
-            <p className="text-sm text-gray-500">Administra proveedores (crear, editar, ver).</p>
+            <p className="text-sm text-gray-500">Administra proveedores (ver detalles e insumos relacionados).</p>
           </div>
-          <button
-            onClick={openNewProvider}
-            className="h-11 rounded-xl bg-emerald-600 px-4 text-base font-semibold text-white hover:bg-emerald-700 flex items-center gap-2"
-          >
-            <PiPlusBold /> Nuevo Proveedor
-          </button>
+          <div className="flex items-center gap-3">
+            <button onClick={() => navigate(-1)} className="px-4 py-2 rounded-md border bg-white hover:bg-gray-50 text-gray-700 font-medium">
+              ← Regresar
+            </button>
+          </div>
         </div>
 
         {/* Filtros de Proveedores */}
@@ -611,7 +574,9 @@ export default function IngresoCompra(): JSX.Element {
                     <td className="px-4 py-3.5">
                       <div className="flex items-center justify-end gap-1.5">
                         <IconBtn title="Ver" onClick={() => openViewProvider(p)}><PiEyeBold /></IconBtn>
-                        <IconBtn title="Editar" onClick={() => openEditProvider(p)}><PiPencilSimpleBold /></IconBtn>
+                        <IconBtn title="Editar" onClick={() => navigate(`/inventario?tab=catalogo&editProveedor=${p.id_proveedor}`)} style={{ color: '#7c3aed' }}>
+                          <PiPencilSimpleBold />
+                        </IconBtn>
                         <IconBtn title="Eliminar" onClick={() => deleteProvider(p)}><PiTrashBold className="text-rose-600" /></IconBtn>
                       </div>
                     </td>
@@ -646,12 +611,21 @@ export default function IngresoCompra(): JSX.Element {
             <h3 className="text-2xl font-bold text-gray-800">Órdenes de Compra</h3>
             <p className="text-sm text-gray-500">Historial y alta de órdenes.</p>
           </div>
-          <button
-            onClick={openNewOrder}
-            className="h-11 rounded-xl bg-emerald-600 px-4 text-base font-semibold text-white hover:bg-emerald-700 flex items-center gap-2"
-          >
-            <PiPlusBold /> Nueva Orden
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={openNewOrder}
+              className="h-11 rounded-xl bg-emerald-600 px-4 text-base font-semibold text-white hover:bg-emerald-700 flex items-center gap-2"
+            >
+              <PiPlusBold /> Nueva Orden
+            </button>
+            <button
+              onClick={openRecepcionMercaderia}
+              className="h-11 rounded-xl px-4 text-base font-semibold text-white hover:opacity-90 flex items-center gap-2"
+              style={{ backgroundColor: '#346c60' }}
+            >
+              <PiPackageBold /> Recepción Mercadería
+            </button>
+          </div>
         </div>
 
         {/* Filtros Órdenes */}
@@ -772,20 +746,20 @@ export default function IngresoCompra(): JSX.Element {
         </div>
       </DrawerRight>
 
-      {/* Drawer: Proveedor */}
-      <DrawerRight
-        open={openProvDrawer}
-        onClose={() => setOpenProvDrawer(false)}
-        title={provDetail ? (provReadOnly ? "Ver Proveedor" : "Editar Proveedor") : "Nuevo Proveedor"}
-        widthClass="w-full sm:w-[520px]"
-      >
-        <ProviderForm
-          detail={provDetail}
-          readOnly={provReadOnly}
-          onClose={() => setOpenProvDrawer(false)}
-          onProviderSaved={onProviderSaved}
-        />
-      </DrawerRight>
+      {/* Modal: Proveedor */}
+      {openProvDrawer && provDetail && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[2000]">
+          <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
+            <div className="px-6 py-4 border-b flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-gray-800">Ver Proveedor</h2>
+              <button onClick={() => setOpenProvDrawer(false)} className="text-gray-500 hover:text-gray-700 text-2xl">✕</button>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+              <ProviderInsumosModal id_proveedor={provDetail.id_proveedor} proveedorData={provDetail} />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de confirmación de eliminación de proveedor */}
       {deleteProviderModal.open && deleteProviderModal.provider && (
@@ -1024,209 +998,195 @@ function PurchaseOrderForm({
 }
 
 /* ======================================================================
- * ===== Formulario Crear/Editar Proveedor =====
+ * ===== Modal de Insumos Relacionados con Proveedor =====
  * ====================================================================== */
-function ProviderForm({
-  detail, readOnly, onClose, onProviderSaved
-}: {
-  detail: Proveedor | null;
-  readOnly: boolean;
-  onClose: () => void;
-  onProviderSaved: (provider: Proveedor) => void;
-}) {
-  const [form, setForm] = useState<FormProveedor>({
-    nombre: "",
-    contacto: null,
-    telefono: null,
-    correo: null,
-    direccion: null,
-    activo: true,
-    es_preferido: false,
-    dias_entrega: null,
-    tiempo_entrega_promedio: null,
-    metodo_entrega: null,
-  });
-  const [saving, setSaving] = useState(false);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+type InsumoRelacionado = {
+  id_insumo: number;
+  nombre: string;
+  categoria?: string;
+  stock_actual?: number;
+  unidad_medida?: string;
+  costo_promedio?: number;
+  descripcion_presentacion?: string;
+  unidades_por_presentacion?: number;
+  es_principal?: boolean;
+};
+
+
+
+function ProviderInsumosModal({ id_proveedor, proveedorData }: { id_proveedor: number; proveedorData: Proveedor }) {
+  const [insumos, setInsumos] = useState<InsumoRelacionado[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (detail) {
-      setForm({
-        id_proveedor: detail.id_proveedor,
-        nombre: detail.nombre ?? "",
-        contacto: detail.contacto ?? null,
-        telefono: detail.telefono ?? null,
-        correo: detail.correo ?? null,
-        direccion: detail.direccion ?? null,
-        activo: detail.activo ?? true,
-        es_preferido: detail.es_preferido ?? false,
-        dias_entrega: detail.dias_entrega ?? null,
-        tiempo_entrega_promedio: detail.tiempo_entrega_promedio ?? null,
-        metodo_entrega: detail.metodo_entrega ?? null,
-      });
-    } else {
-      setForm({
-        nombre: "",
-        contacto: null,
-        telefono: null,
-        correo: null,
-        direccion: null,
-        activo: true,
-        es_preferido: false,
-        dias_entrega: null,
-        tiempo_entrega_promedio: null,
-        metodo_entrega: null,
-      });
-    }
-    setErrors({});
-  }, [detail]);
+    let mounted = true;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        // Obtener insumos del proveedor desde insumo_presentacion
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/compras/proveedores/${id_proveedor}/insumos`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          },
+        });
 
-  const handleChange = (field: keyof FormProveedor, value: string | number | boolean | null | undefined) => {
-    type FieldValue = string | number | boolean | null;
-    setForm((prev) => {
-      let finalValue: FieldValue = (value ?? null) as FieldValue;
-
-      if (typeof finalValue === "string" && finalValue.trim() === "" && field !== "nombre" && field !== "activo" && field !== "es_preferido") {
-        finalValue = null;
-      }
-
-      if (field === "tiempo_entrega_promedio") {
-        if (finalValue === null || finalValue === "") {
-          finalValue = null;
-        } else {
-          const num = typeof finalValue === "number" ? finalValue : Number(finalValue as string);
-          finalValue = Number.isFinite(num) ? num : (prev.tiempo_entrega_promedio ?? null);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
+
+        const result = await response.json();
+        if (!mounted) return;
+
+        const data = result.data || [];
+
+        // Mapear los datos para que coincidan con el tipo esperado
+        const mappedData = data.map((item: unknown) => {
+          const i = item as {
+            insumo?: {
+              id_insumo?: number;
+              nombre_insumo?: string;
+              categoria_insumo?: { nombre?: string };
+              stock_minimo?: number;
+              unidad_base?: string;
+              costo_promedio?: number;
+            };
+            id_insumo?: number;
+            descripcion_presentacion?: string;
+            unidad_compra?: string;
+            costo_compra_unitario?: number;
+            unidades_por_presentacion?: number;
+            es_principal?: boolean;
+          };
+          return {
+            id_insumo: i.insumo?.id_insumo || i.id_insumo,
+            nombre: i.insumo?.nombre_insumo || i.descripcion_presentacion || 'Sin nombre',
+            categoria: i.insumo?.categoria_insumo?.nombre || undefined,
+            stock_actual: i.insumo?.stock_minimo ?? undefined,
+            unidad_medida: i.unidad_compra || i.insumo?.unidad_base || 'unidad',
+            costo_promedio: i.costo_compra_unitario ?? i.insumo?.costo_promedio ?? undefined,
+            descripcion_presentacion: i.descripcion_presentacion,
+            unidades_por_presentacion: i.unidades_por_presentacion,
+            es_principal: i.es_principal,
+          } as InsumoRelacionado;
+        });
+
+        setInsumos(mappedData);
+      } catch (e: unknown) {
+        let msg = '';
+        if (e instanceof Error) msg = e.message;
+        else if (typeof e === 'object' && e !== null) msg = JSON.stringify(e);
+        else msg = String(e);
+        console.error('Provider insumos load error:', msg);
+        if (msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('forbidden') || msg.toLowerCase().includes('policy')) {
+          setError('Error de permisos leyendo insumos del proveedor. Verifica políticas RLS.');
+        } else {
+          setError(msg);
+        }
+      } finally {
+        setLoading(false);
       }
-
-      if (field === "activo" || field === "es_preferido") finalValue = Boolean(finalValue);
-
-      return { ...prev, [field]: finalValue };
-    });
-
-    if (errors[field as string]) {
-      setErrors((p) => { const n = { ...p }; delete n[field as string]; return n; });
-    }
-  };
-
-  const validate = (): boolean => {
-    const e: Record<string, string> = {};
-    if (!form.nombre.trim()) e.nombre = "El nombre es requerido.";
-    if (form.correo && !/\S+@\S+\.\S+/.test(form.correo)) e.correo = "Correo inválido.";
-    if (form.tiempo_entrega_promedio !== null && form.tiempo_entrega_promedio < 0) e.tiempo_entrega_promedio = "No puede ser negativo.";
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  };
-
-  const handleSave = async (ev?: React.FormEvent) => {
-    if (ev) ev.preventDefault();
-    if (readOnly || !validate()) return;
-    setSaving(true);
-    await new Promise((r) => setTimeout(r, 500));
-
-    const payload: FormProveedor = {
-      ...form,
-      contacto: form.contacto?.trim() || null,
-      telefono: form.telefono?.trim() || null,
-      correo: form.correo?.trim() || null,
-      direccion: form.direccion?.trim() || null,
-      dias_entrega: form.dias_entrega?.trim() || null,
-    };
-
-    const saved: Proveedor = {
-      id_proveedor: payload.id_proveedor ?? Date.now(),
-      nombre: payload.nombre,
-      activo: payload.activo,
-      es_preferido: payload.es_preferido,
-      contacto: payload.contacto,
-      telefono: payload.telefono,
-      correo: payload.correo,
-      direccion: payload.direccion,
-      dias_entrega: payload.dias_entrega,
-      tiempo_entrega_promedio: payload.tiempo_entrega_promedio,
-      metodo_entrega: payload.metodo_entrega,
-    };
-
-    onProviderSaved(saved);
-    setSaving(false);
-    onClose();
-  };
+    })();
+    return () => { mounted = false; };
+  }, [id_proveedor]);
 
   return (
-    <form onSubmit={handleSave} className="p-6 lg:p-7 space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="sm:col-span-2">
-          <label htmlFor="provNombre" className="block text-xs font-semibold text-gray-600 mb-1">Nombre Empresa *</label>
-          <input id="provNombre" value={form.nombre} onChange={(e) => handleChange("nombre", e.target.value)} disabled={readOnly} required className={`${INPUT_CLS} ${errors.nombre ? "border-rose-500" : ""}`} />
-          {errors.nombre && <p className="text-xs text-rose-600 mt-1">{errors.nombre}</p>}
-        </div>
-
-        <div>
-          <label htmlFor="provContacto" className="block text-xs font-semibold text-gray-600 mb-1">Nombre Contacto</label>
-          <input id="provContacto" value={form.contacto ?? ""} onChange={(e) => handleChange("contacto", e.target.value)} disabled={readOnly} className={INPUT_CLS} />
-        </div>
-
-        <div>
-          <label htmlFor="provTelefono" className="block text-xs font-semibold text-gray-600 mb-1">Teléfono</label>
-          <input id="provTelefono" value={form.telefono ?? ""} onChange={(e) => handleChange("telefono", e.target.value)} disabled={readOnly} className={INPUT_CLS} />
-        </div>
-
-        <div className="sm:col-span-2">
-          <label htmlFor="provCorreo" className="block text-xs font-semibold text-gray-600 mb-1">Correo</label>
-          <input id="provCorreo" type="email" value={form.correo ?? ""} onChange={(e) => handleChange("correo", e.target.value)} disabled={readOnly} className={`${INPUT_CLS} ${errors.correo ? "border-rose-500" : ""}`} />
-          {errors.correo && <p className="text-xs text-rose-600 mt-1">{errors.correo}</p>}
-        </div>
-
-        <div className="sm:col-span-2">
-          <label htmlFor="provDireccion" className="block text-xs font-semibold text-gray-600 mb-1">Dirección</label>
-          <textarea id="provDireccion" value={form.direccion ?? ""} onChange={(e) => handleChange("direccion", e.target.value)} disabled={readOnly} rows={2} className={`${INPUT_CLS} min-h-[60px]`} />
-        </div>
-
-        <div className="flex items-center gap-6 sm:col-span-2">
-          <label className="flex items-center gap-2 text-base cursor-pointer">
-            <input type="checkbox" checked={form.activo} onChange={(e) => handleChange("activo", e.target.checked)} disabled={readOnly} className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" />
-            Proveedor Activo
-          </label>
-          <label className="flex items-center gap-2 text-base cursor-pointer">
-            <input type="checkbox" checked={form.es_preferido} onChange={(e) => handleChange("es_preferido", e.target.checked)} disabled={readOnly} className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" />
-            Preferido ⭐
-          </label>
-        </div>
-
-        <div>
-          <label htmlFor="provMetodoEntrega" className="block text-xs font-semibold text-gray-600 mb-1">Método de entrega</label>
-          <select
-            id="provMetodoEntrega"
-            value={form.metodo_entrega ?? ""}
-            onChange={(e) => handleChange("metodo_entrega", e.target.value || null)}
-            disabled={readOnly}
-            className={INPUT_CLS}
-          >
-            <option value="">Seleccionar...</option>
-            <option value="Recepcion">Recepción</option>
-            <option value="Recoger en tienda">Recoger en tienda</option>
-          </select>
+    <div className="space-y-6">
+      {/* Datos del Proveedor */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <h3 className="text-lg font-semibold text-gray-800 mb-4">Información del Proveedor</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-600">Nombre Empresa</label>
+            <p className="text-base text-gray-800">{proveedorData.nombre}</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600">Nombre Contacto</label>
+            <p className="text-base text-gray-800">{proveedorData.contacto || 'No especificado'}</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600">Teléfono</label>
+            <p className="text-base text-gray-800">{proveedorData.telefono || 'No especificado'}</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600">Correo</label>
+            <p className="text-base text-gray-800">{proveedorData.correo || 'No especificado'}</p>
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-gray-600">Dirección</label>
+            <p className="text-base text-gray-800">{proveedorData.direccion || 'No especificada'}</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600">Estado</label>
+            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+              proveedorData.activo ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+            }`}>
+              {proveedorData.activo ? 'Activo' : 'Inactivo'}
+            </span>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600">Preferido</label>
+            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+              proveedorData.es_preferido ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800'
+            }`}>
+              {proveedorData.es_preferido ? '⭐ Sí' : 'No'}
+            </span>
+          </div>
         </div>
       </div>
 
-      <div className="mt-6 pt-4 border-t flex justify-end gap-3">
-        <button type="button" onClick={onClose} className="h-11 rounded-lg border px-4 text-base font-semibold text-gray-700 hover:bg-gray-100">
-          {readOnly ? "Cerrar" : "Cancelar"}
-        </button>
-        {!readOnly && (
-          <button type="submit" disabled={saving} className="h-11 rounded-lg bg-emerald-600 px-4 text-base font-semibold text-white hover:bg-emerald-700 disabled:opacity-70 flex items-center justify-center gap-2 w-36">
-            {saving ? <PiSpinnerBold className="animate-spin" /> : <PiFloppyDiskBold />}
-            {saving ? "Guardando..." : "Guardar"}
-          </button>
+      {/* Insumos Relacionados */}
+      <div>
+        <h3 className="text-lg font-semibold text-gray-800 mb-4">Insumos Relacionados con el Proveedor</h3>
+        {loading && <div className="text-sm text-gray-500">Cargando insumos...</div>}
+        {error && <div className="text-sm text-red-600">Error: {error}</div>}
+        {!loading && !error && (
+          <div className="max-h-[400px] overflow-y-auto border rounded-lg">
+            <table className="w-full text-sm table-auto min-w-full">
+              <thead className="text-left text-xs text-gray-500 bg-gray-50">
+                <tr>
+                  <th className="px-3 py-3">#</th>
+                  <th className="px-3 py-3">Nombre</th>
+                  <th className="px-3 py-3">Presentación</th>
+                  <th className="px-3 py-3">Categoría</th>
+                  <th className="px-3 py-3 text-right">Unidades x Pres.</th>
+                  <th className="px-3 py-3">Unidad</th>
+                  <th className="px-3 py-3 text-right">Costo Unit.</th>
+                  <th className="px-3 py-3">Principal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {insumos.map((insumo, index) => (
+                  <tr key={`insumo-${insumo.id_insumo}-${index}`} className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
+                    <td className="px-3 py-3 text-gray-600 font-medium">{index + 1}</td>
+                    <td className="px-3 py-3 text-gray-800 font-medium">{insumo.nombre}</td>
+                    <td className="px-3 py-3 text-gray-700">{insumo.descripcion_presentacion || '-'}</td>
+                    <td className="px-3 py-3 text-gray-700">{insumo.categoria || '-'}</td>
+                    <td className="px-3 py-3 text-right text-gray-800">{insumo.unidades_por_presentacion ?? '-'}</td>
+                    <td className="px-3 py-3 text-gray-600">{insumo.unidad_medida || '-'}</td>
+                    <td className="px-3 py-3 text-right text-gray-800">Q {insumo.costo_promedio?.toFixed(2) ?? '-'}</td>
+                    <td className="px-3 py-3 text-center">{insumo.es_principal ? '⭐' : ''}</td>
+                  </tr>
+                ))}
+                {insumos.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-3 py-8 text-sm text-gray-500 text-center">
+                      <div className="flex flex-col items-center gap-2">
+                        <span className="text-gray-400 text-lg">📦</span>
+                        No hay insumos registrados para este proveedor.
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
-    </form>
+    </div>
   );
 }
-
-/* ======================================================================
- * ===== Autocompletado Insumo (con autoFocus) =====
- * ====================================================================== */
 function InsumoSearch({
   value, onChangeText, onSelect, disabled, insumosSeed, autoFocus
 }: {

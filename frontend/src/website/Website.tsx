@@ -1,11 +1,11 @@
 import { Routes, Route } from 'react-router-dom';
-import Header from './components/Header.tsx';
-import Footer from './components/Footer.tsx';
-import Home from './pages/Home.tsx';
-import Contact from './pages/Contact.tsx';
-import About from './pages/About.tsx';
-import Products from './pages/Products.tsx';
-import WhatsAppButton from './components/WhatsAppButton.tsx';
+import Header from './components/Header';
+import Footer from './components/Footer';
+import Home from './pages/Home';
+import Contact from './pages/Contact';
+import About from './pages/About';
+import Products from './pages/Products';
+import WhatsAppButton from './components/WhatsAppButton';
 import './Website.css';
 
 const Website = () => {

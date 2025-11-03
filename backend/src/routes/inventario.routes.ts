@@ -33,6 +33,7 @@ router.get('/categorias/:id', requireCajero, inventarioController.getCategoriaIn
 
 router.get('/insumos', requireCajero, inventarioController.getInsumos.bind(inventarioController));
 router.get('/insumos/:id', requireCajero, inventarioController.getInsumoById.bind(inventarioController));
+router.get('/insumos/:id/details', requireCajero, inventarioController.getInsumoDetails.bind(inventarioController));
 router.post('/insumos', requireAdministrador, inventarioController.createInsumo.bind(inventarioController));
 router.put('/insumos/:id', requireAdministrador, inventarioController.updateInsumo.bind(inventarioController));
 router.delete('/insumos/:id', requireAdministrador, inventarioController.deleteInsumo.bind(inventarioController));
@@ -59,5 +60,10 @@ router.post('/movimientos', requireCajero, inventarioController.createMovimiento
 
 router.get('/stock', requireCajero, inventarioController.getStockActual.bind(inventarioController));
 router.get('/stock/bajo', requireCajero, inventarioController.getInsumosStockBajo.bind(inventarioController));
+
+// ================== RECEPCIONES DE MERCADERÍA ==================
+// Nivel mínimo: Cajero (30)
+
+router.get('/recepciones-mercaderia', requireCajero, inventarioController.getRecepcionesMercaderia.bind(inventarioController));
 
 export default router;

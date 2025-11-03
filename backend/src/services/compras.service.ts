@@ -9,6 +9,27 @@ import {
 // 🛒 SERVICIO DE COMPRAS (PROVEEDORES)
 // ================================================================
 
+type InsumoPorProveedor = {
+  id_presentacion: number;
+  id_insumo: number;
+  descripcion_presentacion: string;
+  unidad_compra: string;
+  unidades_por_presentacion: number;
+  costo_compra_unitario: number;
+  es_principal: boolean;
+  activo: boolean;
+  insumo: {
+    id_insumo: number;
+    nombre_insumo: string;
+    unidad_base: string;
+    costo_promedio: number | null;
+    stock_minimo: number | null;
+    categoria_insumo: {
+      nombre: string;
+    }[];
+  }[];
+};
+
 export class ComprasService {
   // ================== PROVEEDORES ==================
 
@@ -85,6 +106,27 @@ export class ComprasService {
 
     if (error) throw error;
     return true;
+  }
+
+  async getInsumosByProveedor(idProveedor: number): Promise<InsumoPorProveedor[]> {
+    const { data, error } = await supabase
+      .from('insumo_presentacion')
+      .select(`
+        id_presentacion,
+        id_insumo,
+        descripcion_presentacion,
+        unidad_compra,
+        unidades_por_presentacion,
+        costo_compra_unitario,
+        es_principal,
+        activo,
+        insumo:insumo(id_insumo, nombre_insumo, unidad_base, costo_promedio, stock_minimo, categoria_insumo:categoria_insumo(nombre))
+      `)
+      .eq('id_proveedor', idProveedor)
+      .eq('activo', true);
+
+    if (error) throw new Error(`Error al obtener insumos del proveedor: ${error.message}`);
+    return (data || []) as InsumoPorProveedor[];
   }
 }
 

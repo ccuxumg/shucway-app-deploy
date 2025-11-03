@@ -314,6 +314,20 @@ export class InventarioController {
       next(error);
     }
   }
+
+  // ================== RECEPCIONES DE MERCADERÍA ==================
+
+  async getRecepcionesMercaderia(_req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const recepciones = await inventarioService.getRecepcionesMercaderia();
+      res.json({
+        success: true,
+        data: recepciones,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const inventarioController = new InventarioController();

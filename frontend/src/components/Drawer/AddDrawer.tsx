@@ -136,13 +136,13 @@ const AddDrawer = () => {
     if (status === "done") {
       const file = info.file.originFileObj;
 
-      if (!currentUser?.id) {
+      if (!currentUser?.id_perfil) {
         message.error("No se encontró la sesión de usuario. Vuelve a iniciar sesión.");
         setIsUploading(false);
         return;
       }
 
-      const fileUrl = await uploadFile(file, currentUser.id);
+      const fileUrl = await uploadFile(file, currentUser.id_perfil.toString());
       if (!fileUrl) {
         message.error("No se pudo obtener la URL del archivo");
         setIsUploading(false);

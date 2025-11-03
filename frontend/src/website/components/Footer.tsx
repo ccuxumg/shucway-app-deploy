@@ -83,7 +83,7 @@ const Footer = () => {
         {/* Footer bottom con copyright y botón de scroll to top */}
         <div className="footer-bottom">
           <div className="footer-bottom-content">
-            <p>&copy; 2024 Shucway. Todos los derechos reservados.</p>
+            <p>&copy; 2025 Shucway. Todos los derechos reservados.</p>
             <button
               onClick={scrollToTop}
               className="scroll-top-btn"

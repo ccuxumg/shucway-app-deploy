@@ -149,7 +149,7 @@ const Home = () => {
       </section>
 
       {/* Visit Section */}
-      <section className="visit-section" style={{ lineHeight: 0, fontSize: 0 }}>
+      <section className="visit-section">
         <a
           href="https://maps.app.goo.gl/s5bHJLDKRp4qvboB6"
           target="_blank"
@@ -164,16 +164,17 @@ const Home = () => {
           <div className="map-overlay"></div>
           <div className="visit-content">
             <FaMapMarkerAlt className="location-icon" />
-            <h2 style={{ fontSize: '24px', margin: '0 0 10px' }}>Encuéntranos Aquí</h2>
-            <p style={{ fontSize: '16px', margin: 0 }}>
+            <h2>Encuéntranos Aquí</h2>
+            <p>
               Local 8, CC Naciones Unidas 2, Villa Nueva
             </p>
-            <p style={{ fontSize: '12px', margin: 0 }}>
-              Clic para ver en el mapa
+            <p>
+              Clic para ver en Google Maps
             </p>
           </div>
         </a>
       </section>
+
     </div>
   );
 };

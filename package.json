@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "shucway-app",
   "private": true,
   "version": "1.0.0",
@@ -19,5 +19,8 @@
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
+  },
+  "dependencies": {
+    "lucide-react": "^0.552.0"
   }
 }

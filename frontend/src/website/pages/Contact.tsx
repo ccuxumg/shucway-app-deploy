@@ -32,7 +32,7 @@ Mi nombre es: ${nombre}%0A
 Mi correo es: ${correo}%0A
 Mi mensaje es: ${mensaje}%0A`;
 
-            window.open(`https://wa.me/50256252922?text=${texto}`, "_blank");
+            window.open(`https://wa.me/50252025909?text=${texto}`, "_blank");
           }}>
             <input
               type="text"

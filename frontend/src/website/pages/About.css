@@ -196,14 +196,24 @@
 
 .about-gallery-img {
   width: 100%;
+  aspect-ratio: 16 / 9;      /* ⬅️ fuerza la misma proporción para todas */
+  height: auto;              /* la altura la da el aspect-ratio */
+  display: block;
+  object-fit: cover;         /* recorte limpio sin deformar */
+  object-position: center;
   border-radius: 1.2rem;
   box-shadow: 0 4px 24px rgba(18, 68, 61, 0.13);
-  object-fit: cover;
-  min-height: 220px;
-  max-height: 320px;
   transition: transform 0.4s, box-shadow 0.4s;
   animation: galleryFadeIn 1.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+/* Fallback para navegadores sin aspect-ratio (raro hoy, pero por si acaso) */
+@supports not (aspect-ratio: 16/9) {
+  .about-gallery-img {
+    height: 280px;           /* altura fija como respaldo */
+  }
+}
+
 
 .about-gallery-img:hover {
   transform: scale(1.04) rotate(-2deg);

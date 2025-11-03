@@ -43,7 +43,7 @@ const modules = [
   {
     name: "Soporte",
     img: soporteImg,
-    route: "/soporte",
+    route: "soporte1",
     color: "from-pink-400 to-pink-300",
     description: "Centro de ayuda y soporte"
   },

@@ -5,7 +5,7 @@ import inventarioImg from "/img/inventario.jpg";
 import adminImg from "/img/adm.jpg";
 import reportesImg from "/img/reportes.jpg";
 import configImg from "/img/config.jpg";
-import soporteImg from "/img/download.jpeg";
+import soporteImg from "/img/soporte3.png";
 
 const modules = [
   {

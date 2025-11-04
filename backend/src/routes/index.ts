@@ -11,6 +11,7 @@ import { dashboardController } from '../controllers/dashboard.controller';
 import proveedorRoutes from './proveedor.routes';
 import ordenCompraRoutes from './orden_compra.routes';
 import backupRoutes from './backup.routes';
+import auditoriaRoutes from './auditoria.routes';
 
 const router = Router();
 
@@ -26,6 +27,7 @@ router.use('/dashboard', dashboardRoutes);
 router.use('/proveedores', proveedorRoutes);
 router.use('/ordenes-compra', ordenCompraRoutes);
 router.use('/backup', backupRoutes);
+router.use('/auditoria', auditoriaRoutes);
 
 // Rutas adicionales para compatibilidad con frontend
 router.get('/db/tables-count', dashboardController.getTablesCount);

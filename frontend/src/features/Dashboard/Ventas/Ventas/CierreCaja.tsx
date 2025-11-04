@@ -705,6 +705,12 @@ const CierreCaja: React.FC = () => {
 
                   <div className="mt-6 flex justify-end gap-2">
                     <button
+                      onClick={() => navigate('/ventas')}
+                      className="px-5 h-11 rounded-md bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium transition-colors"
+                    >
+                      Cerrar
+                    </button>
+                    <button
                       disabled={aperturaLoading}
                       onClick={handleIniciarCaja}
                       className="px-5 h-11 rounded-md text-white flex items-center justify-center gap-2"

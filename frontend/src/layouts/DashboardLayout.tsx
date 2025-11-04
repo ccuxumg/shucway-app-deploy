@@ -63,6 +63,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -299,6 +300,126 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  // Componente local: AuditoriaQuick
+  const AuditoriaQuick: React.FC = () => {
+    const [auditoriaActiva, setAuditoriaActiva] = useState<string | null>(() => {
+      try {
+        return localStorage.getItem('auditoria_activa');
+      } catch {
+        return null;
+      }
+    });
+
+    const [auditoriaLabel, setAuditoriaLabel] = useState<string>(() => {
+      try {
+        return localStorage.getItem('auditoria_label') || 'Auditoría';
+      } catch {
+        return 'Auditoría';
+      }
+    });
+
+    const [auditoriaFecha, setAuditoriaFecha] = useState<string>(() => {
+      try {
+        return localStorage.getItem('auditoria_fecha') || '';
+      } catch {
+        return '';
+      }
+    });
+
+    // Escuchar cambios en localStorage
+    React.useEffect(() => {
+      const interval = setInterval(() => {
+        const activa = localStorage.getItem('auditoria_activa');
+        const label = localStorage.getItem('auditoria_label') || 'Auditoría';
+        const fecha = localStorage.getItem('auditoria_fecha') || '';
+        setAuditoriaActiva(activa);
+        setAuditoriaLabel(label);
+        setAuditoriaFecha(fecha);
+      }, 1000);
+      return () => clearInterval(interval);
+    }, []);
+
+    const formatDateSpanish = (dateStr: string) => {
+      try {
+        if (!dateStr) return new Date().toLocaleDateString('es-ES', { day: '2-digit', month: 'long' }).toUpperCase();
+        const d = new Date(dateStr);
+        return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'long' }).toUpperCase();
+      } catch {
+        return '';
+      }
+    };
+
+    const handleClick = () => {
+      // Deshabilitar temporalmente el interceptor
+      (window as { auditoriaWidgetNavigating?: boolean }).auditoriaWidgetNavigating = true;
+      navigate('/inventario?tab=auditoria');
+      // Re-habilitar después de un breve delay
+      setTimeout(() => {
+        (window as { auditoriaWidgetNavigating?: boolean }).auditoriaWidgetNavigating = false;
+      }, 100);
+    };
+
+    return (
+      <div className="flex items-center justify-center w-full mt-4 auditoria-quick-widget">
+        {collapsed ? (
+          // Vista colapsada: solo icono
+          <button
+            onClick={handleClick}
+            data-navigate="/inventario?tab=auditoria"
+            className={`w-12 h-12 rounded-lg ${
+              auditoriaActiva
+                ? 'bg-red-500 hover:bg-red-600'
+                : 'bg-green-500 hover:bg-green-600'
+            } flex items-center justify-center shadow-md transition-colors`}
+            title={auditoriaActiva ? 'Continuar Auditoría' : 'Iniciar Auditoría'}
+          >
+            {auditoriaActiva ? (
+              <MdLock size={24} className="text-white" />
+            ) : (
+              <MdInventory size={24} className="text-white" />
+            )}
+          </button>
+        ) : (
+          // Vista expandida: card completa
+          <div className="w-full bg-gray-50 rounded-lg p-4 flex flex-col items-center shadow-md">
+            <div className="text-xs uppercase font-semibold text-gray-500 mb-1">
+              {auditoriaActiva ? 'Auditoría en Curso' : 'Auditoría'}
+            </div>
+            <div className="text-lg font-semibold text-gray-700">
+              {formatDateSpanish(auditoriaFecha)}
+            </div>
+            {auditoriaActiva && (
+              <div className="text-sm text-gray-600 mt-1">{auditoriaLabel}</div>
+            )}
+            <div className="mt-3 w-full">
+              <button
+                onClick={handleClick}
+                data-navigate="/inventario?tab=auditoria"
+                className={`w-full ${
+                  auditoriaActiva
+                    ? 'bg-red-500 hover:bg-red-600'
+                    : 'bg-green-500 hover:bg-green-600'
+                } text-white px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2`}
+              >
+                {auditoriaActiva ? (
+                  <>
+                    <MdLock size={16} />
+                    Continuar
+                  </>
+                ) : (
+                  <>
+                    <MdInventory size={16} />
+                    Iniciar
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Componente local: CajaQuick (declarado antes del return para evitar errores TSX)
   const CajaQuick: React.FC = () => {
     const [startTs, setStartTs] = useState<number | null>(() => {
@@ -345,23 +466,35 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     return (
       <>
         <div className="flex items-center justify-center w-full">
-          <div className="w-full bg-gray-50 rounded-lg p-4 flex flex-col items-center shadow-md">
-            <div className="text-lg font-semibold text-gray-700">{formatDateSpanish(startTs || Date.now())}</div>
-            <div className="text-4xl font-extrabold text-gray-800 mt-2">{formatCurrency(0)}</div>
-            <div className="mt-3 w-full">
-              {!cajaOpen ? (
-                <button onClick={openCaja} className="w-full bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2">
-                  <MdLockOpen size={16} />
-                  Abrir Caja
-                </button>
-              ) : (
-                <button onClick={() => setShowConfirm(true)} className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2">
-                  <MdLockOpen size={16} />
-                  Cerrar Caja
-                </button>
-              )}
+          {collapsed ? (
+            // Vista colapsada: solo icono
+            <button 
+              onClick={cajaOpen ? () => setShowConfirm(true) : openCaja}
+              className={`w-12 h-12 rounded-lg ${cajaOpen ? 'bg-yellow-400 hover:bg-yellow-500' : 'bg-green-500 hover:bg-green-600'} flex items-center justify-center shadow-md transition-colors`}
+              title={cajaOpen ? 'Cerrar Caja' : 'Abrir Caja'}
+            >
+              <MdLockOpen size={24} className={cajaOpen ? 'text-gray-900' : 'text-white'} />
+            </button>
+          ) : (
+            // Vista expandida: card completa
+            <div className="w-full bg-gray-50 rounded-lg p-4 flex flex-col items-center shadow-md">
+              <div className="text-lg font-semibold text-gray-700">{formatDateSpanish(startTs || Date.now())}</div>
+              <div className="text-4xl font-extrabold text-gray-800 mt-2">{formatCurrency(0)}</div>
+              <div className="mt-3 w-full">
+                {!cajaOpen ? (
+                  <button onClick={openCaja} className="w-full bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2">
+                    <MdLockOpen size={16} />
+                    Abrir Caja
+                  </button>
+                ) : (
+                  <button onClick={() => setShowConfirm(true)} className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2">
+                    <MdLockOpen size={16} />
+                    Cerrar Caja
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Confirmación modal al cerrar caja */}
@@ -389,24 +522,48 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   };
 
   return (
-    <div className="flex min-h-screen font-[Barrow,Segoe UI,Roboto,sans-serif]">
+    <div className="flex h-screen overflow-hidden font-[Barrow,Segoe UI,Roboto,sans-serif]">
+      {/* Overlay para móviles cuando el sidebar está abierto */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
       <motion.aside
         aria-label="Sidebar"
         initial={false}
-        animate={{ width: collapsed ? 80 : 224 }}
+        animate={{ 
+          width: collapsed ? 80 : 224,
+          x: mobileMenuOpen ? 0 : (typeof window !== 'undefined' && window.innerWidth < 768 ? -224 : 0)
+        }}
         transition={{ type: 'spring', stiffness: 220, damping: 30 }}
-        className={`z-50 fixed left-0 top-0 h-full bg-white shadow-lg flex flex-col items-center py-6 overflow-hidden`}
+        className={`z-50 fixed left-0 top-0 h-screen bg-white shadow-lg flex flex-col items-center py-3 sm:py-4 md:py-6 overflow-y-auto md:relative`}
       >
-        <div className={`flex items-center gap-3 px-4 ${collapsed ? "justify-center" : "justify-center w-full"} mb-6`}>
-          <motion.button whileTap={{ scale: 0.985 }} whileHover={{ scale: 1.02 }} transition={{ duration: 0.18 }} onClick={() => navigate('/dashboard')} aria-label="Ir al dashboard" className={`flex items-center ${collapsed ? 'justify-center' : 'justify-center'} w-full bg-transparent p-0 rounded-md hover:bg-transparent focus:outline-none transition-colors`}> 
+        <div className={`flex items-center gap-3 px-2 sm:px-3 md:px-4 ${collapsed ? "justify-center" : "justify-center w-full"} mb-3 sm:mb-4 md:mb-6`}>
+          <motion.button 
+            whileTap={{ scale: 0.985 }} 
+            whileHover={{ scale: 1.02 }} 
+            transition={{ duration: 0.18 }} 
+            onClick={() => {
+              navigate('/dashboard');
+              if (window.innerWidth < 768) {
+                setMobileMenuOpen(false);
+              }
+            }} 
+            data-navigate="/dashboard"
+            aria-label="Ir al dashboard" 
+            className={`flex items-center ${collapsed ? 'justify-center' : 'justify-center'} w-full bg-transparent p-0 rounded-md hover:bg-transparent focus:outline-none transition-colors`}
+          > 
             <img src={publicLogo} alt="logo" className={`cursor-pointer ${collapsed ? "w-12 sm:w-14" : "w-36 sm:w-44"} transition-all duration-300`} />
           </motion.button>
         </div>
-        <nav className="flex flex-col gap-4 w-full px-3" role="navigation">
+        <nav className="flex flex-col gap-3 sm:gap-4 w-full px-2 sm:px-3" role="navigation">
           {sidebarSections.map((sec) => (
             <div key={sec.title}>
-              {!collapsed && <div className="px-3 text-xs uppercase text-gray-400 mb-1">{sec.title}</div>}
+              {!collapsed && <div className="px-2 sm:px-3 text-xs uppercase text-gray-400 mb-1">{sec.title}</div>}
               <div className="flex flex-col gap-2">
                 {sec.items.map((item) => {
                   const isActive = location.pathname === item.route;
@@ -424,7 +581,13 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
                         arrow={true}
                       >
                         <button
-                          onClick={() => navigate(item.route)}
+                          onClick={() => {
+                            navigate(item.route);
+                            if (window.innerWidth < 768) {
+                              setMobileMenuOpen(false);
+                            }
+                          }}
+                          data-navigate={item.route}
                           title={collapsed ? item.name : undefined}
                           className={`relative flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-3 rounded-lg text-base font-medium transition-all duration-150 w-full text-left hover:bg-gray-50 transform ${
                             isActive ? "bg-green-50 text-green-700 shadow-[inset_0_0_0_1px_rgba(34,197,94,0.06)]" : "text-gray-700"
@@ -462,6 +625,9 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           {/* Mostrar botón Abrir Caja cuando cerrada; contador + Cerrar cuando abierta */}
           {/* Usa navigate a la ruta de cierre de caja para integrarse con el módulo de ventas */}
           <CajaQuick />
+          
+          {/* Auditoría rápida: iniciar o continuar auditoría */}
+          <AuditoriaQuick />
         </div>
 
         <div className="w-full px-3 mb-4">
@@ -491,18 +657,24 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
         </div>
   </motion.aside>
 
-  
-
-  {/* spacer para que el contenido no quede bajo el sidebar (animado) */}
-  <motion.div initial={false} animate={{ width: collapsed ? 80 : 224 }} transition={{ type: 'spring', stiffness: 220, damping: 30 }} />
-
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-h-screen bg-gradient-to-b from-white to-gray-50">
+      <main className="flex-1 flex flex-col h-screen overflow-y-auto bg-gradient-to-b from-white to-gray-50 w-full">
         {/* Header */}
-  <header className="sticky top-0 z-30 bg-white backdrop-blur-sm" style={{ boxShadow: '0 1px 0 rgba(16,24,40,0.04)' }}>
-          <div className="max-w-full mx-auto px-6 py-3 flex items-center gap-4">
-            <div className="flex items-center w-48">
-              <button onClick={() => setCollapsed(!collapsed)} className="p-2 rounded-md hover:bg-gray-100 transition-colors" aria-label="toggle sidebar" aria-expanded={!collapsed}>
+  <header className="sticky top-0 z-30 bg-white backdrop-blur-sm w-full" style={{ boxShadow: '0 1px 0 rgba(16,24,40,0.04)' }}>
+          <div className="w-full px-2 sm:px-3 md:px-4 py-2 sm:py-3 flex items-center gap-2 sm:gap-4">
+            <div className="flex items-center w-auto sm:w-48">
+              <button 
+                onClick={() => {
+                  if (window.innerWidth < 768) {
+                    setMobileMenuOpen(!mobileMenuOpen);
+                  } else {
+                    setCollapsed(!collapsed);
+                  }
+                }} 
+                className="p-2 rounded-md hover:bg-gray-100 transition-colors" 
+                aria-label="toggle sidebar" 
+                aria-expanded={window.innerWidth < 768 ? mobileMenuOpen : !collapsed}
+              >
                 <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
                 </svg>
@@ -514,7 +686,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             {/* Centered search */}
-            <div className="flex-1 flex justify-center">
+            <div className="flex-1 justify-center hidden sm:flex">
               <div className="w-full max-w-2xl">
                 <div className="relative" ref={searchRef}>
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
@@ -565,7 +737,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             {/* Right: notifications + profile */}
-            <div className="flex items-center gap-4 justify-end w-auto min-w-[260px]">
+            <div className="flex items-center gap-2 sm:gap-4 justify-end w-auto min-w-fit">
               <div className="relative" ref={notificationsRef}>
                 <button onClick={() => setNotificationsOpen(!notificationsOpen)} className="p-2 rounded-lg bg-blue-50 hover:bg-blue-100 transition-colors relative flex items-center justify-center" aria-label="notificaciones">
                   <FiBell size={18} className="text-green-600" />
@@ -703,8 +875,8 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           </div>
   </header>
 
-  <div className="flex-1 p-6 bg-transparent">
-          <div className="animate-fade-in">{children}</div>
+  <div className="flex-1 p-2 bg-transparent w-full overflow-y-auto">
+          <div className="animate-fade-in w-full h-full">{children}</div>
         </div>
       </main>
     </div>

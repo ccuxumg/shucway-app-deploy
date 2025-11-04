@@ -10,16 +10,16 @@ export const getGastosOperativos = async (_req: Request, res: Response) => {
         id_gasto,
         numero_gasto,
         fecha_gasto,
+        nombre_gasto,
         detalle,
         monto,
+        frecuencia,
         id_categoria,
-        tipo_movimiento,
-        id_proveedor,
         id_perfil,
-        comprobante_url,
-        categoria_gasto:id_categoria(id_categoria, nombre, tipo_gasto),
-        perfil_usuario:id_perfil(id_perfil, primer_nombre, primer_apellido),
-        proveedor:id_proveedor(id_proveedor, nombre_empresa)
+        fecha_creacion,
+        fecha_actualizacion,
+        categoria_gasto:id_categoria(id_categoria, nombre, descripcion),
+        perfil_usuario:id_perfil(id_perfil, primer_nombre, primer_apellido)
       `)
       .order('fecha_gasto', { ascending: false });
 
@@ -46,16 +46,16 @@ export const getGastoById = async (req: Request, res: Response) => {
         id_gasto,
         numero_gasto,
         fecha_gasto,
+        nombre_gasto,
         detalle,
         monto,
+        frecuencia,
         id_categoria,
-        tipo_movimiento,
-        id_proveedor,
         id_perfil,
-        comprobante_url,
-        categoria_gasto:id_categoria(id_categoria, nombre, tipo_gasto),
-        perfil_usuario:id_perfil(id_perfil, primer_nombre, primer_apellido),
-        proveedor:id_proveedor(id_proveedor, nombre_empresa)
+        fecha_creacion,
+        fecha_actualizacion,
+        categoria_gasto:id_categoria(id_categoria, nombre, descripcion),
+        perfil_usuario:id_perfil(id_perfil, primer_nombre, primer_apellido)
       `)
       .eq('id_gasto', id)
       .single();
@@ -89,16 +89,16 @@ export const getGastoPorFechas = async (req: Request, res: Response) => {
         id_gasto,
         numero_gasto,
         fecha_gasto,
+        nombre_gasto,
         detalle,
         monto,
+        frecuencia,
         id_categoria,
-        tipo_movimiento,
-        id_proveedor,
         id_perfil,
-        comprobante_url,
-        categoria_gasto:id_categoria(id_categoria, nombre, tipo_gasto),
-        perfil_usuario:id_perfil(id_perfil, primer_nombre, primer_apellido),
-        proveedor:id_proveedor(id_proveedor, nombre_empresa)
+        fecha_creacion,
+        fecha_actualizacion,
+        categoria_gasto:id_categoria(id_categoria, nombre, descripcion),
+        perfil_usuario:id_perfil(id_perfil, primer_nombre, primer_apellido)
       `)
       .gte('fecha_gasto', fechaInicio)
       .lte('fecha_gasto', fechaFin)
@@ -133,16 +133,16 @@ export const getGastoPorCategoria = async (req: Request, res: Response) => {
         id_gasto,
         numero_gasto,
         fecha_gasto,
+        nombre_gasto,
         detalle,
         monto,
+        frecuencia,
         id_categoria,
-        tipo_movimiento,
-        id_proveedor,
         id_perfil,
-        comprobante_url,
-        categoria_gasto:id_categoria(id_categoria, nombre, tipo_gasto),
-        perfil_usuario:id_perfil(id_perfil, primer_nombre, primer_apellido),
-        proveedor:id_proveedor(id_proveedor, nombre_empresa)
+        fecha_creacion,
+        fecha_actualizacion,
+        categoria_gasto:id_categoria(id_categoria, nombre, descripcion),
+        perfil_usuario:id_perfil(id_perfil, primer_nombre, primer_apellido)
       `)
       .eq('id_categoria', categoriaId)
       .order('fecha_gasto', { ascending: false });
@@ -163,18 +163,35 @@ export const getGastoPorCategoria = async (req: Request, res: Response) => {
 /* ============ POST: Crear nuevo gasto operativo ============ */
 export const createGasto = async (req: Request, res: Response) => {
   try {
-    const { numero_gasto, fecha_gasto, id_categoria, detalle, monto, tipo_movimiento, id_proveedor, comprobante_url } = req.body;
+    const { numero_gasto, fecha_gasto, id_categoria, nombre_gasto, detalle, monto, frecuencia } = req.body;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const id_perfil = (req as any).user?.id_perfil;
 
     // Validaciones básicas
-    if (!numero_gasto || !fecha_gasto || !id_categoria || !detalle || !monto) {
+    if (!numero_gasto || !fecha_gasto || !id_categoria || !nombre_gasto || !detalle || !monto || !frecuencia) {
       res.status(400).json({ error: 'Faltan campos requeridos' });
+      return;
+    }
+
+    // Validar que frecuencia sea un valor permitido
+    const frecuenciasPermitidas = ['semanal', 'quincenal', 'mensual'];
+    if (!frecuenciasPermitidas.includes(frecuencia)) {
+      res.status(400).json({ error: 'Frecuencia debe ser: semanal, quincenal o mensual' });
       return;
     }
 
     if (monto <= 0) {
       res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+      return;
+    }
+
+    if (numero_gasto.length < 3) {
+      res.status(400).json({ error: 'El número de gasto debe tener al menos 3 caracteres' });
+      return;
+    }
+
+    if (nombre_gasto.length < 3) {
+      res.status(400).json({ error: 'El nombre del gasto debe tener al menos 3 caracteres' });
       return;
     }
 
@@ -197,28 +214,27 @@ export const createGasto = async (req: Request, res: Response) => {
           numero_gasto: numero_gasto.trim(),
           fecha_gasto,
           id_categoria: parseInt(id_categoria),
+          nombre_gasto: nombre_gasto.trim(),
           detalle: detalle.trim(),
           monto: parseFloat(monto),
-          tipo_movimiento: tipo_movimiento || 'gasto',
-          id_proveedor: id_proveedor ? parseInt(id_proveedor) : null,
+          frecuencia,
           id_perfil,
-          comprobante_url: comprobante_url || null,
         },
       ])
       .select(`
         id_gasto,
         numero_gasto,
         fecha_gasto,
+        nombre_gasto,
         detalle,
         monto,
+        frecuencia,
         id_categoria,
-        tipo_movimiento,
-        id_proveedor,
         id_perfil,
-        comprobante_url,
-        categoria_gasto:id_categoria(id_categoria, nombre, tipo_gasto),
-        perfil_usuario:id_perfil(id_perfil, primer_nombre, primer_apellido),
-        proveedor:id_proveedor(id_proveedor, nombre_empresa)
+        fecha_creacion,
+        fecha_actualizacion,
+        categoria_gasto:id_categoria(id_categoria, nombre, descripcion),
+        perfil_usuario:id_perfil(id_perfil, primer_nombre, primer_apellido)
       `);
 
     if (error) {
@@ -238,12 +254,20 @@ export const createGasto = async (req: Request, res: Response) => {
 export const updateGasto = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { numero_gasto, fecha_gasto, id_categoria, detalle, monto, tipo_movimiento, id_proveedor, comprobante_url } = req.body;
+    const { numero_gasto, fecha_gasto, id_categoria, nombre_gasto, detalle, monto, frecuencia } = req.body;
 
     // Validaciones básicas
     if (monto && monto <= 0) {
       res.status(400).json({ error: 'El monto debe ser mayor a 0' });
       return;
+    }
+
+    if (frecuencia) {
+      const frecuenciasPermitidas = ['semanal', 'quincenal', 'mensual'];
+      if (!frecuenciasPermitidas.includes(frecuencia)) {
+        res.status(400).json({ error: 'Frecuencia debe ser: semanal, quincenal o mensual' });
+        return;
+      }
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -252,11 +276,10 @@ export const updateGasto = async (req: Request, res: Response) => {
     if (numero_gasto) updateData.numero_gasto = numero_gasto.trim();
     if (fecha_gasto) updateData.fecha_gasto = fecha_gasto;
     if (id_categoria) updateData.id_categoria = parseInt(id_categoria);
+    if (nombre_gasto) updateData.nombre_gasto = nombre_gasto.trim();
     if (detalle) updateData.detalle = detalle.trim();
     if (monto) updateData.monto = parseFloat(monto);
-    if (tipo_movimiento) updateData.tipo_movimiento = tipo_movimiento;
-    if (id_proveedor !== undefined) updateData.id_proveedor = id_proveedor ? parseInt(id_proveedor) : null;
-    if (comprobante_url !== undefined) updateData.comprobante_url = comprobante_url || null;
+    if (frecuencia) updateData.frecuencia = frecuencia;
 
     const { data, error } = await supabase
       .from('gasto_operativo')
@@ -266,16 +289,16 @@ export const updateGasto = async (req: Request, res: Response) => {
         id_gasto,
         numero_gasto,
         fecha_gasto,
+        nombre_gasto,
         detalle,
         monto,
+        frecuencia,
         id_categoria,
-        tipo_movimiento,
-        id_proveedor,
         id_perfil,
-        comprobante_url,
-        categoria_gasto:id_categoria(id_categoria, nombre, tipo_gasto),
-        perfil_usuario:id_perfil(id_perfil, primer_nombre, primer_apellido),
-        proveedor:id_proveedor(id_proveedor, nombre_empresa)
+        fecha_creacion,
+        fecha_actualizacion,
+        categoria_gasto:id_categoria(id_categoria, nombre, descripcion),
+        perfil_usuario:id_perfil(id_perfil, primer_nombre, primer_apellido)
       `);
 
     if (error) {

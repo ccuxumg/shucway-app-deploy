@@ -4,7 +4,7 @@ import { api } from './apiClient';
 export interface CategoriaGasto {
   id_categoria: number;
   nombre: string;
-  tipo_gasto: 'operativo' | 'inversion';
+  descripcion?: string;
 }
 
 export interface PerfilMin {
@@ -13,36 +13,30 @@ export interface PerfilMin {
   primer_apellido: string;
 }
 
-export interface Proveedor {
-  id_proveedor: number;
-  nombre_empresa: string;
-}
-
 export interface GastoOperativo {
   id_gasto: number;
-  numero_gasto?: string;
+  numero_gasto: string;
   fecha_gasto: string;
-  detalle?: string;
+  nombre_gasto: string;
+  detalle: string;
   monto: number;
-  id_categoria?: number;
-  tipo_movimiento?: 'compra' | 'gasto' | 'inversion';
-  id_proveedor?: number | null;
-  id_perfil?: number;
-  comprobante_url?: string | null;
+  frecuencia: 'semanal' | 'quincenal' | 'mensual';
+  id_categoria: number;
+  id_perfil: number;
+  fecha_creacion: string;
+  fecha_actualizacion: string;
   categoria_gasto?: CategoriaGasto;
   perfil_usuario?: PerfilMin;
-  proveedor?: Proveedor;
 }
 
 export interface CreateGastoDTO {
   numero_gasto: string;
   fecha_gasto: string;
   id_categoria: number;
+  nombre_gasto: string;
   detalle: string;
   monto: number;
-  tipo_movimiento?: 'compra' | 'gasto' | 'inversion';
-  id_proveedor?: number | null;
-  comprobante_url?: string | null;
+  frecuencia: 'semanal' | 'quincenal' | 'mensual';
 }
 
 export interface ResumenGastos {

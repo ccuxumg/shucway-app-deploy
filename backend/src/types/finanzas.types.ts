@@ -4,19 +4,23 @@
 
 export interface CategoriaGasto {
   id_categoria: number;
-  nombre_categoria: string;
+  nombre: string;
   descripcion?: string;
+  activo?: boolean;
 }
 
 export interface GastoOperativo {
   id_gasto: number;
-  id_categoria: number;
-  descripcion: string;
-  monto: number;
+  numero_gasto: string;
   fecha_gasto: Date;
-  id_responsable?: number;
-  metodo_pago: 'efectivo' | 'transferencia' | 'cheque';
-  comprobante_url?: string;
+  id_categoria: number;
+  nombre_gasto: string;
+  detalle: string;
+  monto: number;
+  frecuencia: 'semanal' | 'quincenal' | 'mensual';
+  id_perfil: number;
+  fecha_creacion: Date;
+  fecha_actualizacion: Date;
 }
 
 export interface DepositoBanco {
@@ -45,17 +49,18 @@ export interface ArqueoCaja {
 // ================================================================
 
 export interface CreateCategoriaGastoDTO {
-  nombre_categoria: string;
+  nombre: string;
   descripcion?: string;
 }
 
 export interface CreateGastoDTO {
-  id_categoria: number;
-  descripcion: string;
-  monto: number;
+  numero_gasto: string;
   fecha_gasto?: string;
-  metodo_pago: 'efectivo' | 'transferencia' | 'cheque';
-  comprobante_url?: string;
+  id_categoria: number;
+  nombre_gasto: string;
+  detalle: string;
+  monto: number;
+  frecuencia: 'semanal' | 'quincenal' | 'mensual';
 }
 
 export interface CreateDepositoDTO {

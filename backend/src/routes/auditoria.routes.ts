@@ -85,7 +85,6 @@ router.get('/lista', authenticateToken, async (_req: AuthRequest, res: Response)
 router.post('/cancelar/:id_auditoria', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     const { id_auditoria } = req.params;
-    const { motivo } = req.body;
 
     if (!id_auditoria || isNaN(Number(id_auditoria))) {
       return res.status(400).json({ error: 'ID de auditoría inválido' });
@@ -96,8 +95,7 @@ router.post('/cancelar/:id_auditoria', authenticateToken, async (req: AuthReques
       .from('auditoria_inventario')
       .update({
         estado: 'cancelada',
-        observaciones: motivo || 'Cancelada por el usuario',
-        fecha_finalizacion: new Date().toISOString()
+        fecha_fin_auditoria: new Date().toISOString()
       })
       .eq('id_auditoria', Number(id_auditoria));
 

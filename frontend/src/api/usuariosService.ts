@@ -96,7 +96,7 @@ export const getUsuarios = async (
       if (filters.fecha_fin) params.append('fecha_fin', filters.fecha_fin);
     }
 
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('access_token');
     const response = await api.get(`/usuarios?${params.toString()}`, {
       headers: { Authorization: token ? `Bearer ${token}` : '' }
     });
@@ -203,7 +203,7 @@ export const removerRol = async (idUsuario: number): Promise<void> => {
  */
 export const getEstadisticas = async (): Promise<Estadisticas> => {
   try {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('access_token');
     const response = await api.get(`/usuarios/estadisticas`, {
       headers: { Authorization: token ? `Bearer ${token}` : '' }
     });

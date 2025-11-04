@@ -925,7 +925,7 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
     setIsCanceling(true);
 
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('access_token');
       if (!token) {
         notify("error", "No se encontró el token de autenticación");
         return;

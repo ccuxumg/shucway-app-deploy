@@ -167,8 +167,8 @@ const Inventario: React.FC = () => {
         {activeTab === 'overview' ? (
           <div className="w-full mb-6">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 w-full">
-              <InvActionCard title="CATÁLOGO DE INSUMOS" subtitle="Ver y administrar insumos" icon={<MdInventory2 />} tone={primary} onClick={() => changeTab('catalogo')} active={activeTab === ('catalogo' as Tab)} />   
-              <InvActionCard title="INGRESO COMPRA" subtitle="Registrar nueva entrada" icon={<MdAddShoppingCart />} tone={mid} onClick={() => changeTab('ingreso')} active={activeTab === ('ingreso' as Tab)} />
+              <InvActionCard title="CATÁLOGO DE INSUMOS" subtitle="Ver y administrar insumos" icon={<MdInventory2 />} tone={primary} onClick={() => navigate('/inventario/catalogo')} active={false} />   
+              <InvActionCard title="INGRESO COMPRA" subtitle="Registrar nueva entrada" icon={<MdAddShoppingCart />} tone={mid} onClick={() => navigate('/inventario/ingreso-compra')} active={false} />
               <InvActionCard title="AUDITORÍA DE INVENTARIO" subtitle="Revisión y auditorías" icon={<MdAssignmentTurnedIn />} tone={yellow} onClick={() => changeTab('auditoria')} active={activeTab === ('auditoria' as Tab)} />
             </div>
           </div>
@@ -208,7 +208,7 @@ const Inventario: React.FC = () => {
                     <div className="inv-list">
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <h4>Inventario Perpetuo</h4>
-                        <button className="see-all" onClick={() => changeTab('catalogo', 'perpetuos')}>Ver todos</button>
+                        <button className="see-all" onClick={() => navigate('/inventario/catalogo?filter=perpetuos')}>Ver todos</button>
                       </div>
                       <div className="mb-2">
                         <input
@@ -247,7 +247,7 @@ const Inventario: React.FC = () => {
                     <div className="inv-list">
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <h4>Inventario Operativo</h4>
-                        <button className="see-all" onClick={() => changeTab('catalogo', 'operativos')}>Ver todos</button>
+                        <button className="see-all" onClick={() => navigate('/inventario/catalogo?filter=operativos')}>Ver todos</button>
                       </div>
                       <div className="mb-2">
                         <input

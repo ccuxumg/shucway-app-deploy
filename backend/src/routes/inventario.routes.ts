@@ -10,12 +10,30 @@ import {
 const router = Router();
 const comprasController = new ComprasController();
 
+console.log('[BACKEND] Cargando rutas de inventario...');
+
 // ================================================================
 // 📦 RUTAS DE INVENTARIO
 // ================================================================
 
 // Todas las rutas requieren autenticación
 router.use(authenticateToken);
+
+console.log('[BACKEND] Registrando rutas de inventario...');
+
+// ================== INSUMOS - RUTAS ESPECÍFICAS ==================
+// Nivel mínimo: Cajero (30) para consultar, Administrador (80) para modificar
+
+// Ruta de prueba para verificar que las rutas se registran
+console.log('[BACKEND] Registrando ruta de prueba GET /test');
+router.get('/test', (_req, res) => {
+  console.log('[BACKEND] Ruta de prueba accedida');
+  res.json({ success: true, message: 'Ruta de prueba funcionando' });
+});
+
+// Ruta más específica primero para evitar conflictos
+console.log('[BACKEND] Registrando ruta GET /insumos/:id/presentaciones');
+router.get('/insumos/:id/presentaciones', requireCajero, inventarioController.getPresentacionesByInsumo.bind(inventarioController));
 
 // ================== PROVEEDORES ==================
 // Nivel mínimo: Cajero (30) para consultar
@@ -32,8 +50,11 @@ router.get('/categorias/:id', requireCajero, inventarioController.getCategoriaIn
 // Nivel mínimo: Cajero (30) para consultar, Administrador (80) para modificar
 
 router.get('/insumos', requireCajero, inventarioController.getInsumos.bind(inventarioController));
-router.get('/insumos/:id', requireCajero, inventarioController.getInsumoById.bind(inventarioController));
+
+// Rutas más específicas primero
 router.get('/insumos/:id/details', requireCajero, inventarioController.getInsumoDetails.bind(inventarioController));
+router.get('/insumos/:id', requireCajero, inventarioController.getInsumoById.bind(inventarioController));
+
 router.post('/insumos', requireAdministrador, inventarioController.createInsumo.bind(inventarioController));
 router.put('/insumos/:id', requireAdministrador, inventarioController.updateInsumo.bind(inventarioController));
 router.delete('/insumos/:id', requireAdministrador, inventarioController.deleteInsumo.bind(inventarioController));
@@ -41,8 +62,13 @@ router.delete('/insumos/:id', requireAdministrador, inventarioController.deleteI
 // Ruta adicional para catálogo con joins
 router.get('/catalogo', requireCajero, inventarioController.getCatalogoInsumos.bind(inventarioController));
 
+// ================== PRESENTACIONES ==================
+// Nivel mínimo: Administrador (80) para modificar
+router.put('/presentaciones/:id', requireAdministrador, inventarioController.updatePresentacion.bind(inventarioController));
+
 // ================== LOTES ==================
-// Nivel mínimo: Cajero (30) para consultar, Administrador (80) para modificar
+// Nivel mínimo: Administrador (80) para modificar
+router.put('/lotes/:id', requireAdministrador, inventarioController.updateLote.bind(inventarioController));
 
 router.get('/insumos/:idInsumo/lotes', requireCajero, inventarioController.getLotesByInsumo.bind(inventarioController));
 router.get('/lotes/:id', requireCajero, inventarioController.getLoteById.bind(inventarioController));

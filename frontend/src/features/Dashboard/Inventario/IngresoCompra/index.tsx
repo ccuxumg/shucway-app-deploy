@@ -1,11 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from "framer-motion";
-import {
-  PiEyeBold, PiTrashBold,
-  PiSpinnerBold, PiFloppyDiskBold, PiPlusBold, PiPackageBold, PiPencilSimpleBold
-} from "react-icons/pi";
-import { fetchProveedores, fetchOrdenesCompra } from "../../../../api/inventarioService";
+import { PiEyeBold, PiTrashBold, PiSpinnerBold, PiFloppyDiskBold, PiPlusBold, PiPackageBold, PiPencilSimpleBold, PiWarningBold } from "react-icons/pi";
+import { message } from 'antd';
+import { fetchProveedores, fetchOrdenesCompra, createOrdenCompra, createDetalleOrdenCompra, updateOrdenCompra } from "../../../../api/inventarioService";
+import { getProfile } from '../../../../api/authService';
 
 /* =============== Tipos API =============== */
 type ProveedorAPI = {
@@ -50,11 +49,75 @@ export type Orden = {
   id_orden: string;
   numero_orden: string | null;
   fecha: string | null;
+  fecha_entrega_estimada?: string | null;
+  tipo_pago?: string | null;
+  tipo_orden?: string | null;
+  motivo_generacion?: string | null;
+  nota?: string | null;
   id_proveedor?: number | null;
   proveedor?: { nombre: string } | null;
   total?: number | null;
   estado?: string | null;
   items_count?: number | null;
+};
+
+type DetalleOrdenCompra = {
+  id_detalle: number;
+  id_insumo: number;
+  cantidad: number;
+  precio_unitario: number;
+  id_presentacion: number;
+  descripcion_insumo?: string;
+  presentacion?: string;
+  unidad_base?: string;
+  unidades_por_presentacion?: number;
+  cantidad_recibida?: number;
+};
+
+type InsumoRow = {
+  id_insumo: number;
+  nombre: string;
+  costo_promedio?: number | null;
+  unidad_medida_compra?: string | null;
+  unidad_base?: string | null;
+  stock_minimo?: number | null;
+  stock_maximo?: number | null;
+  stock_actual?: number | null;
+};
+
+type PresentacionCompleta = {
+  insumo: {
+    id_insumo: number;
+    nombre_insumo: string;
+    unidad_base: string;
+    costo_promedio: number;
+    stock_minimo: number;
+    stock_maximo: number;
+    stock_actual: number;
+    activo: boolean;
+  };
+  presentacion: {
+    id_presentacion: number;
+    descripcion_presentacion: string;
+    unidad_compra: string;
+    unidades_por_presentacion: number;
+    costo_compra_unitario: number;
+    es_principal: boolean;
+    activo: boolean;
+  };
+  proveedor: {
+    id_proveedor: number;
+    nombre_proveedor: string;
+  } | null;
+  lotes_disponibles: Array<{
+    id_lote: number;
+    id_insumo: number;
+    cantidad_inicial: number;
+    cantidad_actual: number;
+    costo_unitario: number;
+    fecha_vencimiento?: string;
+    ubicacion?: string;
+  }>;
 };
 
 export type Item = {
@@ -63,13 +126,24 @@ export type Item = {
   descripcion: string;
   qty: number;
   precio: number;
-};
-
-type InsumoRow = {
-  id_insumo: number;
-  nombre: string;
-  costo_promedio?: number | null;
-  unidad_medida_compra?: string | null;
+  id_presentacion?: number | null;
+  descripcion_presentacion?: string | null;
+  unidades_por_presentacion?: number | null;
+  unidad_compra?: string | null;
+  unidad_base?: string | null;
+  cantidad_recibida?: number | null;
+  stock_minimo?: number | null;
+  stock_maximo?: number | null;
+  stock_actual?: number | null;
+  lotes_disponibles?: Array<{
+    id_lote: number;
+    id_insumo: number;
+    cantidad_inicial: number;
+    cantidad_actual: number;
+    costo_unitario: number;
+    fecha_vencimiento?: string;
+    ubicacion?: string;
+  }>;
 };
 
 type FormProveedor = {
@@ -85,22 +159,6 @@ type FormProveedor = {
   tiempo_entrega_promedio: number | null;
   metodo_entrega: string | null;
 };
-
-/* =============== SEED (Local) - REMOVIDO: Ahora usa datos dinámicos =============== */
-
-const INSUMOS_SEED_COMPRAS: InsumoRow[] = [
-  { id_insumo: 1, nombre: "Pan para Shuco", costo_promedio: 1.5, unidad_medida_compra: "u" },
-  { id_insumo: 2, nombre: "Carne Asada (libra)", costo_promedio: 35, unidad_medida_compra: "lb" },
-  { id_insumo: 3, nombre: "Chorizo", costo_promedio: 4, unidad_medida_compra: "u" },
-  { id_insumo: 4, nombre: "Torta de Hamburguesa", costo_promedio: 6, unidad_medida_compra: "u" },
-  { id_insumo: 5, nombre: "Queso (libra)", costo_promedio: 22, unidad_medida_compra: "lb" },
-  { id_insumo: 6, nombre: "Coca Cola (lata)", costo_promedio: 3, unidad_medida_compra: "u" },
-  { id_insumo: 7, nombre: "Papas (libra)", costo_promedio: 5, unidad_medida_compra: "lb" },
-  { id_insumo: 8, nombre: "Aceite Vegetal (Litro)", costo_promedio: 18, unidad_medida_compra: "lt" },
-  { id_insumo: 9, nombre: "Servilletas (Paquete 100u)", costo_promedio: 10, unidad_medida_compra: "paq" },
-];
-
-/* =============== Utiles =============== */
 const INPUT_CLS =
   "w-full h-11 rounded-lg border border-gray-300 px-3 text-base focus:outline-none focus:ring-2 focus:ring-emerald-300 disabled:bg-gray-100 disabled:text-gray-500";
 
@@ -121,18 +179,23 @@ const DrawerRight: React.FC<React.PropsWithChildren<{
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-[2000]"
+          className="fixed inset-0 z-[2000] w-screen h-screen left-0 top-0"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
         >
-          <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+          <div
+            className="fixed inset-0 bg-black/60"
+            style={{ top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 2000 }}
+            onClick={onClose}
+          />
           <motion.div
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "tween", duration: 0.24 }}
-            className={`absolute right-0 top-0 h-full bg-white shadow-2xl ${widthClass} flex flex-col z-[2001]`}
+            className={`fixed right-0 top-0 h-full bg-white shadow-2xl ${widthClass} flex flex-col z-[2001]`}
+            style={{ maxHeight: '100vh', overflow: 'auto' }}
           >
             <div className="px-5 py-4 border-b flex items-center justify-between">
               <div className="text-lg font-semibold text-gray-800">{title}</div>
@@ -273,21 +336,47 @@ export default function IngresoCompra(): JSX.Element {
   const [rows, setRows] = useState<Orden[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [allProveedores, setAllProveedores] = useState<Proveedor[]>([]); // Para el filtro dropdown
+  const [insumos, setInsumos] = useState<InsumoRow[]>([]); // Para el listado de insumos en el formulario
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Modal de confirmación de eliminación de proveedor
   const [deleteProviderModal, setDeleteProviderModal] = useState<{ open: boolean; provider: Proveedor | null }>({ open: false, provider: null });
 
+  // Modal de confirmación de eliminación de orden
+  const [deleteOrderModal, setDeleteOrderModal] = useState<{ open: boolean; order: Orden | null }>({ open: false, order: null });
+
   // Cargar datos al montar el componente
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
-        const [proveedoresData, ordenesData] = await Promise.all([
+        const [proveedoresData, ordenesData, insumosResult] = await Promise.all([
           fetchProveedores(),
-          fetchOrdenesCompra()
+          fetchOrdenesCompra(),
+          fetch(`${import.meta.env.VITE_API_URL}/inventario/insumos`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+          }).then(res => res.json()).catch(() => ({ data: [] })) // Fallback to empty array on error
         ]);
+
+        let insumosData: unknown[] = [];
+        if (insumosResult && typeof insumosResult === 'object' && 'data' in insumosResult) {
+          insumosData = Array.isArray(insumosResult.data) ? insumosResult.data : [];
+        } else if (Array.isArray(insumosResult)) {
+          insumosData = insumosResult;
+        }
+
+        // Transformar insumos al formato esperado por el frontend
+        const transformedInsumos: InsumoRow[] = (insumosData as { id_insumo: number; nombre_insumo: string; costo_promedio: number; unidad_base: string; stock_minimo?: number; stock_maximo?: number; stock_actual?: number }[]).map((ins: { id_insumo: number; nombre_insumo: string; costo_promedio: number; unidad_base: string; stock_minimo?: number; stock_maximo?: number; stock_actual?: number }) => ({
+          id_insumo: ins.id_insumo,
+          nombre: ins.nombre_insumo,
+          costo_promedio: ins.costo_promedio,
+          unidad_medida_compra: ins.unidad_base, // Usar unidad_base como medida de compra por defecto
+          unidad_base: ins.unidad_base,
+          stock_minimo: ins.stock_minimo,
+          stock_maximo: ins.stock_maximo,
+          stock_actual: ins.stock_actual,
+        }));
 
         // Transformar datos de proveedores para que coincidan con el tipo esperado
         const proveedoresFormatted = proveedoresData.map((prov: ProveedorAPI) => ({
@@ -322,6 +411,7 @@ export default function IngresoCompra(): JSX.Element {
         setProveedores(proveedoresFormatted);
         setAllProveedores(proveedoresFormatted); // Para el dropdown de filtro
         setRows(ordenesFormatted);
+        setInsumos(transformedInsumos);
       } catch (err) {
         console.error('Error cargando datos:', err);
         setError('Error al cargar los datos. Intente nuevamente.');
@@ -363,12 +453,27 @@ export default function IngresoCompra(): JSX.Element {
   const [openProvDrawer, setOpenProvDrawer] = useState(false);
   const [provDetail, setProvDetail] = useState<Proveedor | null>(null);
 
+  // Drawer formulario proveedor
+  const [openProvFormDrawer, setOpenProvFormDrawer] = useState(false);
+  const [provFormData, setProvFormData] = useState<FormProveedor>({
+    nombre: "",
+    contacto: null,
+    telefono: null,
+    correo: null,
+    direccion: null,
+    activo: true,
+    es_preferido: false,
+    dias_entrega: null,
+    tiempo_entrega_promedio: null,
+    metodo_entrega: null,
+  });
+
   // Bloquea scroll al abrir drawers
   useEffect(() => {
     const prev = document.body.style.overflow;
-    document.body.style.overflow = (openDrawer || openProvDrawer) ? "hidden" : "";
+    document.body.style.overflow = (openDrawer || openProvDrawer || openProvFormDrawer) ? "hidden" : "";
     return () => { document.body.style.overflow = prev || ""; };
-  }, [openDrawer, openProvDrawer]);
+  }, [openDrawer, openProvDrawer, openProvFormDrawer]);
 
   // Reset paginación cuando cambian filtros
   useEffect(() => {
@@ -467,8 +572,119 @@ export default function IngresoCompra(): JSX.Element {
     if (!deleteProviderModal.provider) return;
     setProveedores((prev) => prev.filter(x => x.id_proveedor !== deleteProviderModal.provider!.id_proveedor));
     setAllProveedores((prev) => prev.filter(x => x.id_proveedor !== deleteProviderModal.provider!.id_proveedor));
+    message.success(`Proveedor "${deleteProviderModal.provider.nombre}" eliminado correctamente.`);
     setDeleteProviderModal({ open: false, provider: null });
   }, [deleteProviderModal.provider]);
+
+  /* ---- Acciones Órdenes ---- */
+  const openEditOrder = (r: Orden) => { setDetail(r); setReadOnly(false); setOpenDrawer(true); };
+  const deleteOrder = (r: Orden) => {
+    setDeleteOrderModal({ open: true, order: r });
+  };
+
+  const confirmDeleteOrder = useCallback(() => {
+    if (!deleteOrderModal.order) return;
+    setRows((prev) => prev.filter(x => x.id_orden !== deleteOrderModal.order!.id_orden));
+    setDeleteOrderModal({ open: false, order: null });
+  }, [deleteOrderModal.order]);
+
+  /* ---- Función para guardar proveedor ---- */
+  // Función para guardar/editar proveedor con integración backend
+  const handleProveedorSubmit = async () => {
+    try {
+      // Validación de teléfono: debe tener 4 u 8 dígitos si se ingresa
+      const telefonoLimpio = provFormData.telefono?.replace(/\D/g, "") || "";
+      if (telefonoLimpio && !(telefonoLimpio.length === 4 || telefonoLimpio.length === 8)) {
+        message.error("El teléfono debe tener exactamente 4 u 8 dígitos.");
+        return;
+      }
+      // Limpiar campos: strings vacíos a undefined/null según corresponda
+      const payload = {
+        nombre_empresa: provFormData.nombre,
+        nombre_contacto: provFormData.contacto?.trim() ? provFormData.contacto : undefined,
+        telefono: telefonoLimpio ? telefonoLimpio : undefined,
+        correo: provFormData.correo?.trim() ? provFormData.correo : undefined,
+        direccion: provFormData.direccion?.trim() ? provFormData.direccion : undefined,
+        estado: provFormData.activo,
+        metodo_entrega: provFormData.metodo_entrega === '' || provFormData.metodo_entrega == null ? null : provFormData.metodo_entrega,
+        es_preferido: provFormData.es_preferido,
+      };
+      // Nunca enviar id_proveedor en el payload de creación
+      let response;
+      if (provFormData.id_proveedor) {
+        // Editar proveedor
+        response = await fetch(`/api/proveedores/${provFormData.id_proveedor}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        // Crear proveedor
+        // Nunca enviar id_proveedor en el payload
+        response = await fetch('/api/proveedores', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      }
+      if (!response.ok) throw new Error('Error al guardar proveedor');
+      // Actualizar lista local
+      const data = await response.json();
+      if (provFormData.id_proveedor) {
+        setProveedores(prev => prev.map(p => p.id_proveedor === provFormData.id_proveedor ? {
+          ...p,
+          nombre: payload.nombre_empresa,
+          contacto: payload.nombre_contacto,
+          telefono: payload.telefono,
+          correo: payload.correo,
+          direccion: payload.direccion,
+          activo: payload.estado,
+          es_preferido: payload.es_preferido,
+          metodo_entrega: payload.metodo_entrega,
+        } : p));
+        message.success('Proveedor actualizado correctamente');
+      } else {
+        setProveedores(prev => [
+          {
+            id_proveedor: data.id_proveedor,
+            nombre: payload.nombre_empresa,
+            contacto: payload.nombre_contacto,
+            telefono: payload.telefono,
+            correo: payload.correo,
+            direccion: payload.direccion,
+            activo: payload.estado,
+            es_preferido: payload.es_preferido,
+            metodo_entrega: payload.metodo_entrega,
+          },
+          ...prev,
+        ]);
+        message.success('Proveedor creado correctamente');
+      }
+      setOpenProvFormDrawer(false);
+      setProvFormData({
+        nombre: "",
+        contacto: null,
+        telefono: null,
+        correo: null,
+        direccion: null,
+        activo: true,
+        es_preferido: false,
+        dias_entrega: null,
+        tiempo_entrega_promedio: null,
+        metodo_entrega: null,
+      });
+    } catch (error) {
+      let errorMessage = '';
+      if (error instanceof Error) errorMessage = error.message;
+      else errorMessage = String(error);
+      if (errorMessage.toLowerCase().includes('forbidden') || errorMessage.toLowerCase().includes('permission') || errorMessage.toLowerCase().includes('policy')) {
+        message.error(`Error de permisos al guardar proveedor. Revisa roles/permisos en el backend. Detalles: ${errorMessage}`);
+      } else {
+        message.error(`Error al guardar proveedor: ${errorMessage}`);
+      }
+      console.error('Error al guardar proveedor:', error);
+    }
+  };
 
   /* ---- Helpers Drawer Órdenes ---- */
   const openNewOrder  = () => { setDetail(null); setReadOnly(false); setOpenDrawer(true); };
@@ -479,6 +695,22 @@ export default function IngresoCompra(): JSX.Element {
 
   return (
     <div className="w-full p-6 lg:p-8 space-y-8">
+      {/* Header con título y botón de regresar */}
+      <div className="mb-6">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate(-1)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M19 12H5M12 19L5 12L12 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Regresar
+          </button>
+          <h1 className="text-2xl font-bold text-gray-900">Ingreso de Compras</h1>
+        </div>
+      </div>
+
       {loading ? (
         <div className="flex items-center justify-center py-12">
           <PiSpinnerBold className="animate-spin text-2xl text-emerald-600 mr-2" />
@@ -504,8 +736,26 @@ export default function IngresoCompra(): JSX.Element {
             <p className="text-sm text-gray-500">Administra proveedores (ver detalles e insumos relacionados).</p>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={() => navigate(-1)} className="px-4 py-2 rounded-md border bg-white hover:bg-gray-50 text-gray-700 font-medium">
-              ← Regresar
+            <button 
+              onClick={() => { 
+                setProvFormData({
+                  nombre: "",
+                  contacto: null,
+                  telefono: null,
+                  correo: null,
+                  direccion: null,
+                  activo: true,
+                  es_preferido: false,
+                  dias_entrega: null,
+                  tiempo_entrega_promedio: null,
+                  metodo_entrega: null,
+                });
+                setOpenProvFormDrawer(true); 
+              }}
+              className="px-4 py-2 rounded-md text-white font-medium"
+              style={{ backgroundColor: '#12443d', border: '1px solid #12443d' }}
+            >
+              + Crear Proveedor
             </button>
           </div>
         </div>
@@ -574,7 +824,22 @@ export default function IngresoCompra(): JSX.Element {
                     <td className="px-4 py-3.5">
                       <div className="flex items-center justify-end gap-1.5">
                         <IconBtn title="Ver" onClick={() => openViewProvider(p)}><PiEyeBold /></IconBtn>
-                        <IconBtn title="Editar" onClick={() => navigate(`/inventario?tab=catalogo&editProveedor=${p.id_proveedor}`)} style={{ color: '#7c3aed' }}>
+                        <IconBtn title="Editar" onClick={() => {
+                          setProvFormData({
+                            id_proveedor: p.id_proveedor,
+                            nombre: p.nombre,
+                            contacto: p.contacto || null,
+                            telefono: p.telefono || null,
+                            correo: p.correo || null,
+                            direccion: p.direccion || null,
+                            activo: p.activo,
+                            es_preferido: p.es_preferido,
+                            dias_entrega: p.dias_entrega || null,
+                            tiempo_entrega_promedio: p.tiempo_entrega_promedio || null,
+                            metodo_entrega: p.metodo_entrega || null,
+                          });
+                          setOpenProvFormDrawer(true);
+                        }} style={{ color: '#7c3aed' }}>
                           <PiPencilSimpleBold />
                         </IconBtn>
                         <IconBtn title="Eliminar" onClick={() => deleteProvider(p)}><PiTrashBold className="text-rose-600" /></IconBtn>
@@ -613,6 +878,13 @@ export default function IngresoCompra(): JSX.Element {
           </div>
           <div className="flex gap-3">
             <button
+              onClick={() => navigate('/inventario?tab=catalogo')}
+              className="h-11 rounded-xl px-4 text-base font-semibold text-white hover:opacity-90 flex items-center gap-2"
+              style={{ backgroundColor: '#6b7280' }}
+            >
+              <PiEyeBold /> Ver Insumos
+            </button>
+            <button
               onClick={openNewOrder}
               className="h-11 rounded-xl bg-emerald-600 px-4 text-base font-semibold text-white hover:bg-emerald-700 flex items-center gap-2"
             >
@@ -629,42 +901,44 @@ export default function IngresoCompra(): JSX.Element {
         </div>
 
         {/* Filtros Órdenes */}
-        <div className="bg-white rounded-2xl shadow p-5 mb-5 flex flex-col gap-5">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-base font-medium text-gray-700 mr-2">Estado:</span>
-            {["Todas", ...Object.keys(counts)].map((estadoKey) => {
-              const count = estadoKey === "Todas" ? rows.length : counts[estadoKey] ?? 0;
-              const label = estadoKey === "Todas" ? `Todas (${count})` : `${estadoKey} (${count})`;
-              if (estadoKey !== "Todas" && count === 0 && status !== estadoKey) return null;
-              return <TabButton key={estadoKey} active={status === estadoKey} onClick={() => setStatus(estadoKey)} label={label} />;
-            })}
-          </div>
-          <div className="flex flex-col sm:flex-row items-center gap-3">
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <label htmlFor="filtroProveedorOrden" className="text-base font-medium text-gray-700 whitespace-nowrap">Proveedor:</label>
-              <select
-                id="filtroProveedorOrden"
-                value={selectedProveedorIdFilter}
-                onChange={(e) => setSelectedProveedorIdFilter(e.target.value)}
-                className="h-11 rounded-lg border border-gray-200 bg-white px-3 text-base text-gray-800 flex-grow sm:w-64"
-              >
-                <option value="Todos">Todos</option>
-                {allProveedores.map((p) => (
-                  <option key={p.id_proveedor} value={p.id_proveedor}>{p.nombre}</option>
-                ))}
-              </select>
-            </div>
-            <div className="relative sm:ml-auto w-full sm:w-auto">
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Buscar N° Orden / Proveedor..."
-                className="h-11 w-full sm:w-80 rounded-lg border border-gray-200 bg-white pl-3 pr-8 text-base"
-              />
+        <div className="bg-white rounded-2xl shadow p-5 mb-5">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-base font-medium text-gray-700 whitespace-nowrap">Estado:</span>
+                {["Todas", ...Object.keys(counts)].map((estadoKey) => {
+                  const count = estadoKey === "Todas" ? rows.length : counts[estadoKey] ?? 0;
+                  const label = estadoKey === "Todas" ? `Todas (${count})` : `${estadoKey} (${count})`;
+                  if (estadoKey !== "Todas" && count === 0 && status !== estadoKey) return null;
+                  return <TabButton key={estadoKey} active={status === estadoKey} onClick={() => setStatus(estadoKey)} label={label} />;
+                })}
+              </div>
+              <div className="flex items-center gap-2">
+                <label htmlFor="filtroProveedorOrden" className="text-base font-medium text-gray-700 whitespace-nowrap">Proveedor:</label>
+                <select
+                  id="filtroProveedorOrden"
+                  value={selectedProveedorIdFilter}
+                  onChange={(e) => setSelectedProveedorIdFilter(e.target.value)}
+                  className="h-11 rounded-lg border border-gray-200 bg-white px-3 text-base text-gray-800 w-64"
+                >
+                  <option value="Todos">Todos</option>
+                  {allProveedores.map((p) => (
+                    <option key={p.id_proveedor} value={p.id_proveedor}>{p.nombre}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="relative w-96">
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Buscar N° Orden / Proveedor..."
+                  className="h-11 w-full rounded-lg border border-gray-200 bg-white pl-3 pr-8 text-base"
+                />
+              </div>
             </div>
             <button
               onClick={() => { setQ(""); setStatus("Todas"); setSelectedProveedorIdFilter("Todos"); }}
-              className="h-11 rounded-lg border px-4 text-base font-semibold text-gray-700 hover:bg-gray-100 flex-shrink-0"
+              className="h-11 rounded-lg border px-4 text-base font-semibold text-gray-700 hover:bg-gray-100 whitespace-nowrap"
             >
               Limpiar
             </button>
@@ -697,10 +971,12 @@ export default function IngresoCompra(): JSX.Element {
                       <td className="px-5 py-4"><OrderState estado={r.estado} /></td>
                       <td className="px-5 py-4 text-right font-bold text-gray-900">{fmtQ(r.total)}</td>
                       <td className="px-5 py-4">
-                        <div className="flex items-center justify-end">
-                          <button onClick={() => openViewOrder(r)} title="Ver" className="p-2.5 rounded-lg hover:bg-emerald-50 text-gray-700 hover:text-emerald-700">
-                            <PiEyeBold className="w-6 h-6" />
-                          </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <IconBtn title="Ver" onClick={() => openViewOrder(r)}><PiEyeBold /></IconBtn>
+                          <IconBtn title="Editar" onClick={() => openEditOrder(r)} style={{ color: '#7c3aed' }}>
+                            <PiPencilSimpleBold />
+                          </IconBtn>
+                          <IconBtn title="Eliminar" onClick={() => deleteOrder(r)}><PiTrashBold className="text-rose-600" /></IconBtn>
                         </div>
                       </td>
                     </tr>
@@ -739,11 +1015,132 @@ export default function IngresoCompra(): JSX.Element {
           <PurchaseOrderForm
             detail={detail}
             readOnly={readOnly}
-            onClose={() => { setOpenDrawer(false); setDetail(null); setReadOnly(false); }}
+            onClose={() => {
+              // Siempre navegar al catálogo cuando se cierra el drawer
+              navigate('/inventario?tab=catalogo');
+            }}
             setRows={setRows}
             proveedores={proveedores}
+            insumos={insumos}
           />
         </div>
+      </DrawerRight>
+
+      {/* Drawer: Formulario Proveedor */}
+      <DrawerRight
+        open={openProvFormDrawer}
+        onClose={() => setOpenProvFormDrawer(false)}
+        title={provFormData.id_proveedor ? "Editar Proveedor" : "Crear Proveedor"}
+        widthClass="w-full md:w-[600px]"
+      >
+        <form
+          className="flex flex-col gap-6 p-2 md:p-4"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            await handleProveedorSubmit();
+          }}
+        >
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <label className="block font-semibold mb-1">Nombre de la Empresa *</label>
+              <input
+                className={INPUT_CLS}
+                required
+                value={provFormData.nombre}
+                onChange={e => setProvFormData(f => ({ ...f, nombre: e.target.value }))}
+                placeholder="Ingrese el nombre de la empresa"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">Nombre del Contacto</label>
+              <input
+                className={INPUT_CLS}
+                value={provFormData.contacto ?? ''}
+                onChange={e => setProvFormData(f => ({ ...f, contacto: e.target.value }))}
+                placeholder="Ingrese el nombre del contacto"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">Teléfono</label>
+              <input
+                className={INPUT_CLS}
+                value={provFormData.telefono ?? ''}
+                onChange={e => setProvFormData(f => ({ ...f, telefono: e.target.value }))}
+                placeholder="Ingrese el número de teléfono"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">Correo Electrónico</label>
+              <input
+                className={INPUT_CLS}
+                type="email"
+                value={provFormData.correo ?? ''}
+                onChange={e => setProvFormData(f => ({ ...f, correo: e.target.value }))}
+                placeholder="Ingrese el correo electrónico"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">Dirección</label>
+              <input
+                className={INPUT_CLS}
+                value={provFormData.direccion ?? ''}
+                onChange={e => setProvFormData(f => ({ ...f, direccion: e.target.value }))}
+                placeholder="Ingrese la dirección completa"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">Método de Entrega</label>
+              <select
+                className={INPUT_CLS}
+                value={provFormData.metodo_entrega ?? ''}
+                onChange={e => {
+                  const val = e.target.value;
+                  setProvFormData(f => ({ ...f, metodo_entrega: val === '' ? null : val }));
+                }}
+              >
+                <option value="">Seleccionar método</option>
+                <option value="Recepcion">Recepcion</option>
+                <option value="Recoger en tienda">Recoger en tienda</option>
+              </select>
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">Estado</label>
+              <select
+                className={INPUT_CLS}
+                value={provFormData.activo === false ? 'inactivo' : 'activo'}
+                onChange={e => setProvFormData(f => ({ ...f, activo: e.target.value === 'activo' ? true : false }))}
+              >
+                <option value="activo">Activo</option>
+                <option value="inactivo">Desactivado</option>
+              </select>
+            </div>
+            <div>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={provFormData.es_preferido}
+                  onChange={e => setProvFormData(f => ({ ...f, es_preferido: e.target.checked }))}
+                />
+                Proveedor preferido
+              </label>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 mt-4">
+            <button
+              type="button"
+              className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
+              onClick={() => setOpenProvFormDrawer(false)}
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700"
+            >
+              {provFormData.id_proveedor ? 'Guardar Cambios' : 'Crear Proveedor'}
+            </button>
+          </div>
+        </form>
       </DrawerRight>
 
       {/* Modal: Proveedor */}
@@ -791,6 +1188,36 @@ export default function IngresoCompra(): JSX.Element {
         </div>
       )}
 
+      {/* Modal de confirmación de eliminación de orden */}
+      {deleteOrderModal.open && deleteOrderModal.order && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center mb-4">
+              <PiTrashBold className="text-rose-600 text-2xl mr-3" />
+              <h3 className="text-lg font-semibold text-gray-900">Confirmar eliminación</h3>
+            </div>
+            <p className="text-gray-600 mb-6">
+              ¿Estás seguro de que deseas eliminar la orden <strong>"{deleteOrderModal.order.numero_orden ?? deleteOrderModal.order.id_orden}"</strong>?
+              Esta acción no se puede deshacer.
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setDeleteOrderModal({ open: false, order: null })}
+                className="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmDeleteOrder}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -799,108 +1226,343 @@ export default function IngresoCompra(): JSX.Element {
  * ===== Formulario de Orden de Compra =====
  * ====================================================================== */
 function PurchaseOrderForm({
-  detail, readOnly, onClose, setRows, proveedores
+  detail, readOnly, onClose, setRows, proveedores, insumos
 }: {
   detail: Orden | null;
   readOnly: boolean;
   onClose: () => void;
   setRows: React.Dispatch<React.SetStateAction<Orden[]>>;
   proveedores: Proveedor[];
+  insumos: InsumoRow[];
 }) {
   const [selectedProveedorId, setSelectedProveedorId] = useState<string>(String(detail?.id_proveedor ?? ""));
-  const [fecha, setFecha] = useState<string>(detail?.fecha ? String(detail.fecha).slice(0, 10) : new Date().toISOString().slice(0, 10));
+  const [fecha, setFecha] = useState<string>(detail?.fecha ? String(detail.fecha).slice(0, 10) : (() => {
+    const today = new Date();
+    return new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  })());
+  const [fechaEntregaEstimada, setFechaEntregaEstimada] = useState<string>(detail?.fecha_entrega_estimada ? String(detail.fecha_entrega_estimada).slice(0, 10) : '');
+  const [tipoPago, setTipoPago] = useState<string>(detail?.tipo_pago || 'credito');
+  const [estado, setEstado] = useState<string>(detail?.estado || 'pendiente');
+  const [motivoGeneracion, setMotivoGeneracion] = useState<string>(detail?.motivo_generacion || '');
   const [nota, setNota] = useState<string>("");
   const [items, setItems] = useState<Item[]>([{ id: crypto.randomUUID(), descripcion: "Item de ejemplo", qty: 1, precio: 10 }]);
   const [saving, setSaving] = useState(false);
-  const [focusRowId, setFocusRowId] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ nombre: string; username: string } | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (detail?.id_orden) {
-      const mock: Item[] =
-        detail.id_orden === "oc1"
-          ? [
-              { id: crypto.randomUUID(), id_insumo: 1, descripcion: "Pan para Shuco", qty: 50, precio: 1.5 },
-              { id: crypto.randomUUID(), id_insumo: 7, descripcion: "Papas (libra)", qty: 10, precio: 5 },
-            ]
-          : [{ id: crypto.randomUUID(), descripcion: "Otro item", qty: 2, precio: 25 }];
-      setItems(mock);
+      // Load order details
+      const loadOrder = async () => {
+        try {
+          const response = await fetch(`${import.meta.env.VITE_API_URL}/ordenes-compra/${detail.id_orden}/detalles`, {
+            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+          });
+          if (response.ok) {
+            const detalles = await response.json() as DetalleOrdenCompra[];
+            const loadedItems = await Promise.all(detalles.map(async (d) => {
+              // Obtener información completa del insumo incluyendo stock
+              let stockInfo = {};
+              try {
+                const insumoResponse = await fetch(`${import.meta.env.VITE_API_URL}/inventario/insumos/${d.id_insumo}`, {
+                  headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+                });
+                if (insumoResponse.ok) {
+                  const insumoData = await insumoResponse.json();
+                  stockInfo = {
+                    stock_minimo: insumoData.stock_minimo,
+                    stock_maximo: insumoData.stock_maximo,
+                    stock_actual: insumoData.stock_actual,
+                  };
+                }
+              } catch (error) {
+                console.error('Error obteniendo información de stock:', error);
+              }
+
+              return {
+                id: d.id_detalle.toString(),
+                id_insumo: d.id_insumo,
+                descripcion: d.descripcion_insumo || '',
+                qty: d.cantidad,
+                precio: d.precio_unitario,
+                id_presentacion: d.id_presentacion,
+                presentacion: d.presentacion || '',
+                unidad_base: d.unidad_base || '',
+                unidades_por_presentacion: d.unidades_por_presentacion || 1,
+                cantidad_recibida: d.cantidad_recibida || 0,
+                ...stockInfo,
+              };
+            }));
+            setItems(loadedItems);
+          }
+        } catch (error) {
+          console.error('Error loading order details:', error);
+        }
+      };
+      loadOrder();
       setSelectedProveedorId(String(detail.id_proveedor ?? ""));
       setFecha(detail.fecha ? String(detail.fecha).slice(0, 10) : new Date().toISOString().slice(0, 10));
+      setFechaEntregaEstimada(detail.fecha_entrega_estimada ? String(detail.fecha_entrega_estimada).slice(0, 10) : '');
+      setTipoPago(detail.tipo_pago || 'credito');
+      setEstado(detail.estado || 'pendiente');
+      setMotivoGeneracion(detail.motivo_generacion || '');
+      setNota(detail.nota || '');
     } else {
       setItems([{ id: crypto.randomUUID(), descripcion: "", qty: 1, precio: 0 }]);
       setNota("");
       setSelectedProveedorId("");
       setFecha(new Date().toISOString().slice(0, 10));
+      setFechaEntregaEstimada('');
+      setTipoPago('credito');
+      setMotivoGeneracion('');
     }
   }, [detail]);
 
-  const subtotal = useMemo(() => items.reduce((acc, it) => acc + (it.qty * it.precio || 0), 0), [items]);
+  // Fetch current user
+  useEffect(() => {
+    const fetchCurrentUser = async () => {
+      try {
+        const user = await getProfile();
+        setCurrentUser({ nombre: user.nombre, username: user.username });
+      } catch (error) {
+        console.error('Error fetching current user:', error);
+      }
+    };
+    fetchCurrentUser();
+  }, []);
+
+  const subtotal = useMemo(() => items.reduce((acc, it) => acc + (it.qty * (it.unidades_por_presentacion || 1) * it.precio || 0), 0), [items]);
   const iva = useMemo(() => +(subtotal * 0.12).toFixed(2), [subtotal]);
   const total = useMemo(() => +(subtotal + iva).toFixed(2), [subtotal, iva]);
 
-  async function generateOrderNumber(targetDate: string): Promise<string> {
-    const y = new Date(targetDate || new Date()).getFullYear();
-    const randomNum = String(Math.floor(Math.random() * 900) + 100);
-    return `OC-${y}-${randomNum}`;
-  }
+  // (Eliminada función generateOrderNumber, ya no se usa)
 
-  const handleSave = async (status: "Pendiente" | "Aprobada") => {
-    if (!selectedProveedorId) return alert("Por favor, selecciona un proveedor.");
-    if (!fecha) return alert("Por favor, ingresa una fecha.");
-    if (items.length === 0 || items.every((it) => !(it.descripcion || "").trim() && !it.id_insumo)) return alert("Agrega al menos un ítem válido.");
+  // (Eliminado require, ahora se usa import al inicio del archivo)
+  const handleSave = async (aprobarAutomaticamente = false) => {
+    if (!selectedProveedorId) return message.error("Por favor, selecciona un proveedor.");
+    if (!fecha) return message.error("Por favor, ingresa una fecha.");
+    if (fechaEntregaEstimada && new Date(fechaEntregaEstimada) <= new Date(fecha)) {
+      return message.error("La fecha de entrega estimada debe ser posterior a la fecha de la orden.");
+    }
+    if (items.length === 0 || items.every((it) => !(it.descripcion || "").trim() && !it.id_insumo)) return message.error("Agrega al menos un ítem válido.");
 
     setSaving(true);
-    let numeroFinal = detail?.numero_orden || "";
-    if (!detail && !numeroFinal) numeroFinal = await generateOrderNumber(fecha);
-    const provData = proveedores.find((p) => String(p.id_proveedor) === selectedProveedorId);
+    try {
+      // Payload para orden_compra según modelo SQL
+      const ordenPayload = {
+        id_proveedor: Number(selectedProveedorId),
+        tipo_orden: "manual",
+        motivo_generacion: motivoGeneracion || nota || undefined,
+        tipo_pago: tipoPago,
+        fecha_entrega_estimada: fechaEntregaEstimada || fecha,
+        fecha: fecha,
+        estado: aprobarAutomaticamente ? "recibida" : "pendiente",
+      };
+      let ordenResult: Record<string, unknown>;
+      if (detail && detail.id_orden) {
+        // Editar orden existente (solo campos editables)
+        ordenResult = await updateOrdenCompra(detail.id_orden, ordenPayload);
+        if (ordenResult.id_orden && Array.isArray(items)) {
+          for (const item of items) {
+            await createDetalleOrdenCompra({
+              id_orden: String(ordenResult.id_orden),
+              id_insumo: item.id_insumo,
+              qty: item.qty,
+              precio: item.precio,
+              descripcion: item.descripcion,
+              id: item.id,
+              id_presentacion: item.id_presentacion
+            });
+          }
+        }
+        setRows(prev => prev.map(r => r.id_orden === detail.id_orden ? {
+          ...r,
+          id_proveedor: ordenResult.id_proveedor as number,
+          proveedor: proveedores.find(p => p.id_proveedor === ordenResult.id_proveedor) ? { nombre: proveedores.find(p => p.id_proveedor === ordenResult.id_proveedor)!.nombre } : undefined,
+        } : r));
+        message.success("Orden de compra actualizada correctamente");
+      } else {
+        // Crear nueva orden
+        ordenResult = await createOrdenCompra({ ...ordenPayload, estado: "pendiente", items });
+        if (ordenResult.id_orden && Array.isArray(items)) {
+          for (const item of items) {
+            await createDetalleOrdenCompra({
+              ...item,
+              id_orden: String(ordenResult.id_orden),
+              cantidad_recibida: aprobarAutomaticamente ? item.qty * (item.unidades_por_presentacion || 1) : 0,
+            });
+          }
+        }
 
-    const saved: Orden = {
-      id_orden: detail?.id_orden || `tmp-${Date.now()}`,
-      numero_orden: numeroFinal || null,
-      fecha,
-      id_proveedor: selectedProveedorId ? Number(selectedProveedorId) : null,
-      proveedor: provData ? { nombre: provData.nombre } : undefined,
-      total,
-      estado: status,
-      items_count: items.length,
-    };
-    await new Promise((res) => setTimeout(res, 600));
-    setRows((prev) => (detail ? prev.map((r) => (r.id_orden === detail.id_orden ? saved : r)) : [saved, ...prev]));
-    setSaving(false);
-    onClose();
+        // Si se aprueba automáticamente, actualizar el estado a "recibida" para activar los triggers
+        if (aprobarAutomaticamente) {
+          await updateOrdenCompra(String(ordenResult.id_orden), { estado: "recibida" });
+        }
+
+        setRows(prev => [
+          {
+            id_orden: ordenResult.id_orden as string,
+            numero_orden: ordenResult.numero_orden as string || ordenResult.id_orden as string,
+            fecha: ordenResult.fecha_orden as string,
+            id_proveedor: ordenResult.id_proveedor as number,
+            proveedor: proveedores.find(p => p.id_proveedor === ordenResult.id_proveedor) ? { nombre: proveedores.find(p => p.id_proveedor === ordenResult.id_proveedor)!.nombre } : undefined,
+            total: ordenResult.total as number,
+            estado: aprobarAutomaticamente ? "recibida" : "pendiente",
+            items_count: items.length,
+          },
+          ...prev
+        ]);
+        message.success(aprobarAutomaticamente ? "Orden de compra creada y aprobada correctamente" : "Orden de compra creada correctamente");
+      }
+      onClose();
+    } catch (error) {
+      let msg = detail ? "Error al actualizar la orden de compra." : "Error al crear la orden de compra.";
+      if (error instanceof Error) msg = error.message;
+      message.error(msg);
+      console.error(msg, error);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const addItem = () => {
     const id = crypto.randomUUID();
     setItems((p) => [...p, { id, descripcion: "", qty: 1, precio: 0 }]);
-    setFocusRowId(id);
   };
   const removeItem = (id: string) => setItems((p) => p.filter((i) => i.id !== id));
   const updateItem = (id: string, patch: Partial<Item>) => setItems((p) => p.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+
+  // Función para actualizar presentación en la base de datos
+  const updatePresentacion = async (idPresentacion: number, updates: { descripcion_presentacion?: string; unidades_por_presentacion?: number; unidad_compra?: string }) => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/inventario/presentaciones/${idPresentacion}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+        },
+        body: JSON.stringify(updates),
+      });
+      if (!response.ok) {
+        console.error('Error actualizando presentación:', await response.text());
+      }
+    } catch (error) {
+      console.error('Error actualizando presentación:', error);
+    }
+  };
+
+  // Función para actualizar costo_unitario en lote_insumo
+  const updateLoteCostoUnitario = async (idLote: number, costoUnitario: number) => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/inventario/lotes/${idLote}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+        },
+        body: JSON.stringify({ costo_unitario: costoUnitario }),
+      });
+      if (!response.ok) {
+        console.error('Error actualizando lote:', await response.text());
+      }
+    } catch (error) {
+      console.error('Error actualizando lote:', error);
+    }
+  };
 
   const canSave = !readOnly && !!fecha && !!selectedProveedorId && items.length > 0 && items.some((it) => (it.descripcion || "").trim() || it.id_insumo);
 
   return (
     <>
       <form className="p-6 lg:p-7 space-y-6" onSubmit={(e) => e.preventDefault()}>
-      {/* Proveedor/Fecha/Número */}
-      <section className="bg-gray-50 rounded-xl border border-gray-200 p-5 grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Proveedor/Fecha/Número */}  
+      <section className="bg-gray-50 rounded-xl border border-gray-200 p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
         <div>
           <label htmlFor="proveedorSelectForm" className="block text-xs font-semibold text-gray-600 mb-1">Proveedor *</label>
-          <select id="proveedorSelectForm" value={selectedProveedorId} onChange={(e) => setSelectedProveedorId(e.target.value)} disabled={readOnly} required className={INPUT_CLS}>
+          <select id="proveedorSelectForm" value={selectedProveedorId} onChange={e => setSelectedProveedorId(e.target.value)} disabled={readOnly} required className={INPUT_CLS}>
             <option value="" disabled>Selecciona...</option>
             {proveedores.map((p) => (<option key={p.id_proveedor} value={p.id_proveedor}>{p.nombre}</option>))}
           </select>
         </div>
         <div>
           <label htmlFor="fechaInputForm" className="block text-xs font-semibold text-gray-600 mb-1">Fecha *</label>
-          <input id="fechaInputForm" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={readOnly} required className={INPUT_CLS} />
+          <input id="fechaInputForm" type="date" value={fecha} onChange={e => setFecha(e.target.value)} disabled={true} required className={INPUT_CLS} />
+        </div>
+        <div>
+          <label htmlFor="fechaEntregaInputForm" className="block text-xs font-semibold text-gray-600 mb-1">Fecha entrega estimada</label>
+          <input
+            id="fechaEntregaInputForm"
+            type="date"
+            value={fechaEntregaEstimada}
+            onChange={e => {
+              const selectedDate = new Date(e.target.value);
+              const today = new Date();
+              today.setHours(0, 0, 0, 0); // Reset time to start of day
+
+              if (selectedDate <= today) {
+                message.error("La fecha de entrega estimada debe ser posterior a hoy");
+                return;
+              }
+              setFechaEntregaEstimada(e.target.value);
+            }}
+            disabled={readOnly}
+            className={INPUT_CLS}
+          />
+        </div>
+        <div>
+          <label htmlFor="tipoPagoSelectForm" className="block text-xs font-semibold text-gray-600 mb-1">Tipo de pago</label>
+          <select id="tipoPagoSelectForm" value={tipoPago} onChange={e => setTipoPago(e.target.value)} disabled={readOnly} className={INPUT_CLS}>
+            <option value="credito">Crédito</option>
+            <option value="efectivo">Efectivo</option>
+            <option value="transferencias">Transferencias</option>
+            <option value="tarjeta">Tarjeta</option>
+          </select>
+        </div>
+        <div>
+          <label htmlFor="tipoOrdenInputForm" className="block text-xs font-semibold text-gray-600 mb-1">Tipo de orden</label>
+          <input id="tipoOrdenInputForm" value="manual" readOnly disabled className={`${INPUT_CLS} bg-gray-100 text-gray-500`} />
         </div>
         <div>
           <label htmlFor="numeroOrdenInputForm" className="block text-xs font-semibold text-gray-600 mb-1">N° Orden</label>
-          <input id="numeroOrdenInputForm" value={detail?.numero_orden || ""} readOnly disabled className={`${INPUT_CLS} bg-gray-100 text-gray-500`} placeholder="(Automático)" />
+          <input id="numeroOrdenInputForm" value={detail?.numero_orden || "(Automático)"} readOnly disabled className={`${INPUT_CLS} bg-gray-100 text-gray-500`} />
         </div>
       </section>
+
+      {/* Botón Ver Insumos */}
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => navigate('/inventario?tab=catalogo&from=orden-form')}
+          className="px-4 py-2 rounded-lg text-gray-700 bg-gray-100 hover:bg-gray-200 flex items-center gap-2 text-sm font-medium transition-colors"
+        >
+          <PiEyeBold className="w-4 h-4" />
+          Ver Insumos
+        </button>
+      </div>
+
+      {/* Usuario que crea la orden */}
+      {currentUser && (
+        <div className="bg-blue-50 rounded-lg border border-blue-200 p-3">
+          <div className="text-sm text-blue-800">
+            <span className="font-semibold">Creado por:</span> {currentUser.nombre} ({currentUser.username})
+          </div>
+        </div>
+      )}
+      {/* Estado dinámico */}
+      <div className="mb-2">
+        <span className={`inline-block px-3 py-1 rounded-full font-semibold text-sm ${
+          estado === 'pendiente' ? 'bg-yellow-100 text-yellow-800' :
+          estado === 'aprobada' ? 'bg-blue-100 text-blue-800' :
+          estado === 'recibida' ? 'bg-green-100 text-green-800' :
+          estado === 'rechazado' ? 'bg-red-100 text-red-800' :
+          'bg-gray-100 text-gray-800'
+        }`}>
+          Estado: {estado.charAt(0).toUpperCase() + estado.slice(1)}
+        </span>
+        <span className="ml-2 inline-block px-2 py-1 rounded bg-gray-100 text-gray-700 text-xs">
+          Tipo: manual
+        </span>
+      </div>
 
       {/* Detalle */}
       <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
@@ -916,8 +1578,12 @@ function PurchaseOrderForm({
           <table className="w-full text-base">
             <thead className="bg-gray-50 text-gray-700">
               <tr>
-                <th className="p-3 text-left font-semibold">Descripción / Insumo</th>
+                <th className="p-3 text-left font-semibold">Insumo</th>
+                <th className="p-3 text-left font-semibold w-40">Descripción</th>
+                <th className="p-3 text-left font-semibold w-24">Unidades</th>
+                <th className="p-3 text-left font-semibold w-32">Unidad Base</th>
                 <th className="p-3 text-right font-semibold w-28">Cant.</th>
+                <th className="p-3 text-right font-semibold w-28">Recibido</th>
                 <th className="p-3 text-right font-semibold w-36">P. Unit.</th>
                 <th className="p-3 text-right font-semibold w-36">Subtotal</th>
                 <th className="p-3 w-10"></th>
@@ -927,22 +1593,227 @@ function PurchaseOrderForm({
               {items.map((it) => (
                 <tr key={it.id}>
                   <td className="p-2 align-top">
-                    <InsumoSearch
+                    <select
                       disabled={readOnly}
-                      value={it.descripcion}
-                      onChangeText={(t) => updateItem(it.id, { descripcion: t, id_insumo: undefined })}
-                      onSelect={(opt) => updateItem(it.id, { id_insumo: opt.id_insumo, descripcion: opt.nombre, precio: opt.costo_promedio ?? it.precio })}
-                      insumosSeed={INSUMOS_SEED_COMPRAS}
-                      autoFocus={focusRowId === it.id}
+                      value={it.id_insumo || ""}
+                      onChange={async (e) => {
+                        const id_insumo = Number(e.target.value);
+                        if (!id_insumo) {
+                          updateItem(it.id, {
+                            id_insumo: undefined,
+                            descripcion: "",
+                            id_presentacion: undefined,
+                            descripcion_presentacion: undefined,
+                            unidades_por_presentacion: undefined,
+                            unidad_compra: undefined
+                          });
+                          return;
+                        }
+                        const insumo = insumos.find(i => i.id_insumo === id_insumo);
+                        if (!insumo) return;
+
+                        // No validar aquí, se valida en el input de cantidad
+                        let id_presentacion: number | null = null;
+                        let descripcion_presentacion: string | null = null;
+                        let unidades_por_presentacion: number | null = null;
+                        let lotes_disponibles: Array<{
+                          id_lote: number;
+                          id_insumo: number;
+                          cantidad_inicial: number;
+                          cantidad_actual: number;
+                          costo_unitario: number;
+                          fecha_vencimiento?: string;
+                          ubicacion?: string;
+                        }> = [];
+                        try {
+                          const response = await fetch(`${import.meta.env.VITE_API_URL}/inventario/insumos/${id_insumo}/presentaciones`, {
+                            headers: {
+                              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+                            },
+                          });
+                          if (response.ok) {
+                            const responseData = await response.json();
+                            const data = responseData.data;
+
+                            if (!data || !Array.isArray(data)) {
+                              console.error('La respuesta de la API no contiene un array válido en data:', data);
+                              return;
+                            }
+
+                            // Buscar primero la presentación principal, si no hay, tomar la primera
+                            const principal = data.find((p: PresentacionCompleta) => p.presentacion.es_principal) || data[0];
+                            if (principal) {
+                              id_presentacion = principal.presentacion.id_presentacion;
+                              descripcion_presentacion = principal.presentacion.descripcion_presentacion;
+                              unidades_por_presentacion = principal.presentacion.unidades_por_presentacion || 1; // Por defecto 1 si no está definido
+                              lotes_disponibles = principal.lotes_disponibles || [];
+                            }
+                          }
+                        } catch (e) {
+                          console.error('Error obteniendo presentación:', e);
+                        }
+                        const updateData: Partial<Item> = {
+                          id_insumo,
+                          descripcion: insumo.nombre,
+                          precio: insumo.costo_promedio ?? it.precio,
+                          unidad_base: insumo.unidad_base,
+                          // No autocompletar qty ni unidades_por_presentacion
+                          stock_minimo: insumo.stock_minimo,
+                          stock_maximo: insumo.stock_maximo,
+                          stock_actual: insumo.stock_actual,
+                        };
+
+                        if (id_presentacion !== null) {
+                          updateData.id_presentacion = id_presentacion;
+                          updateData.descripcion_presentacion = descripcion_presentacion;
+                          updateData.unidades_por_presentacion = unidades_por_presentacion;
+                          updateData.lotes_disponibles = lotes_disponibles;
+                        }
+
+                        updateItem(it.id, updateData);
+                      }}
+                      className={INPUT_CLS}
+                    >
+                      <option value="">Seleccionar insumo...</option>
+                      {(Array.isArray(insumos) ? insumos : [])
+                        .filter((ins) => {
+                          // Filtrar insumos que ya están seleccionados en otras líneas
+                          return !items.some((otherItem) =>
+                            otherItem.id !== it.id && otherItem.id_insumo === ins.id_insumo
+                          );
+                        })
+                        .map((ins) => (
+                          <option key={ins.id_insumo} value={ins.id_insumo}>{ins.nombre}</option>
+                        ))
+                      }
+                    </select>
+                    {it.id_insumo && (
+                      <div className="mt-1 text-xs">
+                        <div className={`font-medium ${
+                          it.stock_maximo && it.qty > it.stock_maximo ? 'text-red-600' :
+                          it.stock_minimo && it.qty < it.stock_minimo ? 'text-orange-600' :
+                          'text-gray-600'
+                        }`}>
+                          Stock actual: {it.stock_actual || 0}
+                          {it.cantidad_recibida && it.cantidad_recibida > 0 && (
+                            <span className="text-blue-600"> (+{it.cantidad_recibida} pendiente)</span>
+                          )}
+                          {it.stock_minimo && it.stock_maximo && (
+                            <span> | Mín: {it.stock_minimo} | Máx: {it.stock_maximo}</span>
+                          )}
+                          {it.stock_maximo && (() => {
+                            const exceso = (it.stock_actual || 0) + it.qty - it.stock_maximo;
+                            return exceso > 0 ? (
+                              <span className="ml-2 font-bold text-red-600 flex items-center gap-1">
+                                <PiWarningBold className="w-4 h-4" />
+                                Excede máximo ({exceso} unidades extra)
+                              </span>
+                            ) : null;
+                          })()}
+                        </div>
+                        {(() => {
+                          // Calcular sugerencia inteligente basada en stock actual
+                          const stockActual = it.stock_actual || 0;
+                          const stockMinimo = it.stock_minimo || 0;
+                          const stockMaximo = it.stock_maximo || 0;
+
+                          let sugerencia = null;
+                          let mensajeSugerencia = '';
+
+                          if (stockMinimo > 0 && stockMaximo > 0) {
+                            if (stockActual < stockMinimo) {
+                              // Si está por debajo del mínimo, sugerir llegar al máximo
+                              sugerencia = stockMaximo - stockActual;
+                              mensajeSugerencia = `Sugerido: ${sugerencia} (para llegar al máximo desde mínimo)`;
+                            } else if (stockActual < stockMaximo) {
+                              // Si está entre mínimo y máximo, sugerir llegar al máximo
+                              sugerencia = stockMaximo - stockActual;
+                              mensajeSugerencia = `Sugerido: ${sugerencia} (para llegar al máximo)`;
+                            }
+                          }
+
+                          return sugerencia && sugerencia > 0 ? (
+                            <span className="ml-2 text-blue-600 font-medium">
+                              {mensajeSugerencia}
+                            </span>
+                          ) : null;
+                        })()}
+                      </div>
+                    )}
+                  </td>
+                  <td className="p-2 align-top">
+                    <input
+                      disabled={readOnly}
+                      type="text"
+                      value={it.descripcion_presentacion || ''}
+                      onChange={async (e) => {
+                        const newValue = e.target.value;
+                        updateItem(it.id, { descripcion_presentacion: newValue });
+                        if (it.id_presentacion) {
+                          await updatePresentacion(it.id_presentacion, { descripcion_presentacion: newValue });
+                        }
+                      }}
+                      className={INPUT_CLS}
+                      placeholder="Descripción"
                     />
                   </td>
+                  <td className="p-2 align-top">
+                    <input
+                      disabled={readOnly}
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={it.unidades_por_presentacion || ''}
+                      onChange={async (e) => {
+                        const newValue = Number(e.target.value) || null;
+                        updateItem(it.id, { unidades_por_presentacion: newValue });
+                        if (it.id_presentacion) {
+                          await updatePresentacion(it.id_presentacion, { unidades_por_presentacion: newValue || undefined });
+                        }
+                      }}
+                      className={INPUT_CLS}
+                      placeholder="Unidades"
+                    />
+                  </td>
+                  <td className="p-2 align-top text-gray-700">{it.unidad_base || '-'}</td>
                   <td className="p-2 align-top text-right">
-                    <input disabled={readOnly} type="number" min={1} step={1} value={it.qty} onChange={(e) => updateItem(it.id, { qty: Number(e.target.value) || 1 })} className={`${INPUT_CLS} text-right`} />
+                    <input
+                      disabled={readOnly}
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={it.qty}
+                      onChange={(e) => {
+                        const newQty = Number(e.target.value) || 1;
+                        // Validar si excede el stock máximo considerando stock actual + cantidad a ingresar
+                        // No incluir cantidad_recibida porque ya está contabilizada en stock_actual
+                        if (it.stock_maximo && ((it.stock_actual || 0) + newQty) > it.stock_maximo) {
+                          message.warning(`La cantidad ingresada excede el stock máximo permitido (${it.stock_maximo - (it.stock_actual || 0)} unidades disponibles).`);
+                        }
+                        updateItem(it.id, { qty: newQty });
+                      }}
+                      className={`${INPUT_CLS} text-right`}
+                    />
+                  </td>
+                  <td className="p-2 align-top text-right text-gray-700">
+                    {it.cantidad_recibida || 0} / {(it.qty || 0) * (it.unidades_por_presentacion || 1)}
                   </td>
                   <td className="p-2 align-top text-right">
-                    <input disabled={readOnly} type="number" min={0} step={0.01} value={it.precio} onChange={(e) => updateItem(it.id, { precio: Number(e.target.value) || 0 })} className={`${INPUT_CLS} text-right`} />
+                    <input disabled={readOnly} type="number" min={0} step={0.01} value={it.precio} onChange={async (e) => {
+                      const newPrecio = Number(e.target.value) || 0;
+                      updateItem(it.id, { precio: newPrecio });
+                      
+                      // Actualizar costo_unitario en lotes disponibles
+                      if (it.lotes_disponibles && it.lotes_disponibles.length > 0) {
+                        // Actualizar el primer lote disponible (el más antiguo)
+                        const lotePrincipal = it.lotes_disponibles[0];
+                        if (lotePrincipal) {
+                          await updateLoteCostoUnitario(lotePrincipal.id_lote, newPrecio);
+                        }
+                      }
+                    }} className={`${INPUT_CLS} text-right`} />
                   </td>
-                  <td className="p-2 align-top text-right font-semibold text-gray-800">{fmtQ(it.qty * it.precio)}</td>
+                  <td className="p-2 align-top text-right font-semibold text-gray-800">{fmtQ((it.qty || 0) * (it.unidades_por_presentacion || 1) * (it.precio || 0))}</td>
                   <td className="p-2 align-top text-center">
                     {!readOnly && items.length > 1 && (
                       <button type="button" onClick={() => removeItem(it.id)} title="Quitar línea" className="p-2 rounded text-rose-600 hover:bg-rose-50">
@@ -952,7 +1823,7 @@ function PurchaseOrderForm({
                   </td>
                 </tr>
               ))}
-              {items.length === 0 && (<tr><td colSpan={5} className="p-4 text-center text-gray-500 italic">Agrega al menos un ítem.</td></tr>)}
+              {items.length === 0 && (<tr><td colSpan={7} className="p-4 text-center text-gray-500 italic">Agrega al menos un ítem.</td></tr>)}
             </tbody>
           </table>
         </div>
@@ -962,7 +1833,20 @@ function PurchaseOrderForm({
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 lg:col-span-2">
           <div className="text-base font-bold text-gray-800 mb-3">Notas</div>
-          <textarea disabled={readOnly} className={`${INPUT_CLS} min-h-[110px]`} value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Instrucciones especiales..." />
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="motivoNotasForm" className="block text-sm font-medium text-gray-700 mb-1">Motivo de generación</label>
+              <input
+                id="motivoNotasForm"
+                type="text"
+                value={motivoGeneracion}
+                onChange={e => setMotivoGeneracion(e.target.value)}
+                disabled={readOnly}
+                className={`${INPUT_CLS} text-sm`}
+                placeholder="Motivo de la orden de compra"
+              />
+            </div>
+          </div>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
           <div className="text-base font-bold text-gray-800 mb-3">Resumen</div>
@@ -973,13 +1857,13 @@ function PurchaseOrderForm({
           </div>
           {!readOnly ? (
             <div className="mt-4 space-y-3">
-              <button type="button" onClick={() => handleSave("Pendiente")} disabled={!canSave || saving} className="h-11 w-full rounded-lg border px-4 text-base font-semibold hover:bg-gray-50 disabled:opacity-60 flex items-center justify-center gap-2">
+              <button type="button" onClick={() => handleSave(false)} disabled={!canSave || saving} className="h-11 w-full rounded-lg border px-4 text-base font-semibold hover:bg-gray-50 disabled:opacity-60 flex items-center justify-center gap-2">
                 {saving ? <PiSpinnerBold className="animate-spin" /> : <PiFloppyDiskBold />} {saving ? "Guardando..." : "Guardar Borrador"}
               </button>
-              <button type="button" onClick={() => handleSave("Aprobada")} disabled={!canSave || saving} className="h-11 w-full rounded-lg bg-emerald-600 px-4 text-base font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 flex items-center justify-center gap-2">
-                {saving ? <PiSpinnerBold className="animate-spin" /> : "✔️"} {saving ? "Guardando..." : "Guardar y Aprobar"}
+              <button type="button" onClick={() => handleSave(true)} disabled={!canSave || saving} className="h-11 w-full rounded-lg bg-emerald-600 px-4 text-base font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 flex items-center justify-center gap-2">
+                {saving ? <PiSpinnerBold className="animate-spin" /> : <PiPackageBold />} {saving ? "Guardando..." : "Guardar y Aprobar"}
               </button>
-              <button type="button" onClick={onClose} className="h-10 w-full rounded-lg border px-4 text-base font-semibold text-gray-700 hover:bg-gray-100">
+              <button type="button" onClick={onClose} className="h-10 w-full rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-red-50 hover:text-red-700 hover:border-red-300">
                 Cancelar
               </button>
             </div>
@@ -1184,106 +2068,6 @@ function ProviderInsumosModal({ id_proveedor, proveedorData }: { id_proveedor: n
           </div>
         )}
       </div>
-    </div>
-  );
-}
-function InsumoSearch({
-  value, onChangeText, onSelect, disabled, insumosSeed, autoFocus
-}: {
-  value: string;
-  onChangeText: (t: string) => void;
-  onSelect: (opt: InsumoRow) => void;
-  disabled?: boolean;
-  insumosSeed: InsumoRow[];
-  autoFocus?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState(value || "");
-  const [opts, setOpts] = useState<InsumoRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const boxRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => { setQ(value || ""); }, [value]);
-
-  // Abrir y enfocar cuando se agrega una nueva línea
-  useEffect(() => {
-    if (autoFocus && inputRef.current) {
-      inputRef.current.focus();
-      setOpen(true);
-    }
-  }, [autoFocus]);
-
-  useEffect(() => {
-    setLoading(true);
-    const t = setTimeout(() => {
-      if (!q || q.trim().length < 1) setOpts([]);
-      else {
-        const queryLower = q.toLowerCase();
-        const results = insumosSeed.filter((ins) => ins.nombre.toLowerCase().includes(queryLower));
-        setOpts(results.slice(0, 8));
-      }
-      setLoading(false);
-    }, 200);
-    return () => clearTimeout(t);
-  }, [q, insumosSeed]);
-
-  useEffect(() => {
-    const onDocClick = (e: MouseEvent) => {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, []);
-
-  return (
-    <div className="relative w-full" ref={boxRef}>
-      <input
-        ref={inputRef}
-        disabled={disabled}
-        value={q}
-        onChange={(e) => {
-          setQ(e.target.value);
-          onChangeText(e.target.value);
-          if (!open) setOpen(true);
-        }}
-        onFocus={() => setOpen(true)}
-        placeholder="Buscar insumo..."
-        className={INPUT_CLS}
-      />
-      <AnimatePresence>
-        {open && (q.trim().length > 0 || loading || opts.length > 0) && (
-          <motion.div
-            initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className="absolute z-10 top-full mt-1 w-full rounded-lg border bg-white shadow-lg max-h-60 overflow-y-auto"
-          >
-            {loading ? (
-              <div className="p-3 text-center text-base text-gray-500">Buscando...</div>
-            ) : opts.length === 0 && q.trim().length > 0 ? (
-              <div className="p-3 text-center text-base text-gray-500">Sin resultados para "{q}"</div>
-            ) : (
-              opts.map((opt) => (
-                <button
-                  type="button"
-                  key={opt.id_insumo}
-                  onClick={() => {
-                    onSelect(opt);
-                    setQ(opt.nombre);
-                    setOpen(false);
-                    setOpts([]);
-                  }}
-                  className="w-full text-left px-3 py-2 hover:bg-emerald-50 text-base"
-                >
-                  <div className="font-medium text-gray-800">{opt.nombre}</div>
-                  <div className="text-sm text-gray-500">
-                    Costo: {fmtQ(opt.costo_promedio)} / {opt.unidad_medida_compra || "unidad"}
-                  </div>
-                </button>
-              ))
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

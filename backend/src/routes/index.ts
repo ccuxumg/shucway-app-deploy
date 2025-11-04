@@ -10,6 +10,7 @@ import dashboardRoutes from './dashboard.routes';
 import { dashboardController } from '../controllers/dashboard.controller';
 import proveedorRoutes from './proveedor.routes';
 import ordenCompraRoutes from './orden_compra.routes';
+import ordenCompraCreateRoutes from './orden_compra_create.routes';
 import backupRoutes from './backup.routes';
 
 const router = Router();
@@ -25,6 +26,7 @@ router.use('/usuarios', usuariosRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/proveedores', proveedorRoutes);
 router.use('/ordenes-compra', ordenCompraRoutes);
+router.use('/ordenes-compra-create', ordenCompraCreateRoutes);
 router.use('/backup', backupRoutes);
 
 // Rutas adicionales para compatibilidad con frontend

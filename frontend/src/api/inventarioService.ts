@@ -60,6 +60,11 @@ export const saveProveedor = async (proveedor: Proveedor) => {
   }
 };
 
+export const deleteProveedor = async (id: number) => {
+  const response = await api.delete(`/proveedores/${id}`);
+  return response.data;
+};
+
 export const fetchOrdenesCompra = async () => {
   const response = await api.get("/ordenes-compra");
   return response.data;
@@ -67,6 +72,35 @@ export const fetchOrdenesCompra = async () => {
 
 export const fetchInsumos = async () => {
   const response = await api.get("/inventario/insumos");
+  return response.data;
+};
+
+// CRUD Órdenes de Compra
+import type { Orden, Item } from "../features/Dashboard/Inventario/IngresoCompra";
+
+export const createOrdenCompra = async (ordenData: Omit<Orden, "id_orden" | "numero_orden" | "items_count"> & { items: Item[] }) => {
+  const response = await api.post("/ordenes-compra", ordenData);
+  return response.data;
+};
+
+export const updateOrdenCompra = async (id_orden: string | number, ordenData: Partial<Orden> & { items?: Item[] }) => {
+  const response = await api.put(`/ordenes-compra/${id_orden}`, ordenData);
+  return response.data;
+};
+
+export const deleteOrdenCompra = async (id_orden: string | number) => {
+  const response = await api.delete(`/ordenes-compra/${id_orden}`);
+  return response.data;
+};
+
+export const fetchOrdenCompraById = async (id_orden: string | number) => {
+  const response = await api.get(`/ordenes-compra/${id_orden}`);
+  return response.data;
+};
+
+// CRUD Detalle Orden de Compra
+export const createDetalleOrdenCompra = async (detalleData: Item & { id_orden: string | number }) => {
+  const response = await api.post("/detalles-orden-compra", detalleData);
   return response.data;
 };
 

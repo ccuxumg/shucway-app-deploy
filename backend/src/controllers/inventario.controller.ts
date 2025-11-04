@@ -146,6 +146,25 @@ export class InventarioController {
     }
   }
 
+  // ================== PRESENTACIONES ==================
+
+  async getPresentacionesByInsumo(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const id = parseInt(req.params.id);
+      console.log(`[BACKEND] getPresentacionesByInsumo called with id: ${id}`);
+      const presentaciones = await inventarioService.getPresentacionesByInsumo(id);
+      console.log(`[BACKEND] getPresentacionesByInsumo returned ${presentaciones.length} presentaciones`);
+
+      res.json({
+        success: true,
+        data: presentaciones,
+      });
+    } catch (error) {
+      console.error(`[BACKEND] Error in getPresentacionesByInsumo:`, error);
+      next(error);
+    }
+  }
+
   // ================== LOTES ==================
 
   async getLotesByInsumo(req: AuthRequest, res: Response, next: NextFunction) {
@@ -309,6 +328,42 @@ export class InventarioController {
       res.json({
         success: true,
         data: insumoDetails,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // ================== PRESENTACIONES ==================
+
+  async updatePresentacion(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const id = parseInt(req.params.id);
+      const updates = req.body;
+
+      const presentacion = await inventarioService.updatePresentacion(id, updates);
+
+      res.json({
+        success: true,
+        data: presentacion,
+        message: 'Presentación actualizada correctamente',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateLote(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const id = parseInt(req.params.id);
+      const updates = req.body;
+
+      const lote = await inventarioService.updateLote(id, updates);
+
+      res.json({
+        success: true,
+        data: lote,
+        message: 'Lote actualizado correctamente',
       });
     } catch (error) {
       next(error);

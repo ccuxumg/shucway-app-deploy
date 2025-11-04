@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getProveedores, createProveedor, updateProveedor } from '../controllers/proveedor.controller';
+import { getProveedores, createProveedor, updateProveedor, deleteProveedor } from '../controllers/proveedor.controller';
 import { validate } from '../middlewares/validator.middleware';
 import { z } from 'zod';
 
@@ -37,5 +37,6 @@ const updateProveedorSchema = z.object({
 router.get('/', validate(querySchema), getProveedores);
 router.post('/', validate(createProveedorSchema), createProveedor);
 router.put('/:id', validate(updateProveedorSchema), updateProveedor);
+router.delete('/:id', deleteProveedor);
 
 export default router;

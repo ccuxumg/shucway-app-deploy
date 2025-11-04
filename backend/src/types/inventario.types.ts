@@ -69,7 +69,7 @@ export interface MovimientoInventario {
   id_movimiento: number;
   id_insumo: number;
   id_lote?: number;
-  tipo_movimiento: 'entrada_compra' | 'salida_venta' | 'entrada_ajuste' | 'salida_ajuste' | 'perdida' | 'devolucion';
+  tipo_movimiento: 'entrada_compra' | 'salida_venta' | 'entrada_ajuste' | 'salida_ajuste' | 'perdida' | 'devolucion' | 'entrada_devolucion' | 'salida_devolucion' | 'entrada_transferencia' | 'salida_transferencia' | 'entrada_produccion' | 'salida_produccion' | 'ajuste_perpetuo' | 'ajuste_operativo';
   cantidad: number;
   fecha_movimiento: Date;
   id_perfil?: number;
@@ -142,7 +142,7 @@ export interface CreatePresentacionDTO {
 export interface CreateMovimientoDTO {
   id_insumo: number;
   id_lote?: number;
-  tipo_movimiento: 'entrada_compra' | 'salida_venta' | 'entrada_ajuste' | 'salida_ajuste' | 'perdida' | 'devolucion';
+  tipo_movimiento: 'entrada_compra' | 'salida_venta' | 'entrada_ajuste' | 'salida_ajuste' | 'perdida' | 'devolucion' | 'entrada_devolucion' | 'salida_devolucion' | 'entrada_transferencia' | 'salida_transferencia' | 'entrada_produccion' | 'salida_produccion' | 'ajuste_perpetuo' | 'ajuste_operativo';
   cantidad: number;
   descripcion?: string;
   costo_unitario_momento: number;
@@ -157,4 +157,23 @@ export interface StockActual {
   stock_maximo: number;
   costo_promedio: number;
   estado_stock: 'bajo' | 'normal' | 'alto';
+}
+
+export interface KardexInsumo {
+  fecha: string;
+  tipo_movimiento: string;
+  referencia: string;
+  entrada: number;
+  salida: number;
+  saldo: number;
+  costo_unitario: number;
+  valor_total: number;
+  usuario: string;
+  descripcion?: string;
+  lote_fecha_vencimiento?: string;
+  lote_ubicacion?: string;
+  lote_cantidad_inicial?: number;
+  lote_cantidad_actual?: number;
+  presentacion_descripcion?: string;
+  presentacion_unidad?: string;
 }

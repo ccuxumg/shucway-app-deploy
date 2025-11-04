@@ -23,31 +23,40 @@ export class VentasService {
     fechaFin?: string,
     idCajero?: number
   ): Promise<Venta[]> {
-    let query = supabase
-      .from('venta')
-      .select('*')
-      .order('fecha_venta', { ascending: false });
+    try {
+      let query = supabase
+        .from('venta')
+        .select('*')
+        .order('fecha_venta', { ascending: false });
 
-    if (estado) {
-      query = query.eq('estado', estado);
+      if (estado) {
+        query = query.eq('estado', estado);
+      }
+
+      if (fechaInicio) {
+        query = query.gte('fecha_venta', fechaInicio);
+      }
+
+      if (fechaFin) {
+        query = query.lte('fecha_venta', fechaFin);
+      }
+
+      if (idCajero) {
+        query = query.eq('id_cajero', idCajero);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Error obteniendo ventas:', error);
+        throw new Error(`Error al obtener ventas: ${error.message}`);
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Error en getVentas:', error);
+      throw error;
     }
-
-    if (fechaInicio) {
-      query = query.gte('fecha_venta', fechaInicio);
-    }
-
-    if (fechaFin) {
-      query = query.lte('fecha_venta', fechaFin);
-    }
-
-    if (idCajero) {
-      query = query.eq('id_cajero', idCajero);
-    }
-
-    const { data, error } = await query;
-
-    if (error) throw new Error(`Error al obtener ventas: ${error.message}`);
-    return data || [];
   }
 
   /**
@@ -333,10 +342,7 @@ export class VentasService {
           id_producto,
           nombre_producto,
           precio_venta,
-          imagen_url,
-          categoria_producto (
-            nombre_categoria
-          )
+          imagen_url
         `)
         .eq('estado', 'activo')
         .order('id_producto', { ascending: false }) // Más recientes primero
@@ -354,7 +360,7 @@ export class VentasService {
         nombre_producto: producto.nombre_producto,
         total_vendido: 0, // TODO: calcular cuando haya ventas
         veces_vendido: 0, // TODO: calcular cuando haya ventas
-        categoria: producto.categoria_producto?.[0]?.nombre_categoria || 'Producto',
+        categoria: 'Producto', // Categoría por defecto
         imagen_url: producto.imagen_url,
       }));
 

@@ -341,14 +341,24 @@ const VentasDashboard: React.FC = () => {
 
   return (
     <div className="p-8 bg-[#f8fafc] min-h-screen">
-      <motion.h1
+      {/* Header con botón regresar y título */}
+      <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2 }}
-        className="text-2xl font-bold mb-2 text-gray-800"
+        className="flex items-center gap-4 mb-2"
       >
-        MÓDULO DE VENTAS
-      </motion.h1>
+        <button
+          onClick={() => navigate("/dashboard")}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white text-gray-700 border border-gray-200 font-medium shadow-sm hover:bg-gray-50 transition-all"
+        >
+          <span className="text-xl">←</span>
+          <span>Regresar</span>
+        </button>
+        <h1 className="text-2xl font-bold text-gray-800">
+          MÓDULO DE VENTAS
+        </h1>
+      </motion.div>
 
       {/* Mostrar error si existe */}
       {error && (

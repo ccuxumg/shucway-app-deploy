@@ -1,5 +1,5 @@
 // src/features/Dashboard/Reportes/Reportes.tsx
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -15,24 +15,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import reportesService, { ProductoReporte } from "../../../api/reportesService";
 
 /* ========================= Helpers & tipos ========================= */
-type Categoria = "Shucos" | "Hamburguesas" | "Mixtas" | "Bebidas" | "Papás";
-type MetodoPago = "Efectivo" | "Tarjeta";
-type FiltroCategoria = "Todas" | Categoria;
-type FiltroMetodo = "Todos" | MetodoPago;
-
-type Venta = {
-  fechaISO: string;          // p.ej. "2025-10-31"
-  producto: string;          // p.ej. "Shuco Mixto"
-  categoria: Categoria;
-  cantidad: number;          // unidades
-  totalQ: number;            // monto en quetzales (venta)
-  cogsQ: number;             // costo de venta (COGS)
-  metodo: "Efectivo" | "Tarjeta";
-};
-
-const CATS: Categoria[] = ["Shucos","Hamburguesas","Mixtas","Bebidas","Papás"];
+type FiltroCategoria = string;
+type FiltroMetodo = "Todos" | "Efectivo" | "Tarjeta" | "Transferencia";
 
 // Para formatear dinero
 const q = (n: number) =>
@@ -41,67 +28,14 @@ const q = (n: number) =>
 // Colores para charts
 const COLORS = ["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#F97316","#84CC16","#14B8A6"];
 
-/* ========= Mock catálogo y datos ========= */
-const CATALOGO: { producto: string; categoria: Categoria }[] = [
-  { producto: "Shuco de Asada", categoria: "Shucos" },
-  { producto: "Shuco Mixto", categoria: "Shucos" },
-  { producto: "Cheese Burger", categoria: "Hamburguesas" },
-  { producto: "Bacon Burger", categoria: "Hamburguesas" },
-  { producto: "Combo Mixto", categoria: "Mixtas" },
-  { producto: "Papas Fritas", categoria: "Papás" },
-  { producto: "Pepsi Cola", categoria: "Bebidas" },
-  { producto: "Coca Cola", categoria: "Bebidas" },
-];
-
-// RNG simple (determinístico)
-function rng(seed: number) {
-  let s = seed % 2147483647;
-  return () => (s = (s * 48271) % 2147483647) / 2147483647;
-}
-
-// Generar ventas desde 2024-01-01
-function generarVentasMock(): Venta[] {
-  const start = new Date(2024, 0, 1);
-  const end = new Date();
-  const rand = rng(12345);
-
-  const ventas: Venta[] = [];
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    const tickets = 3 + Math.floor(rand() * 6); // 3-8 tickets/día
-    for (let i = 0; i < tickets; i++) {
-      const item = CATALOGO[Math.floor(rand() * CATALOGO.length)];
-      const cant = 1 + Math.floor(rand() * 3);
-      const precioBase =
-        item.categoria === "Shucos" ? 15 :
-        item.categoria === "Hamburguesas" ? 20 :
-        item.categoria === "Mixtas" ? 25 :
-        item.categoria === "Papás" ? 12 : 6;
-
-      const total = Math.round((precioBase * cant * (0.85 + rand() * 0.5)) * 100) / 100;
-      const cogsRatio = 0.55 + (rand() * 0.15);
-      const cogs = Math.round(total * cogsRatio * 100) / 100;
-      const metodo: "Efectivo" | "Tarjeta" = rand() < 0.7 ? "Efectivo" : "Tarjeta";
-
-      ventas.push({
-        fechaISO: new Date(d).toISOString().slice(0, 10),
-        producto: item.producto,
-        categoria: item.categoria,
-        cantidad: cant,
-        totalQ: total,
-        cogsQ: cogs,
-        metodo,
-      });
-    }
-  }
-  return ventas;
-}
-
 /* ========================= Componente principal ========================= */
 const Reportes: React.FC = () => {
   const navigate = useNavigate();
 
-  // MOCK – reemplazar por fetch a backend
-  const mockVentas = useMemo(() => generarVentasMock(), []);
+  // Estados para datos del backend
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [categoriasDisponibles, setCategoriasDisponibles] = useState<string[]>([]);
 
   /* ---------- Filtros GLOBALes (afectan KPIs + Tabla) ---------- */
   type Periodo = "hoy" | "ayer" | "30d" | "rango";
@@ -116,6 +50,18 @@ const Reportes: React.FC = () => {
   // Específicos de tarjetas de estrategia
   const [topVendidosFiltro, setTopVendidosFiltro] = useState<FiltroCategoria>("Todas");
   const [topRentablesFiltro, setTopRentablesFiltro] = useState<FiltroCategoria>("Todas");
+
+  // Datos del backend
+  const [kpis, setKpis] = useState({
+    ventaTotal: 0,
+    cogsTotal: 0,
+    gananciaBruta: 0,
+    gastosOperativos: 0,
+    gananciaNeta: 0
+  });
+  const [productosData, setProductosData] = useState<ProductoReporte[]>([]);
+  const [pieCategoria, setPieCategoria] = useState<{name: string, value: number}[]>([]);
+  const [pieMetodo, setPieMetodo] = useState<{name: string, value: number}[]>([]);
 
   /* ---------- Rango de fechas ---------- */
   const [ini, fin] = useMemo(() => {
@@ -150,72 +96,67 @@ const Reportes: React.FC = () => {
     return [start, end] as const;
   }, [periodo, rangoInicio, rangoFin]);
 
-  /* ---------- Conjuntos de datos ---------- */
-  const ventasEnRango = useMemo(
-    () => mockVentas.filter(v => {
-      const d = new Date(v.fechaISO + "T00:00:00");
-      return d >= ini && d <= fin;
-    }),
-    [mockVentas, ini, fin]
-  );
+  // Formato de fechas para el backend (YYYY-MM-DD)
+  const fechaInicio = useMemo(() => ini.toISOString().split('T')[0], [ini]);
+  const fechaFin = useMemo(() => fin.toISOString().split('T')[0], [fin]);
 
-  // Filtrado global para KPIs/Tabla
-  const ventasFiltradas = useMemo(() => {
-    let arr = ventasEnRango;
-    if (catGlobal !== "Todas") arr = arr.filter(v => v.categoria === catGlobal);
-    if (metodoGlobal !== "Todos") arr = arr.filter(v => v.metodo === metodoGlobal);
-    if (search.trim()) {
-      const s = search.trim().toLowerCase();
-      arr = arr.filter(v => v.producto.toLowerCase().includes(s));
+  /* ---------- Cargar datos del backend ---------- */
+  const cargarDatos = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Cargar KPIs
+      const kpisData = await reportesService.obtenerKPIs(fechaInicio, fechaFin);
+      setKpis(kpisData);
+
+      // Cargar productos
+      const productosResp = await reportesService.obtenerProductosReporte(
+        fechaInicio,
+        fechaFin,
+        catGlobal !== 'Todas' ? catGlobal : undefined,
+        metodoGlobal !== 'Todos' ? metodoGlobal : undefined,
+        search || undefined
+      );
+      setProductosData(productosResp);
+
+      // Obtener categorías únicas
+      const cats = [...new Set(productosResp.map(p => p.categoria))];
+      setCategoriasDisponibles(['Todas', ...cats]);
+
+      // Cargar distribuciones para gráficas
+      const distCat = await reportesService.obtenerDistribucionCategoria(fechaInicio, fechaFin);
+      setPieCategoria(distCat.map(d => ({ name: d.categoria, value: d.total })));
+
+      const distMet = await reportesService.obtenerDistribucionMetodo(fechaInicio, fechaFin);
+      setPieMetodo(distMet.map(d => ({ name: d.metodo, value: d.total })));
+
+    } catch (err) {
+      console.error('Error al cargar datos:', err);
+      setError(err instanceof Error ? err.message : 'Error al cargar los datos');
+    } finally {
+      setLoading(false);
     }
-    return arr;
-  }, [ventasEnRango, catGlobal, metodoGlobal, search]);
+  }, [fechaInicio, fechaFin, catGlobal, metodoGlobal, search]);
 
-  /* ---------- KPIs ---------- */
-  const ventaTotal = useMemo(() => ventasFiltradas.reduce((a, v) => a + v.totalQ, 0), [ventasFiltradas]);
-  const cogsTotal  = useMemo(() => ventasFiltradas.reduce((a, v) => a + v.cogsQ, 0),  [ventasFiltradas]);
-  const gBruta     = useMemo(() => Math.max(0, ventaTotal - cogsTotal), [ventaTotal, cogsTotal]);
-  const gastosOper = useMemo(() => Math.round((ventaTotal * 0.08 + 60) * 100) / 100, [ventaTotal]); // mock
-  const gNeta      = useMemo(() => Math.max(0, gBruta - gastosOper), [gBruta, gastosOper]);
-
-  /* ---------- Gráficas (independientes de filtros globales) ---------- */
-  // Pie por categoría: SIEMPRE distribuye el total en el rango (no usa catGlobal/metodoGlobal)
-  const pieCategoria = useMemo(() => {
-    const map = new Map<Categoria, number>();
-    ventasEnRango.forEach(v => map.set(v.categoria, (map.get(v.categoria) || 0) + v.totalQ));
-    const arr = [...map.entries()].map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }));
-    return arr.length ? arr : [{ name: "Sin datos", value: 1 }];
-  }, [ventasEnRango]);
-
-  // Pie por método de pago: distribución Efectivo/Tarjeta en el rango
-  const pieMetodo = useMemo(() => {
-    const map = new Map<"Efectivo" | "Tarjeta", number>();
-    ventasEnRango.forEach(v => map.set(v.metodo, (map.get(v.metodo) || 0) + v.totalQ));
-    const arr = [...map.entries()].map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }));
-    return arr.length ? arr : [{ name: "Sin datos", value: 1 }];
-  }, [ventasEnRango]);
+  // Cargar datos cuando cambian las fechas o filtros
+  useEffect(() => {
+    cargarDatos();
+  }, [cargarDatos]);
 
   /* ---------- Tabla agregada por producto ---------- */
-  type RowAgg = { producto: string; categoria: Categoria; unidades: number; ventaQ: number; cogsQ: number; gananciaQ: number; };
+  type RowAgg = { producto: string; categoria: string; unidades: number; ventaQ: number; cogsQ: number; gananciaQ: number; };
   const tablaProductosBase: RowAgg[] = useMemo(() => {
-    const map = new Map<string, RowAgg>();
-    ventasFiltradas.forEach(v => {
-      const row = map.get(v.producto) || {
-        producto: v.producto,
-        categoria: v.categoria,
-        unidades: 0,
-        ventaQ: 0,
-        cogsQ: 0,
-        gananciaQ: 0,
-      };
-      row.unidades += v.cantidad;
-      row.ventaQ   += v.totalQ;
-      row.cogsQ    += v.cogsQ;
-      row.gananciaQ = row.ventaQ - row.cogsQ;
-      map.set(v.producto, row);
-    });
-    return [...map.values()];
-  }, [ventasFiltradas]);
+    // ProductoReporte ya viene agregado del backend
+    return productosData.map(p => ({
+      producto: p.producto,
+      categoria: p.categoria,
+      unidades: p.unidades,
+      ventaQ: p.ventaQ,
+      cogsQ: p.cogsQ,
+      gananciaQ: p.gananciaQ
+    }));
+  }, [productosData]);
 
   // Orden + paginación
   type SortKey = "producto" | "categoria" | "unidades" | "ventaQ" | "cogsQ" | "gananciaQ";
@@ -241,36 +182,16 @@ const Reportes: React.FC = () => {
     return tablaOrdenada.slice(start, start + pageSize);
   }, [tablaOrdenada, pageClamped, pageSize]);
 
-  // Top 5 (estrategia) tomando SIEMPRE el total del rango (no los filtros globales)
-  const tablaEstrategia: RowAgg[] = useMemo(() => {
-    const map = new Map<string, RowAgg>();
-    ventasEnRango.forEach(v => {
-      const row = map.get(v.producto) || {
-        producto: v.producto,
-        categoria: v.categoria,
-        unidades: 0,
-        ventaQ: 0,
-        cogsQ: 0,
-        gananciaQ: 0,
-      };
-      row.unidades += v.cantidad;
-      row.ventaQ   += v.totalQ;
-      row.cogsQ    += v.cogsQ;
-      row.gananciaQ = row.ventaQ - row.cogsQ;
-      map.set(v.producto, row);
-    });
-    return [...map.values()];
-  }, [ventasEnRango]);
-
+  // Top 5 (estrategia) - Usamos los mismos datos agregados pero sin filtros
   const topVendidos = useMemo(() => {
-    const filtered = tablaEstrategia.filter(r => topVendidosFiltro === "Todas" ? true : r.categoria === topVendidosFiltro);
+    const filtered = tablaProductosBase.filter(r => topVendidosFiltro === "Todas" ? true : r.categoria === topVendidosFiltro);
     return [...filtered].sort((a,b)=> b.unidades - a.unidades).slice(0,5).map(r=>({name:r.producto, value:r.unidades}));
-  }, [tablaEstrategia, topVendidosFiltro]);
+  }, [tablaProductosBase, topVendidosFiltro]);
 
   const topRentables = useMemo(() => {
-    const filtered = tablaEstrategia.filter(r => topRentablesFiltro === "Todas" ? true : r.categoria === topRentablesFiltro);
+    const filtered = tablaProductosBase.filter(r => topRentablesFiltro === "Todas" ? true : r.categoria === topRentablesFiltro);
     return [...filtered].sort((a,b)=> b.gananciaQ - a.gananciaQ).slice(0,5).map(r=>({name:r.producto, value:Math.round(r.gananciaQ*100)/100}));
-  }, [tablaEstrategia, topRentablesFiltro]);
+  }, [tablaProductosBase, topRentablesFiltro]);
 
   /* ---------- Export (CSV / PDF) del estado filtrado y ORDENADO ---------- */
   function exportCSV() {
@@ -306,11 +227,11 @@ const Reportes: React.FC = () => {
           <th style="text-align:left; padding:6px; border:1px solid #e5e7eb">Ganancia Neta</th>
         </tr>
         <tr>
-          <td style="padding:6px; border:1px solid #e5e7eb">${q(ventaTotal)}</td>
-          <td style="padding:6px; border:1px solid #e5e7eb">${q(cogsTotal)}</td>
-          <td style="padding:6px; border:1px solid #e5e7eb">${q(gBruta)}</td>
-          <td style="padding:6px; border:1px solid #e5e7eb">${q(gastosOper)}</td>
-          <td style="padding:6px; border:1px solid #e5e7eb">${q(gNeta)}</td>
+          <td style="padding:6px; border:1px solid #e5e7eb">${q(kpis.ventaTotal)}</td>
+          <td style="padding:6px; border:1px solid #e5e7eb">${q(kpis.cogsTotal)}</td>
+          <td style="padding:6px; border:1px solid #e5e7eb">${q(kpis.gananciaBruta)}</td>
+          <td style="padding:6px; border:1px solid #e5e7eb">${q(kpis.gastosOperativos)}</td>
+          <td style="padding:6px; border:1px solid #e5e7eb">${q(kpis.gananciaNeta)}</td>
         </tr>
       </table>
     `;
@@ -367,6 +288,10 @@ table{font-size:12px}
     w.document.open(); w.document.write(html); w.document.close();
   }
 
+  function handleGastosOperativos() {
+    navigate("/reportes/gastos-operativos");
+  }
+
   /* ========================= UI ========================= */
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -388,6 +313,7 @@ table{font-size:12px}
           <div className="flex items-center gap-2">
             <button onClick={exportCSV} className="h-10 px-3 rounded-md border bg-white hover:bg-gray-50 text-sm">CSV</button>
             <button onClick={exportPDF} className="h-10 px-3 rounded-md text-white text-sm" style={{ background:"#10B981" }}>PDF</button>
+            <button onClick={handleGastosOperativos} className="h-10 px-3 rounded-md text-white text-sm" style={{ background:"#064E3B" }}>Gastos Operativos</button>
           </div>
         </div>
 
@@ -422,7 +348,7 @@ table{font-size:12px}
                 onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setCatGlobal(e.target.value as FiltroCategoria)}
               >
                 <option value="Todas">Todas</option>
-                {CATS.map(c=><option key={c} value={c}>{c}</option>)}
+                {categoriasDisponibles.map(c=><option key={c} value={c}>{c}</option>)}
               </select>
               <select 
                 className="h-9 rounded-md border border-gray-200 px-2 text-sm" 
@@ -450,14 +376,31 @@ table{font-size:12px}
         </div>
       </div>
 
-      {/* KPI cards compactas */}
+      {/* Estado de carga o error */}
+      {loading && (
+        <div className="w-full max-w-7xl mx-auto text-center py-12">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div>
+          <p className="mt-4 text-gray-600">Cargando datos...</p>
+        </div>
+      )}
+
+      {error && !loading && (
+        <div className="w-full max-w-7xl mx-auto bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+          <p className="font-semibold">Error:</p>
+          <p>{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && (
+        <>
+      {/* KPIs */}
       <div className="w-full max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
         {[
-          { label:"VENTA TOTAL",  value:q(ventaTotal) },
-          { label:"COSTO DE VENTAS", value:q(cogsTotal) },
-          { label:"GANANCIA BRUTA", value:q(gBruta) },
-          { label:"GASTOS OPERATIVOS", value:q(gastosOper) },
-          { label:"GANANCIA NETA", value:q(gNeta) },
+          { label:"VENTA TOTAL",  value:q(kpis.ventaTotal) },
+          { label:"COSTO DE VENTAS", value:q(kpis.cogsTotal) },
+          { label:"GANANCIA BRUTA", value:q(kpis.gananciaBruta) },
+          { label:"GASTOS OPERATIVOS", value:q(kpis.gastosOperativos) },
+          { label:"GANANCIA NETA", value:q(kpis.gananciaNeta) },
         ].map((c,i)=>(
           <div key={i} className="rounded-xl bg-white border border-gray-200 p-6 shadow-sm flex flex-col justify-between">
             <div className="text-sm tracking-wide text-gray-500 font-semibold">{c.label}</div>
@@ -473,16 +416,22 @@ table{font-size:12px}
             <h3 className="text-base font-bold text-gray-800">Distribución por Categoría</h3>
             <span className="text-xs text-gray-500">{ini.toLocaleDateString("es-GT")} – {fin.toLocaleDateString("es-GT")}</span>
           </div>
-          <div className="h-[260px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={pieCategoria} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
-                  {pieCategoria.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
-                </Pie>
-                <Tooltip formatter={(v: number|string, n: string)=>[q(Number(v)), n]} />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
+          <div className="h-[260px] min-h-[260px]">
+            {loading || pieCategoria.length === 0 ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={pieCategoria} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
+                    {pieCategoria.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip formatter={(v: number|string, n: string)=>[q(Number(v)), n]} />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </motion.div>
 
@@ -491,16 +440,22 @@ table{font-size:12px}
             <h3 className="text-base font-bold text-gray-800">Métodos de Pago</h3>
             <span className="text-xs text-gray-500">{ini.toLocaleDateString("es-GT")} – {fin.toLocaleDateString("es-GT")}</span>
           </div>
-          <div className="h-[260px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={pieMetodo} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
+          <div className="h-[260px] min-h-[260px]">
+            {loading || pieMetodo.length === 0 ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={pieMetodo} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
                   {pieMetodo.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={(v: number|string, n: string)=>[q(Number(v)), n]} />
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
+            )}
           </div>
         </motion.div>
       </div>
@@ -517,20 +472,26 @@ table{font-size:12px}
                 value={topVendidosFiltro}
               >
                 <option value="Todas">Todas</option>
-                {CATS.map(c=><option key={c} value={c}>{c}</option>)}
+                {categoriasDisponibles.map(c=><option key={c} value={c}>{c}</option>)}
               </select>
             </div>
           </div>
-          <div className="h-[240px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={topVendidos} margin={{left:10,right:10,top:10,bottom:10}}>
-                <CartesianGrid stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Bar dataKey="value" fill="#6366F1" radius={[6,6,0,0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="h-[240px] min-h-[240px]">
+            {loading || topVendidos.length === 0 ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={topVendidos} margin={{left:10,right:10,top:10,bottom:10}}>
+                  <CartesianGrid stroke="#f3f4f6" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Bar dataKey="value" fill="#6366F1" radius={[6,6,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </motion.div>
 
@@ -544,20 +505,26 @@ table{font-size:12px}
                 value={topRentablesFiltro}
               >
                 <option value="Todas">Todas</option>
-                {CATS.map(c=><option key={c} value={c}>{c}</option>)}
+                {categoriasDisponibles.map(c=><option key={c} value={c}>{c}</option>)}
               </select>
             </div>
           </div>
-          <div className="h-[240px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={topRentables} margin={{left:10,right:10,top:10,bottom:10}}>
-                <CartesianGrid stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: number | string)=>q(Number(v))} />
-                <Bar dataKey="value" fill="#10B981" radius={[6,6,0,0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="h-[240px] min-h-[240px]">
+            {loading || topRentables.length === 0 ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={topRentables} margin={{left:10,right:10,top:10,bottom:10}}>
+                  <CartesianGrid stroke="#f3f4f6" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip formatter={(v: number | string)=>q(Number(v))} />
+                  <Bar dataKey="value" fill="#10B981" radius={[6,6,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </motion.div>
       </div>
@@ -678,6 +645,8 @@ table{font-size:12px}
       </div>
 
       <div className="h-6" />
+      </>
+      )}
     </div>
   );
 };

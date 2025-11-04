@@ -20,6 +20,7 @@ const IngresoCompra = React.lazy(() => import("../features/Dashboard/Inventario/
 const Catalogo = React.lazy(() => import("../features/Dashboard/Inventario/Catalogo"));
 const Proveedores = React.lazy(() => import("../features/Dashboard/Proveedores"));
 const Reportes = React.lazy(() => import("../features/Dashboard/Reportes"));
+const GastosOperativos = React.lazy(() => import("../features/Dashboard/Reportes/gastosop"));
 const Perfil = React.lazy(() => import("../features/Dashboard/Perfil"));
 const Soporte = React.lazy(() => import("../views/Soporte"));
 import AuthGuard from "../guards/AuthGuard";
@@ -166,6 +167,13 @@ const protectedRoutes: IRoute[] = [
   {
     path: "/reportes",
     element: Reportes,
+    guard: AuthGuard,
+    layout: DashboardLayout,
+    requiredLevel: MODULE_PERMISSIONS.REPORTES,
+  },
+  {
+    path: "/reportes/gastos-operativos",
+    element: GastosOperativos,
     guard: AuthGuard,
     layout: DashboardLayout,
     requiredLevel: MODULE_PERMISSIONS.REPORTES,

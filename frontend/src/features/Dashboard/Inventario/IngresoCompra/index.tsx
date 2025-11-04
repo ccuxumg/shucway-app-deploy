@@ -878,13 +878,6 @@ export default function IngresoCompra(): JSX.Element {
           </div>
           <div className="flex gap-3">
             <button
-              onClick={() => navigate('/inventario?tab=catalogo')}
-              className="h-11 rounded-xl px-4 text-base font-semibold text-white hover:opacity-90 flex items-center gap-2"
-              style={{ backgroundColor: '#6b7280' }}
-            >
-              <PiEyeBold /> Ver Insumos
-            </button>
-            <button
               onClick={openNewOrder}
               className="h-11 rounded-xl bg-emerald-600 px-4 text-base font-semibold text-white hover:bg-emerald-700 flex items-center gap-2"
             >
@@ -1341,7 +1334,8 @@ function PurchaseOrderForm({
   const handleSave = async (aprobarAutomaticamente = false) => {
     if (!selectedProveedorId) return message.error("Por favor, selecciona un proveedor.");
     if (!fecha) return message.error("Por favor, ingresa una fecha.");
-    if (fechaEntregaEstimada && new Date(fechaEntregaEstimada) <= new Date(fecha)) {
+    if (!fechaEntregaEstimada) return message.error("Por favor, ingresa una fecha de entrega estimada.");
+    if (new Date(fechaEntregaEstimada) <= new Date(fecha)) {
       return message.error("La fecha de entrega estimada debe ser posterior a la fecha de la orden.");
     }
     if (items.length === 0 || items.every((it) => !(it.descripcion || "").trim() && !it.id_insumo)) return message.error("Agrega al menos un ítem válido.");
@@ -1350,13 +1344,13 @@ function PurchaseOrderForm({
     try {
       // Payload para orden_compra según modelo SQL
       const ordenPayload = {
+        fecha_orden: fecha,
         id_proveedor: Number(selectedProveedorId),
+        estado: aprobarAutomaticamente ? "recibida" : "pendiente",
         tipo_orden: "manual",
         motivo_generacion: motivoGeneracion || nota || undefined,
-        tipo_pago: tipoPago,
-        fecha_entrega_estimada: fechaEntregaEstimada || fecha,
-        fecha: fecha,
-        estado: aprobarAutomaticamente ? "recibida" : "pendiente",
+        fecha_entrega_estimada: fechaEntregaEstimada,
+        total: total,
       };
       let ordenResult: Record<string, unknown>;
       if (detail && detail.id_orden) {
@@ -1365,13 +1359,11 @@ function PurchaseOrderForm({
         if (ordenResult.id_orden && Array.isArray(items)) {
           for (const item of items) {
             await createDetalleOrdenCompra({
-              id_orden: String(ordenResult.id_orden),
-              id_insumo: item.id_insumo,
-              qty: item.qty,
-              precio: item.precio,
-              descripcion: item.descripcion,
-              id: item.id,
-              id_presentacion: item.id_presentacion
+              id_orden: Number(ordenResult.id_orden),
+              id_insumo: item.id_insumo!,
+              cantidad: item.qty,
+              precio_unitario: item.precio,
+              id_presentacion: item.id_presentacion!,
             });
           }
         }
@@ -1383,13 +1375,15 @@ function PurchaseOrderForm({
         message.success("Orden de compra actualizada correctamente");
       } else {
         // Crear nueva orden
-        ordenResult = await createOrdenCompra({ ...ordenPayload, estado: "pendiente", items });
+        ordenResult = await createOrdenCompra(ordenPayload);
         if (ordenResult.id_orden && Array.isArray(items)) {
           for (const item of items) {
             await createDetalleOrdenCompra({
-              ...item,
-              id_orden: String(ordenResult.id_orden),
-              cantidad_recibida: aprobarAutomaticamente ? item.qty * (item.unidades_por_presentacion || 1) : 0,
+              id_orden: Number(ordenResult.id_orden),
+              id_insumo: item.id_insumo!,
+              cantidad: item.qty,
+              precio_unitario: item.precio,
+              id_presentacion: item.id_presentacion!,
             });
           }
         }
@@ -1778,7 +1772,38 @@ function PurchaseOrderForm({
                   <td className="p-2 align-top text-gray-700">{it.unidad_base || '-'}</td>
                   <td className="p-2 align-top text-right">
                     <input
-                      disabled={readOnly}
+                      disabled={readOnly || (() => {
+                        // Calcular si debe estar bloqueado basado en la sugerencia
+                        const stockActual = it.stock_actual || 0;
+                        const stockMinimo = it.stock_minimo || 0;
+                        const stockMaximo = it.stock_maximo || 0;
+                        const cantidadIngresada = it.qty || 0;
+
+                        let sugerenciaMaxima = null;
+
+                        if (stockMinimo > 0 && stockMaximo > 0) {
+                          if (stockActual < stockMinimo) {
+                            // Si está por debajo del mínimo, sugerir llegar al máximo
+                            sugerenciaMaxima = stockMaximo - stockActual;
+                          } else if (stockActual < stockMaximo) {
+                            // Si está entre mínimo y máximo, sugerir llegar al máximo
+                            sugerenciaMaxima = stockMaximo - stockActual;
+                          }
+                          // Si stockActual >= stockMaximo, no hay sugerencia (ya está al máximo o por encima)
+                        }
+
+                        // Bloquear si excede la sugerencia calculada
+                        if (sugerenciaMaxima !== null && cantidadIngresada > sugerenciaMaxima) {
+                          return true;
+                        }
+
+                        // También bloquear si excede el stock máximo (validación existente)
+                        if (stockMaximo && ((stockActual || 0) + cantidadIngresada) > stockMaximo) {
+                          return true;
+                        }
+
+                        return false;
+                      })()}
                       type="number"
                       min={1}
                       step={1}
@@ -1790,6 +1815,25 @@ function PurchaseOrderForm({
                         if (it.stock_maximo && ((it.stock_actual || 0) + newQty) > it.stock_maximo) {
                           message.warning(`La cantidad ingresada excede el stock máximo permitido (${it.stock_maximo - (it.stock_actual || 0)} unidades disponibles).`);
                         }
+
+                        // Calcular sugerencia para validar exceso
+                        const stockActual = it.stock_actual || 0;
+                        const stockMinimo = it.stock_minimo || 0;
+                        const stockMaximo = it.stock_maximo || 0;
+
+                        let sugerenciaMaxima = null;
+                        if (stockMinimo > 0 && stockMaximo > 0) {
+                          if (stockActual < stockMinimo) {
+                            sugerenciaMaxima = stockMaximo - stockActual;
+                          } else if (stockActual < stockMaximo) {
+                            sugerenciaMaxima = stockMaximo - stockActual;
+                          }
+                        }
+
+                        if (sugerenciaMaxima !== null && newQty > sugerenciaMaxima) {
+                          message.warning(`La cantidad ingresada excede la sugerencia recomendada (${sugerenciaMaxima} unidades). Considere reducir la cantidad.`);
+                        }
+
                         updateItem(it.id, { qty: newQty });
                       }}
                       className={`${INPUT_CLS} text-right`}
@@ -1815,7 +1859,7 @@ function PurchaseOrderForm({
                   </td>
                   <td className="p-2 align-top text-right font-semibold text-gray-800">{fmtQ((it.qty || 0) * (it.unidades_por_presentacion || 1) * (it.precio || 0))}</td>
                   <td className="p-2 align-top text-center">
-                    {!readOnly && items.length > 1 && (
+                    {!readOnly && (
                       <button type="button" onClick={() => removeItem(it.id)} title="Quitar línea" className="p-2 rounded text-rose-600 hover:bg-rose-50">
                         <PiTrashBold className="w-5 h-5" />
                       </button>

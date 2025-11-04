@@ -7,7 +7,7 @@ Sistema completo de gestión para el negocio Shucway con frontend React + Vite y
 ### Ejecutar todo el sistema
 
 ```bash
-npm run dev:all
+
 ```
 
 - Frontend: `http://localhost:5173` (o puerto 3000)
@@ -45,7 +45,7 @@ Cada proyecto (frontend y backend) tiene su propio archivo `.env`:
 
 - **Frontend** (`.env` en raíz): Variables con prefijo `VITE_` para configuración del cliente (Supabase, API URL). Estas se exponen al navegador.
 - **Backend** (`backend/.env`): Variables del servidor (JWT, BD, CORS, etc.). Estas permanecen en el servidor.
-
+npm run dev:all
 ### Archivo de Configuración Compartida
 
 Para constantes globales (como URLs de Supabase cuando la BD es compartida), usa `config/shared.ts`. Este archivo puede ser importado en ambos proyectos para mantener consistencia y tiene una función `getEnvVar()` para obtener variables con fallback.

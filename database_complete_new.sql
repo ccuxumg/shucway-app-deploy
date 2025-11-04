@@ -535,21 +535,45 @@ CREATE INDEX IF NOT EXISTS idx_detalle_recepcion_detalle_orden ON detalle_recepc
 -- FUNCIONES CRÍTICAS DEL SISTEMA
 -- ===============================================================
 
--- FUNCIÓN PARA OBTENER EL STOCK REAL DE UN INSUMO
+-- FUNCIÓN PARA OBTENER EL STOCK REAL DE UN INSUMO SEGÚN SU CATEGORÍA
 CREATE OR REPLACE FUNCTION fn_obtener_stock_actual(p_id_insumo INTEGER)
 RETURNS DECIMAL(10, 2) AS $$
 DECLARE
     v_stock_actual DECIMAL(10, 2);
+    v_tipo_categoria VARCHAR(20);
 BEGIN
-    SELECT COALESCE(SUM(
-        CASE 
-            WHEN tipo_movimiento IN ('entrada_compra', 'entrada_ajuste', 'devolucion', 'ajuste_perpetuo', 'ajuste_operativo') THEN cantidad
-            WHEN tipo_movimiento IN ('salida_venta', 'salida_ajuste', 'perdida') THEN -cantidad
-            ELSE 0 
-        END
-    ), 0) INTO v_stock_actual
-    FROM movimiento_inventario
-    WHERE id_insumo = p_id_insumo;
+    -- Obtener el tipo de categoría del insumo
+    SELECT ci.tipo_categoria INTO v_tipo_categoria
+    FROM insumo i
+    JOIN categoria_insumo ci ON i.id_categoria = ci.id_categoria
+    WHERE i.id_insumo = p_id_insumo;
+    
+    -- Calcular stock según el tipo de categoría
+    IF v_tipo_categoria = 'perpetuo' THEN
+        -- Para insumos perpetuos: usar movimiento_inventario con ajustes perpetuos
+        SELECT COALESCE(SUM(
+            CASE 
+                WHEN tipo_movimiento IN ('entrada_compra', 'entrada_ajuste', 'devolucion', 'ajuste_perpetuo') THEN cantidad
+                WHEN tipo_movimiento IN ('salida_venta', 'salida_ajuste', 'perdida') THEN -cantidad
+                ELSE 0 
+            END
+        ), 0) INTO v_stock_actual
+        FROM movimiento_inventario
+        WHERE id_insumo = p_id_insumo;
+    ELSE
+        -- Para insumos operativos: usar movimiento_inventario con ajustes operativos
+        SELECT COALESCE(SUM(
+            CASE 
+                WHEN tipo_movimiento IN ('entrada_compra', 'entrada_ajuste', 'devolucion', 'ajuste_operativo') THEN cantidad
+                WHEN tipo_movimiento IN ('salida_ajuste', 'perdida') THEN -cantidad
+                -- Los operativos NO se descuentan automáticamente por venta
+                ELSE 0 
+            END
+        ), 0) INTO v_stock_actual
+        FROM movimiento_inventario
+        WHERE id_insumo = p_id_insumo;
+    END IF;
+    
     RETURN v_stock_actual;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -1270,7 +1294,8 @@ CREATE TABLE auditoria_detalle (
     conteo_fisico DECIMAL(10,2),
     diferencia DECIMAL(10,2) GENERATED ALWAYS AS (conteo_fisico - stock_esperado) STORED,
     causa_ajuste VARCHAR(100),
-    notas TEXT
+    notas TEXT,
+    ubicacion_conteo VARCHAR(100)
 );
 
 CREATE TABLE bitacora_auditoria (
@@ -1519,20 +1544,25 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
 -- TRIGGER PARA ACTUALIZAR ESTADO DE AUDITORÍA AUTOMÁTICAMENTE
+-- Se ejecuta cuando el usuario completa el conteo_fisico en auditoria_detalle
 CREATE OR REPLACE FUNCTION fn_actualizar_estado_auditoria()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF NEW.conteo_fisico IS NOT NULL AND OLD.conteo_fisico IS NULL THEN
+    -- Solo procesar si conteo_fisico fue actualizado a un valor (no NULL)
+    IF NEW.conteo_fisico IS NOT NULL AND (OLD.conteo_fisico IS NULL OR OLD.conteo_fisico != NEW.conteo_fisico) THEN
+        -- Verificar si ya no hay items sin conteo_fisico
         IF NOT EXISTS (
             SELECT 1 FROM auditoria_detalle
             WHERE id_auditoria = NEW.id_auditoria
             AND conteo_fisico IS NULL
         ) THEN
+            -- Todos los items tienen conteo_fisico, marcar auditoría como completada
             UPDATE auditoria_inventario
             SET
                 estado = 'completada',
                 fecha_fin_auditoria = CURRENT_DATE
-            WHERE id_auditoria = NEW.id_auditoria;
+            WHERE id_auditoria = NEW.id_auditoria
+            AND estado = 'en_progreso';
         END IF;
     END IF;
 
@@ -1545,16 +1575,33 @@ AFTER UPDATE ON auditoria_detalle
 FOR EACH ROW
 EXECUTE FUNCTION fn_actualizar_estado_auditoria();
 
--- TRIGGER PARA BITÁCORA DE CAMBIOS EN AUDITORÍA
+-- TRIGGER PARA BITÁCORA DE CAMBIOS EN AUDITORÍA (SOLO PARA auditoria_inventario)
 CREATE OR REPLACE FUNCTION fn_bitacora_auditoria_cambios()
 RETURNS TRIGGER AS $$
 DECLARE
     v_nombre_auditoria VARCHAR(100);
+    v_accion VARCHAR(50);
 BEGIN
+    -- Esta función SOLO debe ejecutarse para auditoria_inventario
+    -- No para auditoria_detalle
+    
     -- Obtener el nombre de la auditoría
     SELECT nombre_auditoria INTO v_nombre_auditoria
     FROM auditoria_inventario
     WHERE id_auditoria = COALESCE(NEW.id_auditoria, OLD.id_auditoria);
+
+    -- Determinar acción basada en el tipo de operación
+    v_accion := CASE
+        WHEN TG_OP = 'INSERT' THEN 'creacion'
+        WHEN TG_OP = 'UPDATE' THEN 'modificacion'
+        WHEN TG_OP = 'DELETE' THEN 'eliminacion'
+        ELSE 'desconocida'
+    END;
+
+    -- Solo insertar si se cambió el estado
+    IF TG_OP = 'UPDATE' AND OLD.estado != NEW.estado THEN
+        v_accion := NEW.estado;
+    END IF;
 
     INSERT INTO bitacora_auditoria (
         id_auditoria, nombre_auditoria, accion, id_perfil, descripcion,
@@ -1562,21 +1609,12 @@ BEGIN
     ) VALUES (
         COALESCE(NEW.id_auditoria, OLD.id_auditoria),
         v_nombre_auditoria,
-        CASE
-            WHEN TG_OP = 'INSERT' THEN 'creacion'
-            WHEN TG_OP = 'UPDATE' THEN
-                CASE
-                    WHEN OLD.conteo_fisico IS NULL AND NEW.conteo_fisico IS NOT NULL THEN 'conteo_actualizado'
-                    WHEN OLD.estado != NEW.estado THEN NEW.estado
-                    ELSE 'modificacion_manual'
-                END
-            WHEN TG_OP = 'DELETE' THEN 'eliminacion'
-        END,
+        v_accion,
         COALESCE(NEW.id_perfil, OLD.id_perfil),
         CASE
-            WHEN TG_OP = 'INSERT' THEN 'Nuevo registro de auditoría creado'
-            WHEN TG_OP = 'UPDATE' THEN 'Registro de auditoría actualizado'
-            WHEN TG_OP = 'DELETE' THEN 'Registro de auditoría eliminado'
+            WHEN TG_OP = 'INSERT' THEN 'Auditoría creada'
+            WHEN TG_OP = 'UPDATE' THEN 'Auditoría actualizada - Estado: ' || NEW.estado
+            WHEN TG_OP = 'DELETE' THEN 'Auditoría eliminada'
         END,
         CASE WHEN TG_OP != 'INSERT' THEN row_to_json(OLD) ELSE NULL END,
         CASE WHEN TG_OP != 'DELETE' THEN row_to_json(NEW) ELSE NULL END
@@ -1591,10 +1629,9 @@ AFTER INSERT OR UPDATE OR DELETE ON auditoria_inventario
 FOR EACH ROW
 EXECUTE FUNCTION fn_bitacora_auditoria_cambios();
 
-CREATE TRIGGER trg_bitacora_auditoria_detalle
-AFTER UPDATE ON auditoria_detalle
-FOR EACH ROW
-EXECUTE FUNCTION fn_bitacora_auditoria_cambios();
+-- SOLO EJECUTAR EN UPDATE para auditoria_detalle (no en INSERT, ya que el INSERT lo hace fn_iniciar_auditoria)
+DROP TRIGGER IF EXISTS trg_bitacora_auditoria_detalle ON auditoria_detalle;
+-- NO CREAR EL TRIGGER - la bitácora se maneja en fn_actualizar_conteo_auditoria
 
 -- ===============================================
 -- VISTAS ÚTILES PARA AUDITORÍA
@@ -1604,7 +1641,7 @@ EXECUTE FUNCTION fn_bitacora_auditoria_cambios();
 CREATE OR REPLACE VIEW vista_auditorias_activas AS
 SELECT
     ai.id_auditoria,
-    ai.nombre_auditor,
+    ai.nombre_auditoria,
     ai.fecha_inicio_periodo,
     ai.fecha_fin_periodo,
     ai.fecha_inicio_auditoria,
@@ -1612,14 +1649,11 @@ SELECT
     ai.fecha_creacion,
     ai.estado,
     ai.id_perfil,
-    ai.notas_generales,
-    ai.total_items_contados,
-    ai.total_discrepancias as total_discrepancias_auditoria,
     p.primer_nombre || ' ' || p.primer_apellido as nombre_perfil,
     stats.total_insumos,
     stats.insumos_contados,
     stats.insumos_pendientes,
-    stats.total_discrepancias as total_discrepancias_estadisticas,
+    stats.total_discrepancias as total_discrepancias,
     stats.porcentaje_completado,
     stats.insumos_correctos,
     stats.insumos_sobrantes,
@@ -1634,7 +1668,7 @@ ORDER BY ai.fecha_creacion DESC;
 CREATE OR REPLACE VIEW vista_historial_auditorias AS
 SELECT
     ai.id_auditoria,
-    ai.nombre_auditor,
+    ai.nombre_auditoria,
     ai.fecha_inicio_periodo,
     ai.fecha_fin_periodo,
     ai.fecha_inicio_auditoria,
@@ -1642,14 +1676,11 @@ SELECT
     ai.fecha_creacion,
     ai.estado,
     ai.id_perfil,
-    ai.notas_generales,
-    ai.total_items_contados,
-    ai.total_discrepancias as total_discrepancias_auditoria,
     p.primer_nombre || ' ' || p.primer_apellido as nombre_perfil,
     stats.total_insumos,
     stats.insumos_contados,
     stats.insumos_pendientes,
-    stats.total_discrepancias as total_discrepancias_estadisticas,
+    stats.total_discrepancias,
     stats.porcentaje_completado,
     stats.insumos_correctos,
     stats.insumos_sobrantes,
@@ -1695,14 +1726,14 @@ BEGIN
         FROM auditoria_detalle ad
         WHERE ad.id_auditoria = p_id_auditoria AND ad.diferencia != 0
     LOOP
-        -- Determinar tipo de movimiento basado en la categoría
-        IF v_detalle.tipo_categoria = 'perpetuo' THEN
-            v_tipo_movimiento := 'ajuste_perpetuo';
+        -- Determinar tipo de movimiento: entrada_ajuste si hay más de lo esperado, salida_ajuste si hay menos
+        IF v_detalle.diferencia > 0 THEN
+            v_tipo_movimiento := 'entrada_ajuste';
         ELSE
-            v_tipo_movimiento := 'ajuste_operativo';
+            v_tipo_movimiento := 'salida_ajuste';
         END IF;
 
-        -- La cantidad es siempre positiva, el tipo determina entrada o salida
+        -- La cantidad es siempre positiva en movimiento_inventario
         v_cantidad := ABS(v_detalle.diferencia);
 
         -- Obtener costo promedio actual del insumo
@@ -1716,7 +1747,8 @@ BEGIN
             cantidad,
             costo_unitario_momento,
             descripcion,
-            id_perfil
+            id_perfil,
+            id_referencia
         ) VALUES (
             v_detalle.id_insumo,
             v_tipo_movimiento,
@@ -1725,7 +1757,8 @@ BEGIN
             'Ajuste por auditoría: ' || v_nombre_auditoria ||
             ' - Causa: ' || COALESCE(v_detalle.causa_ajuste, 'No especificada') ||
             ' - Notas: ' || COALESCE(v_detalle.notas, ''),
-            p_id_perfil
+            p_id_perfil,
+            p_id_auditoria
         );
     END LOOP;
 
@@ -1872,3 +1905,57 @@ ALTER TABLE auditoria_detalle DROP COLUMN IF EXISTS fecha_conteo;
 
 -- Actualizar tabla bitacora_auditoria
 ALTER TABLE bitacora_auditoria ADD COLUMN IF NOT EXISTS nombre_auditoria VARCHAR(100);
+
+-- ===============================================
+-- TABLAS DE ÓRDENES DE COMPRA
+-- ===============================================
+
+CREATE TABLE IF NOT EXISTS orden_compra (
+    id_orden SERIAL PRIMARY KEY,
+    fecha_orden DATE NOT NULL DEFAULT CURRENT_DATE,
+    id_proveedor INTEGER NOT NULL REFERENCES proveedor(id_proveedor) ON DELETE RESTRICT,
+    estado VARCHAR(20) DEFAULT 'pendiente' CHECK (estado IN ('pendiente', 'aprobada', 'recibida', 'cancelada')),
+    tipo_orden VARCHAR(20) DEFAULT 'manual' CHECK (tipo_orden IN ('manual', 'automatica')),
+    motivo_generacion TEXT,
+    fecha_aprobacion TIMESTAMP,
+    fecha_entrega_estimada DATE,
+    total DECIMAL(10,2) DEFAULT 0,
+    creado_por INTEGER REFERENCES perfil_usuario(id_perfil),
+    aprobado_por INTEGER REFERENCES perfil_usuario(id_perfil),
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS detalle_orden_compra (
+    id_detalle SERIAL PRIMARY KEY,
+    id_orden INTEGER NOT NULL REFERENCES orden_compra(id_orden) ON DELETE CASCADE,
+    id_insumo INTEGER NOT NULL REFERENCES insumo(id_insumo) ON DELETE RESTRICT,
+    cantidad DECIMAL(10,2) NOT NULL CHECK (cantidad > 0),
+    precio_unitario DECIMAL(10,2) NOT NULL CHECK (precio_unitario >= 0),
+    subtotal DECIMAL(10,2) GENERATED ALWAYS AS (cantidad * precio_unitario) STORED,
+    iva DECIMAL(10,2) DEFAULT 0,
+    id_presentacion INTEGER REFERENCES insumo_presentacion(id_presentacion),
+    cantidad_recibida DECIMAL(10,2) DEFAULT 0,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices para optimización
+CREATE INDEX IF NOT EXISTS idx_orden_compra_fecha ON orden_compra(fecha_orden);
+CREATE INDEX IF NOT EXISTS idx_orden_compra_proveedor ON orden_compra(id_proveedor);
+CREATE INDEX IF NOT EXISTS idx_orden_compra_estado ON orden_compra(estado);
+CREATE INDEX IF NOT EXISTS idx_detalle_orden_compra_orden ON detalle_orden_compra(id_orden);
+CREATE INDEX IF NOT EXISTS idx_detalle_orden_compra_insumo ON detalle_orden_compra(id_insumo);
+
+-- Trigger para actualizar fecha_actualizacion en orden_compra
+CREATE OR REPLACE FUNCTION actualizar_fecha_orden_compra()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.fecha_actualizacion = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER IF NOT EXISTS trigger_actualizar_fecha_orden_compra
+    BEFORE UPDATE ON orden_compra
+    FOR EACH ROW
+    EXECUTE FUNCTION actualizar_fecha_orden_compra();

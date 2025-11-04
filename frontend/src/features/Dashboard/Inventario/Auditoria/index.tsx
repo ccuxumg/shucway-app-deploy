@@ -7,6 +7,7 @@
  * =============================================== */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import "../Inventario.css";
 import "./Auditoria.css";
 import { MdCheckCircle, MdEventNote, MdErrorOutline } from "react-icons/md";
@@ -17,6 +18,7 @@ import { supabase } from "../../../../api/supabaseClient";
 
 /* ======================= Tipos ======================= */
 type Row = {
+  id_detalle?: number; // ID de auditoria_detalle
   id_insumo: number;
   insumo: string;
   categoria: string | null;
@@ -32,17 +34,27 @@ type Row = {
   causa_nombre: string | null;
 };
 
-type VwUiConteoDetalleRow = {
-  id_insumo: number | null;
-  insumo: string | null;
-  categoria: string | null;
-  unidad_medida: string | null;
-  tipo_insumo: string | null;
-  esperado: number | null;
-  contado: number | null;
+// Tipo para los datos que vienen de Supabase
+type SupabaseAuditoriaDetalle = {
+  id_detalle: number;
+  id_insumo: number;
+  tipo_categoria: string;
+  stock_esperado: number;
+  conteo_fisico: number | null;
   diferencia: number | null;
-  estado: string | null;
-  fue_contado: boolean | null;
+  causa_ajuste: string | null;
+  notas: string | null;
+  insumo?: 
+    | {
+        nombre_insumo: string;
+        unidad_base: string;
+        categoria_insumo?: { nombre: string } | { nombre: string }[];
+      }
+    | {
+        nombre_insumo: string;
+        unidad_base: string;
+        categoria_insumo?: { nombre: string } | { nombre: string }[];
+      }[];
 };
 
 // Mock de causas/ajustes (puedes sustituir por tu tabla real)
@@ -59,22 +71,10 @@ type AuditoriaProps = {
   auditorName?: string;
 };
 
-/* ======================= Seed (demo) ======================= */
-const SEED_ROWS: Row[] = [
-  { id_insumo: 1, insumo: "Pan para Shuco",        categoria: "Panadería", unidad: "u",  tipo_insumo: "operativo",  esperado: 120, contado: 118,  diferencia: -2,  estado: "contado",   observacion: "Se quemaron 2", fue_contado: true, id_tipo_ajuste: 1, causa_nombre: "Merma (Dañado/Vencido)" },
-  { id_insumo: 2, insumo: "Carne Asada (libra)",   categoria: "Cárnicos",   unidad: "lb", tipo_insumo: "operativo",  esperado: 25,  contado: 25.5, diferencia: 0.5, estado: "contado",   observacion: "Sobrante",      fue_contado: true, id_tipo_ajuste: 4, causa_nombre: "Sobrante (Conteo)" },
-  { id_insumo: 3, insumo: "Chorizo",               categoria: "Cárnicos",   unidad: "u",  tipo_insumo: "operativo",  esperado: 70,  contado: null, diferencia: 0,   estado: "pendiente", observacion: "",      fue_contado: false, id_tipo_ajuste: null, causa_nombre: null },
-  { id_insumo: 4, insumo: "Servilletas (paquete)", categoria: "Desechables", unidad: "u",  tipo_insumo: "perpetuo",   esperado: 5,   contado: 3,    diferencia: -2,  estado: "contado",   observacion: "Gasto del día", fue_contado: true, id_tipo_ajuste: 3, causa_nombre: "Consumo Operativo (Gasto)" },
-  { id_insumo: 5, insumo: "Bolsas para llevar",    categoria: "Desechables", unidad: "u",  tipo_insumo: "perpetuo",   esperado: 100, contado: null, diferencia: 0,   estado: "pendiente", observacion: "",      fue_contado: false, id_tipo_ajuste: null, causa_nombre: null },
-  { id_insumo: 6, insumo: "Ketchup (Botella)",     categoria: "Salsas",      unidad: "u",  tipo_insumo: "perpetuo",   esperado: 10,  contado: 10,   diferencia: 0,   estado: "contado",   observacion: "",      fue_contado: true, id_tipo_ajuste: null, causa_nombre: null },
-];
+/* ======================= Seed (demo) - ELIMINADO ======================= */
+// Los datos ahora se cargan directamente desde la base de datos
 
 /* ============ Utilidades comunes ============ */
-function getDefaultStartDate(daysAgo: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() - daysAgo);
-  return date.toISOString().split("T")[0];
-}
 function getTodayDate(): string {
   return new Date().toISOString().split("T")[0];
 }
@@ -148,19 +148,6 @@ function readString(obj: unknown, key: string): string | null {
   }
   return null;
 }
-function getUserId(u: unknown): string | null {
-  const direct =
-    readString(u, "id") ?? readString(u, "userId") ?? readString(u, "uid");
-  if (direct) return direct;
-  if (u && typeof u === "object" && "profile" in u) {
-    const p = (u as Record<string, unknown>)["profile"];
-    if (p && typeof p === "object") {
-      const idp = readString(p, "id_perfil");
-      if (idp) return idp;
-    }
-  }
-  return null;
-}
 function getUserDisplayName(u: unknown, fallback?: string): string {
   if (u && typeof u === "object" && "user_metadata" in u) {
     const meta = (u as Record<string, unknown>)["user_metadata"];
@@ -182,13 +169,19 @@ function getUserDisplayName(u: unknown, fallback?: string): string {
 const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) => {
   const { user } = useAuth();
 
-  // Sesión
-  const [sessionId, setSessionId] = useState<string | undefined>(initialSessionId);
+  // Sesión - Restaurar desde localStorage si existe
+  const [sessionId, setSessionId] = useState<string | undefined>(() => {
+    if (initialSessionId) return initialSessionId;
+    // Intentar restaurar auditoría activa desde localStorage
+    const stored = localStorage.getItem('auditoria_activa');
+    return stored || undefined;
+  });
   const [sessionDate, setSessionDate] = useState<string | undefined>();
   const [sessionLabel, setSessionLabel] = useState<string | undefined>();
+  const [sessionEstado, setSessionEstado] = useState<'en_progreso' | 'completada' | 'cancelada'>('en_progreso');
 
   // Estado UI
-  const [rows, setRows] = useState<Row[]>(() => SEED_ROWS.map(calcDiferencia));
+  const [rows, setRows] = useState<Row[]>([]);
 
   // ===== Tabs (sin "Todos") =====
   const TABS = [
@@ -219,13 +212,28 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
 
   // ===== Modal "Iniciar Auditoría" =====
   const [showStartModal, setShowStartModal] = useState(false);
-  const [auditLabel, setAuditLabel] = useState("Auditoría Quincenal");
-  const [auditStartDate, setAuditStartDate] = useState(() => getDefaultStartDate(14));
+  const [auditLabel, setAuditLabel] = useState("");
+  const [auditStartDate, setAuditStartDate] = useState(() => getTodayDate());
   const [auditEndDate, setAuditEndDate] = useState(() => getTodayDate());
 
-  // Abre modal de bienvenida auto si no hay sesión
+  // Abre modal de bienvenida auto si no hay sesión activa
   useEffect(() => {
-    if (!initialSessionId) setShowStartModal(true);
+    // Solo abrir modal si NO hay auditoría activa (ni en props ni en localStorage)
+    const storedAudit = localStorage.getItem('auditoria_activa');
+    if (!initialSessionId && !storedAudit) {
+      setShowStartModal(true);
+    }
+    
+    // Restaurar datos de auditoría desde localStorage
+    if (storedAudit && !initialSessionId) {
+      const storedLabel = localStorage.getItem('auditoria_label');
+      const storedFecha = localStorage.getItem('auditoria_fecha');
+      const storedEstado = localStorage.getItem('auditoria_estado') as 'en_progreso' | 'completada' | 'cancelada' | null;
+      
+      if (storedLabel) setSessionLabel(storedLabel);
+      if (storedFecha) setSessionDate(storedFecha);
+      if (storedEstado) setSessionEstado(storedEstado);
+    }
   }, [initialSessionId]);
 
   // ===== Modal "Finalizar" =====
@@ -233,6 +241,91 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
   const [optComentario, setOptComentario] = useState<string>("");
   const [isStarting, setIsStarting] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
+
+  // ===== Modales de Cancelación =====
+  const [showCancelConfirmModal, setShowCancelConfirmModal] = useState(false);
+  const [showCancelSuccessModal, setShowCancelSuccessModal] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
+  const [isCanceling, setIsCanceling] = useState(false);
+  const navigate = useNavigate();
+
+  // Interceptar navegación mediante click en enlaces/botones del sidebar
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      // No interceptar si es navegación desde el widget de auditoría
+      if ((window as { auditoriaWidgetNavigating?: boolean }).auditoriaWidgetNavigating) {
+        console.log('✅ Navegación desde widget de auditoría, no interceptar');
+        return;
+      }
+      
+      // Solo interceptar si hay auditoría activa
+      if (!sessionId || sessionEstado !== 'en_progreso') return;
+
+      // Buscar si el click es en un enlace de navegación
+      const target = e.target as HTMLElement;
+      
+      // NO interceptar clicks en el widget de auditoría del sidebar
+      const auditoriaWidget = target.closest('.auditoria-quick-widget');
+      if (auditoriaWidget) {
+        console.log('✅ Click en widget de auditoría, no interceptar');
+        return;
+      }
+      
+      const link = target.closest('a[href], button[data-navigate]');
+      
+      if (link) {
+        const href = link.getAttribute('href');
+        const navPath = link.getAttribute('data-navigate');
+        const targetPath = href || navPath;
+        
+        console.log('🔍 Interceptor detectó click:', {
+          targetPath,
+          sessionId,
+          sessionEstado,
+          includes: targetPath?.includes('/inventario')
+        });
+        
+        // NO interceptar si:
+        // 1. Va hacia la página de auditoría (permite continuar)
+        // 2. Ya estamos en la página de inventario con tab auditoria
+        if (targetPath && (
+          targetPath.includes('/inventario?tab=auditoria') ||
+          targetPath.includes('/inventario/auditoria')
+        )) {
+          console.log('✅ Permitiendo navegación a auditoría');
+          return; // Permitir navegación sin bloquear
+        }
+        
+        // Si es una navegación a otro módulo, mostrar modal de confirmación
+        if (targetPath) {
+          console.log('🚫 Bloqueando navegación a:', targetPath);
+          e.preventDefault();
+          e.stopPropagation();
+          
+          // Guardar la función de navegación
+          setPendingNavigation(() => () => navigate(targetPath));
+          setShowCancelConfirmModal(true);
+        }
+      }
+    };
+
+    document.addEventListener('click', handleClick, true);
+    return () => document.removeEventListener('click', handleClick, true);
+  }, [sessionId, sessionEstado, navigate]);
+
+  // Advertencia antes de cerrar la ventana/pestaña del navegador
+  useEffect(() => {
+    if (!sessionId || sessionEstado !== 'en_progreso') return;
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = ''; // Chrome requiere esto
+      return ''; // Para otros navegadores
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [sessionId, sessionEstado]);
 
   // Notificación
   const [notif, setNotif] = useState<{ type: "info" | "success" | "error"; msg: string } | null>(null);
@@ -306,63 +399,121 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
 
   /* ============== Carga ============== */
   async function loadRows(search: string) {
+    if (!sessionId) {
+      setRows([]);
+      return;
+    }
+
+    // Validar que sessionId sea un número válido
+    const idAuditoria = parseInt(sessionId, 10);
+    if (isNaN(idAuditoria)) {
+      console.error("sessionId no es un número válido:", sessionId);
+      setRows([]);
+      return;
+    }
+
     try {
       lastLoadAbort.current?.abort();
       const ac = new AbortController();
       lastLoadAbort.current = ac;
 
-      const { data, error } = await supabase
-        .from("vw_ui_conteo_detalle")
-        .select(
-          "id_insumo, insumo, categoria, unidad_medida, tipo_insumo, esperado, contado, diferencia, estado, fue_contado"
-        )
-        .eq("id_conteo", sessionId)
-        .ilike("insumo", `%${search}%`)
-        .limit(500);
+      // Cargar estado de la auditoría desde BD
+      const { data: auditoriaData, error: auditoriaError } = await supabase
+        .from('auditoria_inventario')
+        .select('estado, nombre_auditoria, fecha_inicio_auditoria')
+        .eq('id_auditoria', idAuditoria)
+        .single();
 
-      if (error || !Array.isArray(data)) {
-        setRows(
-          SEED_ROWS.filter((r) => r.insumo.toLowerCase().includes(search.trim().toLowerCase())).map(
-            calcDiferencia
-          )
-        );
+      if (!auditoriaError && auditoriaData) {
+        setSessionEstado(auditoriaData.estado as 'en_progreso' | 'completada' | 'cancelada');
+        if (auditoriaData.nombre_auditoria) setSessionLabel(auditoriaData.nombre_auditoria);
+        if (auditoriaData.fecha_inicio_auditoria) setSessionDate(auditoriaData.fecha_inicio_auditoria);
+        // Actualizar localStorage también
+        localStorage.setItem('auditoria_estado', auditoriaData.estado);
+      }
+
+      // Cargar desde el backend endpoint (respeta RLS)
+      const token = localStorage.getItem("access_token");
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL}/auditoria/detalle/${idAuditoria}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          signal: ac.signal,
+        }
+      );
+
+      if (!response.ok) {
+        console.error("Error cargando detalles de auditoría:", response.status);
+        notify("error", `Error al cargar detalles: ${response.status}`);
+        setRows([]);
         return;
       }
 
-      const mapped: Row[] = (data as VwUiConteoDetalleRow[]).map((d) => {
-        const contado = d?.contado == null ? null : Number(d.contado);
-        const tipo: Row["tipo_insumo"] =
-          String(d?.tipo_insumo).toLowerCase() === "operativo"
-            ? "operativo"
-            : String(d?.tipo_insumo).toLowerCase() === "perpetuo"
-            ? "perpetuo"
-            : "desconocido";
-        return {
-          id_insumo: Number(d?.id_insumo ?? 0),
-          insumo: String(d?.insumo ?? ""),
-          categoria: d?.categoria ?? null,
-          unidad: d?.unidad_medida ?? null,
-          tipo_insumo: tipo,
-          esperado: Number(d?.esperado ?? 0),
-          contado,
-          diferencia: Number(d?.diferencia ?? 0),
-          estado:
-            String(d?.estado ?? "pendiente").toLowerCase() === "contado"
-              ? "contado"
-              : "pendiente",
-          observacion: "",
-          fue_contado: typeof d?.fue_contado === "boolean" ? d.fue_contado : contado != null,
-          id_tipo_ajuste: null,
-          causa_nombre: null,
-        };
-      });
-      setRows(mapped.map(calcDiferencia));
-    } catch {
-      setRows(
-        SEED_ROWS.filter((r) => r.insumo.toLowerCase().includes(search.trim().toLowerCase())).map(
-          calcDiferencia
-        )
-      );
+      const data = await response.json();
+
+      if (!Array.isArray(data) || data.length === 0) {
+        console.log("No hay datos de auditoría");
+        setRows([]);
+        return;
+      }
+
+      // Mapear los datos al formato Row
+      const mapped: Row[] = data
+        .filter((d: SupabaseAuditoriaDetalle) => d.insumo) // Solo insumos válidos
+        .map((d: SupabaseAuditoriaDetalle) => {
+          // Backend puede devolver insumo como objeto o array, normalizar
+          const insumoData = Array.isArray(d.insumo) ? d.insumo[0] : d.insumo;
+          const nombreInsumo = insumoData?.nombre_insumo || "Sin nombre";
+          const unidadBase = insumoData?.unidad_base || "";
+          
+          // categoria_insumo también puede ser array
+          const categoriaData = Array.isArray(insumoData?.categoria_insumo) 
+            ? insumoData.categoria_insumo[0] 
+            : insumoData?.categoria_insumo;
+          const nombreCategoria = categoriaData?.nombre || "";
+          
+          const contado = d.conteo_fisico == null ? null : Number(d.conteo_fisico);
+          const tipo: Row["tipo_insumo"] =
+            String(d.tipo_categoria).toLowerCase() === "operativo"
+              ? "operativo"
+              : String(d.tipo_categoria).toLowerCase() === "perpetuo"
+              ? "perpetuo"
+              : "desconocido";
+
+          return {
+            id_detalle: d.id_detalle,
+            id_insumo: d.id_insumo,
+            insumo: nombreInsumo,
+            categoria: nombreCategoria,
+            unidad: unidadBase,
+            tipo_insumo: tipo,
+            esperado: Number(d.stock_esperado ?? 0),
+            contado,
+            diferencia: contado !== null ? Number(contado) - Number(d.stock_esperado ?? 0) : 0,
+            estado: contado !== null ? "contado" : "pendiente",
+            observacion: d.notas || "",
+            fue_contado: contado !== null,
+            id_tipo_ajuste: null,
+            causa_nombre: d.causa_ajuste || null,
+          };
+        });
+
+      // Filtrar por búsqueda si existe
+      const filtered = search.trim()
+        ? mapped.filter((r) =>
+            r.insumo.toLowerCase().includes(search.trim().toLowerCase())
+          )
+        : mapped;
+
+      setRows(filtered.map(calcDiferencia));
+      console.log(`Cargados ${filtered.length} insumos de ${mapped.length} totales`);
+    } catch (err) {
+      console.error("Error en loadRows:", err);
+      notify("error", "Error al cargar datos");
+      setRows([]);
     }
   }
 
@@ -413,12 +564,34 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
       notify("info", "Sesión demo: cambios guardados localmente.");
       return;
     }
-    const { error } = await supabase.rpc("fn_conteo_registrar_linea", {
-      p_id_conteo: sessionId,
+
+    // Validar que sessionId sea un número válido
+    const idAuditoria = parseInt(sessionId, 10);
+    if (isNaN(idAuditoria)) {
+      notify("error", "ID de auditoría inválido");
+      return;
+    }
+
+    // Obtener id_perfil del usuario autenticado
+    const userId = user && typeof user === 'object' && 'id_perfil' in user 
+      ? (user.id_perfil as number) 
+      : null;
+
+    if (!userId) {
+      notify("error", "No se pudo obtener el perfil del usuario");
+      return;
+    }
+
+    // Usar fn_actualizar_conteo_auditoria
+    const { error } = await supabase.rpc("fn_actualizar_conteo_auditoria", {
+      p_id_auditoria: idAuditoria,
       p_id_insumo: row.id_insumo,
-      p_contado: row.contado,
-      p_observacion: row.observacion,
+      p_conteo_fisico: row.contado,
+      p_causa_ajuste: row.causa_nombre,
+      p_notas: row.observacion,
+      p_id_perfil: userId,
     });
+
     if (error)
       notify(
         "error",
@@ -429,36 +602,116 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
 
   async function startAudit() {
     setIsStarting(true);
-    const etiqueta = `${auditLabel} (${auditStartDate} al ${auditEndDate})`;
 
     try {
-      const { data, error } = await supabase.rpc("fn_conteo_iniciar", {
-        p_ambito: "todos",
-        p_id_categoria: null,
-        p_etiqueta: etiqueta,
-        p_frecuencia: "ad-hoc",
-        p_id_perfil: getUserId(user),
-      });
-      if (error) {
-        const demoId = `demo-${Date.now()}`;
-        setSessionId(demoId);
-        setSessionDate(new Date().toISOString());
-        setSessionLabel(etiqueta);
-        notify("info", "Sesión demo iniciada.");
-      } else {
-        const created = (data as { id_conteo?: string; fecha_creacion?: string }) || {};
-        setSessionId(created.id_conteo);
-        setSessionDate(created.fecha_creacion);
-        setSessionLabel(etiqueta);
-        notify("success", "Auditoría iniciada.");
+      // Validar campos antes de enviar
+      if (!auditLabel.trim()) {
+        notify("error", "El nombre de auditoría es requerido");
+        return;
       }
-      setShowStartModal(false);
-    } catch {
-      const demoId = `demo-${Date.now()}`;
-      setSessionId(demoId);
+
+      if (!auditStartDate || !auditEndDate) {
+        notify("error", "Las fechas de período son requeridas");
+        return;
+      }
+
+      // Validar que fechaInicioPeriodo no sea anterior a hoy
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const startDate = new Date(auditStartDate);
+      startDate.setHours(0, 0, 0, 0);
+      
+      if (startDate < today) {
+        notify("error", "La fecha de inicio no puede ser anterior a hoy");
+        return;
+      }
+
+      // Validar que fechaInicioPeriodo no sea posterior a fechaFinPeriodo
+      if (new Date(auditStartDate) > new Date(auditEndDate)) {
+        notify("error", "La fecha de inicio no puede ser posterior a la fecha fin");
+        return;
+      }
+
+      // Obtener ID del usuario autenticado - DEBE existir
+      let userId: number | null = null;
+      
+      // Primero intentar desde el objeto user si tiene id_perfil directo
+      if (user && typeof user === 'object' && 'id_perfil' in user) {
+        userId = user.id_perfil as number;
+      }
+      
+      // Si no está, el usuario no tiene perfil válido
+      if (!userId) {
+        notify("error", "No se pudo obtener el perfil del usuario. Por favor, inicie sesión nuevamente.");
+        console.error("Usuario sin id_perfil:", user);
+        return;
+      }
+      
+      console.log("Usuario autenticado:", user);
+      console.log("ID de perfil para auditoría:", userId);
+      console.log("Datos a enviar:", {
+        p_nombre_auditoria: auditLabel.trim(),
+        p_fecha_inicio_periodo: auditStartDate,
+        p_fecha_fin_periodo: auditEndDate,
+        p_id_perfil: userId,
+      });
+
+      // Validar que userId sea un número válido
+      if (!userId || isNaN(userId)) {
+        notify("error", "ID de perfil inválido. Por favor, inicie sesión nuevamente.");
+        console.error("userId inválido:", userId);
+        return;
+      }
+
+      // Llamar a la función fn_iniciar_auditoria de la BD
+      const { data, error } = await supabase.rpc("fn_iniciar_auditoria", {
+        p_nombre_auditoria: auditLabel.trim(),
+        p_fecha_inicio_periodo: auditStartDate,
+        p_fecha_fin_periodo: auditEndDate,
+        p_id_perfil: userId,
+      });
+
+      if (error) {
+        console.error("Error completo iniciando auditoría:", {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+          error: error,
+        });
+        notify("error", `Error: ${error.message || error.details || "Error desconocido"}`);
+        return;
+      }
+
+      if (!data) {
+        notify("error", "No se recibió ID de auditoría");
+        return;
+      }
+
+      // data es el id_auditoria retornado
+      const idAuditoria = String(data);
+      setSessionId(idAuditoria);
       setSessionDate(new Date().toISOString());
-      setSessionLabel(etiqueta);
-      notify("info", "Sesión demo iniciada.");
+      setSessionLabel(auditLabel);
+      setSessionEstado('en_progreso');
+      
+      // ✅ PERSISTIR EN LOCALSTORAGE
+      localStorage.setItem('auditoria_activa', idAuditoria);
+      localStorage.setItem('auditoria_label', auditLabel);
+      localStorage.setItem('auditoria_fecha', new Date().toISOString());
+      localStorage.setItem('auditoria_estado', 'en_progreso');
+      
+      // ✅ DISPARAR EVENTO PARA ACTUALIZAR CONTADOR
+      window.dispatchEvent(new Event('auditoria-changed'));
+      
+      notify("success", "Auditoría iniciada correctamente.");
+      
+      // Cargar datos de auditoria_detalle
+      void loadRows("");
+      setShowStartModal(false);
+    } catch (err) {
+      console.error("Error en startAudit:", err);
+      notify("error", "Error al iniciar auditoría. Intente nuevamente.");
     } finally {
       setIsStarting(false);
     }
@@ -575,54 +828,36 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
         (r) => typeof r.contado === "number" && r.diferencia !== 0 && r.id_tipo_ajuste == null
       );
 
-      // Encabezado
-      let idEncabezado: number | null = null;
+      // Llamar a fn_completar_auditoria
       if (sessionId) {
-        const descripcionCierre = [sessionLabel || `Auditoría ${sessionId}`, optComentario.trim()]
-          .filter(Boolean)
-          .join(" - ");
-
-        const { data: encData, error: encErr } = await supabase
-          .from("movimiento_encabezado")
-          .insert({
-            modulo_origen: "CONTEO_FISICO",
-            descripcion: descripcionCierre,
-            id_perfil: getUserId(user),
-            id_referencia: sessionId,
-          })
-          .select("id_encabezado")
-          .single();
-        if (!encErr) {
-          idEncabezado = (encData as { id_encabezado?: number } | null)?.id_encabezado ?? null;
-        } else {
-          notify("error", "No se pudo crear el encabezado de movimiento. Se continuará con el resumen.");
+        const idAuditoria = parseInt(sessionId, 10);
+        if (isNaN(idAuditoria)) {
+          notify("error", "ID de auditoría inválido");
+          return;
         }
-      }
 
-      // Líneas
-      if (sessionId && idEncabezado && diffsFinal.length > 0) {
-        const lineas = diffsFinal.map((r) => {
-          const diff = r.diferencia;
-          const tipo = diff > 0 ? "ENTRADA" : "SALIDA";
-          const comentarioLinea = `[${r.causa_nombre ?? "Ajuste"}] ${r.observacion || `Conteo ${sessionId}`}`;
-          return {
-            id_encabezado: idEncabezado as number,
-            id_insumo: r.id_insumo,
-            cantidad: Math.abs(diff),
-            tipo_movimiento: tipo,
-            unidad: r.unidad ?? null,
-            comentario: comentarioLinea,
-          };
+        // Obtener id_perfil del usuario autenticado
+        const userId = user && typeof user === 'object' && 'id_perfil' in user 
+          ? (user.id_perfil as number) 
+          : null;
+
+        if (!userId) {
+          notify("error", "No se pudo obtener el perfil del usuario");
+          return;
+        }
+
+        const { error: completarError } = await supabase.rpc("fn_completar_auditoria", {
+          p_id_auditoria: idAuditoria,
+          p_id_perfil: userId,
         });
 
-        const { error: lineErr } = await supabase.from("movimiento_linea").insert(lineas);
-        if (lineErr) {
-          notify("error", "No se pudieron registrar las líneas de movimiento. Se continuará con el resumen.");
+        if (completarError) {
+          console.error("Error al completar auditoría:", completarError);
+          notify("error", `Error al completar auditoría: ${completarError.message || "Error desconocido"}`);
+          return;
         } else {
-          notify("success", `${diffsFinal.length} movimientos registrados.`);
+          notify("success", "Auditoría completada correctamente.");
         }
-      } else if (diffsFinal.length === 0) {
-        notify("info", "No hay diferencias justificadas para registrar.");
       }
 
       // Resumen imprimible
@@ -660,18 +895,138 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
       setSessionId(undefined);
       setSessionDate(undefined);
       setSessionLabel(undefined);
+      setSessionEstado('en_progreso');
       setTerm("");
-      setRows(SEED_ROWS.map(calcDiferencia));
-      setAuditLabel("Auditoría Quincenal");
-      setAuditStartDate(getDefaultStartDate(14));
+      setRows([]);
+      setAuditLabel("");
+      setAuditStartDate(getTodayDate());
       setAuditEndDate(getTodayDate());
       setOptComentario("");
       clearFilters();
+      
+      // ✅ LIMPIAR LOCALSTORAGE
+      localStorage.removeItem('auditoria_activa');
+      localStorage.removeItem('auditoria_label');
+      localStorage.removeItem('auditoria_fecha');
+      localStorage.removeItem('auditoria_estado');
+      
+      // ✅ DISPARAR EVENTO PARA ACTUALIZAR CONTADOR
+      window.dispatchEvent(new Event('auditoria-changed'));
+      
       notify("success", "Auditoría finalizada.");
     } catch {
       notify("error", "Error al finalizar la auditoría.");
     } finally {
       setIsFinalizing(false);
+    }
+  }
+
+  // ===== Función para Cancelar Auditoría =====
+  async function cancelAudit() {
+    if (!sessionId) {
+      notify("error", "No hay auditoría activa para cancelar");
+      return;
+    }
+
+    setIsCanceling(true);
+
+    try {
+      const token = localStorage.getItem('access_token');
+      if (!token) {
+        notify("error", "No se encontró el token de autenticación");
+        return;
+      }
+
+      const response = await fetch(`http://localhost:3002/api/auditoria/cancelar/${sessionId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          motivo: 'Cancelada por el usuario al salir del módulo'
+        }),
+      });
+
+      // Si la auditoría no existe (404) o hay error del servidor, aún limpiamos el estado local
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.warn('Auditoría no encontrada en el servidor, limpiando estado local');
+        } else {
+          console.error('Error del servidor al cancelar auditoría:', response.status);
+        }
+      } else {
+        const result = await response.json();
+        console.log('Auditoría cancelada exitosamente:', result);
+      }
+
+      // Limpiar estado local independientemente del resultado del servidor
+      setSessionEstado('cancelada');
+      localStorage.setItem('auditoria_estado', 'cancelada');
+
+      // Limpiar sesión
+      setSessionId(undefined);
+      setSessionDate(undefined);
+      setSessionLabel(undefined);
+      setRows([]);
+      localStorage.removeItem('auditoria_activa');
+      localStorage.removeItem('auditoria_label');
+      localStorage.removeItem('auditoria_fecha');
+      localStorage.removeItem('auditoria_estado');
+
+      // Mostrar modal de éxito
+      setShowCancelConfirmModal(false);
+      setShowCancelSuccessModal(true);
+      
+      // ✅ DISPARAR EVENTO PARA ACTUALIZAR CONTADOR
+      window.dispatchEvent(new Event('auditoria-changed'));
+      
+      notify("success", "Auditoría cancelada correctamente");
+      
+    } catch (error) {
+      console.error("Error cancelando auditoría:", error);
+      
+      // Aún si hay error de red, limpiamos el estado local
+      setSessionEstado('cancelada');
+      localStorage.setItem('auditoria_estado', 'cancelada');
+      setSessionId(undefined);
+      setSessionDate(undefined);
+      setSessionLabel(undefined);
+      setRows([]);
+      localStorage.removeItem('auditoria_activa');
+      localStorage.removeItem('auditoria_label');
+      localStorage.removeItem('auditoria_fecha');
+      localStorage.removeItem('auditoria_estado');
+      
+      setShowCancelConfirmModal(false);
+      setShowCancelSuccessModal(true);
+      window.dispatchEvent(new Event('auditoria-changed'));
+      
+      notify("info", "Auditoría cancelada localmente (error de conexión)");
+    } finally {
+      setIsCanceling(false);
+    }
+  }
+
+  // ===== Manejar Continuar sin Cancelar =====
+  function handleContinueWithoutCancel() {
+    setShowCancelConfirmModal(false);
+    
+    // Si hay navegación pendiente, ejecutarla
+    if (pendingNavigation) {
+      pendingNavigation();
+      setPendingNavigation(null);
+    }
+  }
+
+  // ===== Cerrar modal de éxito y navegar =====
+  function handleCloseCancelSuccess() {
+    setShowCancelSuccessModal(false);
+    
+    // Si hay navegación pendiente, ejecutarla
+    if (pendingNavigation) {
+      pendingNavigation();
+      setPendingNavigation(null);
     }
   }
 
@@ -789,7 +1144,53 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
   /* ============== Render ============== */
   return (
     <div className="inv-list">
-      <h3>AUDITORÍA DE INVENTARIO (CONTEO FÍSICO)</h3>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+        <h3 style={{ margin: 0 }}>AUDITORÍA DE INVENTARIO (CONTEO FÍSICO)</h3>
+        {sessionId && (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 12px',
+              borderRadius: '999px',
+              fontSize: '12px',
+              fontWeight: '600',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+              background: sessionEstado === 'en_progreso' 
+                ? '#dbeafe' 
+                : sessionEstado === 'completada' 
+                ? '#d1fae5' 
+                : '#fee2e2',
+              color: sessionEstado === 'en_progreso' 
+                ? '#1e40af' 
+                : sessionEstado === 'completada' 
+                ? '#065f46' 
+                : '#991b1b',
+              border: `1px solid ${sessionEstado === 'en_progreso' 
+                ? '#93c5fd' 
+                : sessionEstado === 'completada' 
+                ? '#6ee7b7' 
+                : '#fca5a5'}`,
+            }}
+          >
+            <span
+              style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: sessionEstado === 'en_progreso' 
+                  ? '#3b82f6' 
+                  : sessionEstado === 'completada' 
+                  ? '#10b981' 
+                  : '#ef4444',
+              }}
+            />
+            {sessionEstado === 'en_progreso' ? 'En Progreso' : sessionEstado === 'completada' ? 'Completada' : 'Cancelada'}
+          </span>
+        )}
+      </div>
 
       {/* Notificación */}
       {notif && (
@@ -1148,7 +1549,7 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
                   type="text"
                   value={auditLabel}
                   onChange={(e) => setAuditLabel(e.target.value)}
-                  className="w-full p-2 rounded border"
+                  className="auditoria-modal-input"
                   placeholder="Ej: Auditoría Quincenal"
                 />
               </div>
@@ -1160,7 +1561,8 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
                     type="date"
                     value={auditStartDate}
                     onChange={(e) => setAuditStartDate(e.target.value)}
-                    className="w-full p-2 rounded border"
+                    min={getTodayDate()}
+                    className="auditoria-modal-input"
                   />
                 </div>
                 <div style={{ flex: 1 }}>
@@ -1169,7 +1571,7 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
                     type="date"
                     value={auditEndDate}
                     onChange={(e) => setAuditEndDate(e.target.value)}
-                    className="w-full p-2 rounded border"
+                    className="auditoria-modal-input"
                   />
                 </div>
               </div>
@@ -1183,6 +1585,117 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
                 {isStarting ? "Iniciando..." : "Confirmar e Iniciar"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmación de Cancelación */}
+      {showCancelConfirmModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.3)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              padding: 24,
+              borderRadius: 12,
+              width: "100%",
+              maxWidth: 480,
+              boxShadow: "0 12px 28px rgba(16,24,40,0.14)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <MdErrorOutline size={32} style={{ color: "#dc2626" }} />
+              <h4 className="text-lg font-semibold">¿Cancelar Auditoría?</h4>
+            </div>
+
+            <p className="text-gray-600 mb-4">
+              Tienes una auditoría en progreso. Si sales ahora, puedes:
+            </p>
+
+            <ul className="list-disc list-inside text-gray-600 mb-4 space-y-2">
+              <li><strong>Cancelar la auditoría:</strong> Se marcará como cancelada y perderás todo el progreso.</li>
+              <li><strong>Continuar:</strong> Podrás navegar entre módulos y la auditoría seguirá activa.</li>
+            </ul>
+
+            <div className="mt-6 flex gap-3 justify-end">
+              <button 
+                className="btn ghost" 
+                onClick={handleContinueWithoutCancel}
+                style={{ minWidth: 110 }}
+              >
+                Continuar
+              </button>
+              <button 
+                className="btn" 
+                onClick={cancelAudit}
+                disabled={isCanceling}
+                style={{ 
+                  minWidth: 110,
+                  background: "linear-gradient(135deg, #001f3f 0%, #003d7a 100%)",
+                  color: "#fff",
+                  border: "none"
+                }}
+              >
+                {isCanceling ? "Cancelando..." : "Cancelar Auditoría"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Éxito al Cancelar */}
+      {showCancelSuccessModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.3)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              padding: 24,
+              borderRadius: 12,
+              width: "100%",
+              maxWidth: 400,
+              boxShadow: "0 12px 28px rgba(16,24,40,0.14)",
+              textAlign: "center",
+            }}
+          >
+            <MdCheckCircle size={56} style={{ color: "#dc2626", margin: "0 auto 16px" }} />
+            
+            <h4 className="text-lg font-semibold mb-2">Auditoría Cancelada</h4>
+            
+            <p className="text-gray-600 mb-1">
+              <strong>{sessionLabel || "Auditoría"}</strong>
+            </p>
+            <p className="text-gray-500 text-sm mb-6">
+              La auditoría ha sido cancelada exitosamente
+            </p>
+
+            <button 
+              className="btn primary" 
+              onClick={handleCloseCancelSuccess}
+              style={{ width: "100%" }}
+            >
+              Aceptar
+            </button>
           </div>
         </div>
       )}

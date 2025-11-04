@@ -103,6 +103,88 @@ const Inventario: React.FC = () => {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [qPerpetual, setQPerpetual] = useState<string>('');
   const [qOperational, setQOperational] = useState<string>('');
+  const [auditoriasPendientes, setAuditoriasPendientes] = useState<number>(0);
+
+  // Cargar auditorías pendientes
+  useEffect(() => {
+    const fetchAuditoriasPendientes = async () => {
+      try {
+        // Primero verificar localStorage como respaldo rápido
+        const auditoriaActiva = localStorage.getItem('auditoria_activa');
+        const auditoriaEstado = localStorage.getItem('auditoria_estado');
+        
+        // Si hay auditoría activa en localStorage y está en progreso, mostrar 1
+        if (auditoriaActiva && auditoriaEstado === 'en_progreso') {
+          setAuditoriasPendientes(1);
+          console.log('Inventario: Auditoría activa en localStorage');
+        }
+        
+        // Luego intentar obtener del backend
+        const token = localStorage.getItem('token');
+        if (!token) {
+          console.log('Inventario: No hay token para auditorías pendientes');
+          return;
+        }
+
+        console.log('Inventario: Fetching auditorías pendientes...');
+        const response = await fetch('http://localhost:3002/api/auditoria/pendientes/count', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        console.log('Inventario: Response status:', response.status);
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Inventario: Auditorías pendientes:', data.count);
+          setAuditoriasPendientes(data.count || 0);
+        } else {
+          console.error('Inventario: Error response:', response.status, await response.text());
+          // Si falla el backend, usar localStorage como fallback
+          if (auditoriaActiva && auditoriaEstado === 'en_progreso') {
+            setAuditoriasPendientes(1);
+          }
+        }
+      } catch (error) {
+        console.error('Error cargando auditorías pendientes:', error);
+        // Si hay error de red, usar localStorage como fallback
+        const auditoriaActiva = localStorage.getItem('auditoria_activa');
+        const auditoriaEstado = localStorage.getItem('auditoria_estado');
+        if (auditoriaActiva && auditoriaEstado === 'en_progreso') {
+          setAuditoriasPendientes(1);
+        }
+      }
+    };
+
+    fetchAuditoriasPendientes();
+    
+    // Actualizar cada 5 segundos (reducido para mayor responsividad)
+    const interval = setInterval(fetchAuditoriasPendientes, 5000);
+    
+    // Escuchar cambios en localStorage directamente
+    const handleStorageChange = () => {
+      const auditoriaActiva = localStorage.getItem('auditoria_activa');
+      const auditoriaEstado = localStorage.getItem('auditoria_estado');
+      if (auditoriaActiva && auditoriaEstado === 'en_progreso') {
+        setAuditoriasPendientes(1);
+      } else {
+        setAuditoriasPendientes(0);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Escuchar eventos de cambios en auditorías
+    const handleAuditoriaChange = () => {
+      fetchAuditoriasPendientes();
+    };
+    window.addEventListener('auditoria-changed', handleAuditoriaChange);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('auditoria-changed', handleAuditoriaChange);
+    };
+  }, []);
 
   
 
@@ -199,7 +281,7 @@ const Inventario: React.FC = () => {
 
                     <div className="inv-card">
                       <h3>Auditorías Pendientes</h3>
-                      <div className="number">0</div>
+                      <div className="number">{auditoriasPendientes}</div>
                     </div>
                   </div>
 

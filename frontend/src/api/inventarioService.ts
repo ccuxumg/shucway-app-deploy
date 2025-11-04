@@ -76,14 +76,29 @@ export const fetchInsumos = async () => {
 };
 
 // CRUD Órdenes de Compra
-import type { Orden, Item } from "../features/Dashboard/Inventario/IngresoCompra";
 
-export const createOrdenCompra = async (ordenData: Omit<Orden, "id_orden" | "numero_orden" | "items_count"> & { items: Item[] }) => {
+export const createOrdenCompra = async (ordenData: {
+  fecha_orden: string;
+  id_proveedor: number;
+  estado?: string;
+  tipo_orden?: string;
+  motivo_generacion?: string;
+  fecha_entrega_estimada?: string;
+  total?: number;
+}) => {
   const response = await api.post("/ordenes-compra", ordenData);
   return response.data;
 };
 
-export const updateOrdenCompra = async (id_orden: string | number, ordenData: Partial<Orden> & { items?: Item[] }) => {
+export const updateOrdenCompra = async (id_orden: string | number, ordenData: Partial<{
+  fecha_orden: string;
+  id_proveedor: number;
+  estado: string;
+  tipo_orden: string;
+  motivo_generacion: string;
+  fecha_entrega_estimada: string;
+  total: number;
+}>) => {
   const response = await api.put(`/ordenes-compra/${id_orden}`, ordenData);
   return response.data;
 };
@@ -99,8 +114,14 @@ export const fetchOrdenCompraById = async (id_orden: string | number) => {
 };
 
 // CRUD Detalle Orden de Compra
-export const createDetalleOrdenCompra = async (detalleData: Item & { id_orden: string | number }) => {
-  const response = await api.post("/detalles-orden-compra", detalleData);
+export const createDetalleOrdenCompra = async (detalleData: {
+  id_orden: number;
+  id_insumo: number;
+  cantidad: number;
+  precio_unitario: number;
+  id_presentacion: number;
+}) => {
+  const response = await api.post("/ordenes-compra/detalle", detalleData);
   return response.data;
 };
 

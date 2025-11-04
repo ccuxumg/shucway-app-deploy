@@ -217,7 +217,7 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
 
   // ===== Modal "Iniciar Auditoría" =====
   const [showStartModal, setShowStartModal] = useState(false);
-  const [auditLabel, setAuditLabel] = useState("Auditoría Quincenal");
+  const [auditLabel, setAuditLabel] = useState("");
   const [auditStartDate, setAuditStartDate] = useState(() => getDefaultStartDate(14));
   const [auditEndDate, setAuditEndDate] = useState(() => getTodayDate());
 
@@ -892,7 +892,7 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
       setSessionEstado('en_progreso');
       setTerm("");
       setRows([]);
-      setAuditLabel("Auditoría Quincenal");
+      setAuditLabel("");
       setAuditStartDate(getDefaultStartDate(14));
       setAuditEndDate(getTodayDate());
       setOptComentario("");
@@ -1516,7 +1516,7 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
                   type="text"
                   value={auditLabel}
                   onChange={(e) => setAuditLabel(e.target.value)}
-                  className="w-full p-2 rounded border"
+                  className="auditoria-modal-input"
                   placeholder="Ej: Auditoría Quincenal"
                 />
               </div>
@@ -1528,7 +1528,7 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
                     type="date"
                     value={auditStartDate}
                     onChange={(e) => setAuditStartDate(e.target.value)}
-                    className="w-full p-2 rounded border"
+                    className="auditoria-modal-input"
                   />
                 </div>
                 <div style={{ flex: 1 }}>
@@ -1537,7 +1537,7 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
                     type="date"
                     value={auditEndDate}
                     onChange={(e) => setAuditEndDate(e.target.value)}
-                    className="w-full p-2 rounded border"
+                    className="auditoria-modal-input"
                   />
                 </div>
               </div>
@@ -1607,7 +1607,7 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
                 disabled={isCanceling}
                 style={{ 
                   minWidth: 110,
-                  background: "#dc2626",
+                  background: "linear-gradient(135deg, #001f3f 0%, #003d7a 100%)",
                   color: "#fff",
                   border: "none"
                 }}

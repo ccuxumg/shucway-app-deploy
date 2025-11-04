@@ -12,6 +12,8 @@ import proveedorRoutes from './proveedor.routes';
 import ordenCompraRoutes from './orden_compra.routes';
 import backupRoutes from './backup.routes';
 import auditoriaRoutes from './auditoria.routes';
+import reportesRoutes from './reportes.routes';
+import gastosOperativosRoutes from './gastos_operativos.routes';
 
 const router = Router();
 
@@ -28,6 +30,8 @@ router.use('/proveedores', proveedorRoutes);
 router.use('/ordenes-compra', ordenCompraRoutes);
 router.use('/backup', backupRoutes);
 router.use('/auditoria', auditoriaRoutes);
+router.use('/reportes', reportesRoutes);
+router.use('/gastos-operativos', gastosOperativosRoutes);
 
 // Rutas adicionales para compatibilidad con frontend
 router.get('/db/tables-count', dashboardController.getTablesCount);

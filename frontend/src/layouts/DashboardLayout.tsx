@@ -369,7 +369,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
             className={`w-12 h-12 rounded-lg ${
               auditoriaActiva
                 ? 'bg-red-500 hover:bg-red-600'
-                : 'bg-green-500 hover:bg-green-600'
+                : 'bg-green-900 hover:bg-slate-900'
             } flex items-center justify-center shadow-md transition-colors`}
             title={auditoriaActiva ? 'Continuar Auditoría' : 'Iniciar Auditoría'}
           >
@@ -395,11 +395,11 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
               <button
                 onClick={handleClick}
                 data-navigate="/inventario?tab=auditoria"
-                className={`w-full ${
-                  auditoriaActiva
-                    ? 'bg-red-500 hover:bg-red-600'
-                    : 'bg-green-500 hover:bg-green-600'
-                } text-white px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2`}
+                className="w-full text-white px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2"
+                style={auditoriaActiva 
+                  ? { background: 'linear-gradient(135deg, #001f3f 0%, #003d7a 100%)' }
+                  : { background: 'linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%)' }
+                }
               >
                 {auditoriaActiva ? (
                   <>

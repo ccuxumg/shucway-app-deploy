@@ -9,6 +9,7 @@ import {
   updateGasto,
   deleteGasto,
   getResumenGastos,
+  getCategoriasGasto,
 } from '../controllers/gastos_operativos.controller';
 
 const router: Router = express.Router();
@@ -21,6 +22,9 @@ router.get('/', getGastosOperativos);
 
 // GET: Obtener resumen/estadísticas
 router.get('/resumen', getResumenGastos);
+
+// GET: Obtener categorías de gasto
+router.get('/categoria-gasto', getCategoriasGasto);
 
 // GET: Filtrar por rango de fechas
 router.get('/fechas', getGastoPorFechas);

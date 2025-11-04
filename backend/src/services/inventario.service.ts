@@ -577,32 +577,51 @@ export class InventarioService {
     const stockTotal = lotesData ? lotesData.reduce((sum, lote) => sum + (lote.cantidad_actual || 0), 0) : 0;
 
     // Combinamos toda la información
-    const result = (presentacionesData || []).map(presentacion => ({
-      // Información del insumo
-      insumo: {
-        id_insumo: insumoData.id_insumo,
-        nombre_insumo: insumoData.nombre_insumo,
-        unidad_base: insumoData.unidad_base,
-        costo_promedio: insumoData.costo_promedio,
-        stock_minimo: insumoData.stock_minimo,
-        stock_maximo: insumoData.stock_maximo,
-        stock_actual: stockTotal,
-        activo: insumoData.activo
-      },
-      // Información de la presentación
-      presentacion: {
-        id_presentacion: presentacion.id_presentacion,
-        descripcion_presentacion: presentacion.descripcion_presentacion,
-        unidad_compra: presentacion.unidad_compra,
-        unidades_por_presentacion: presentacion.unidades_por_presentacion,
-        costo_compra_unitario: presentacion.costo_compra_unitario,
-        es_principal: presentacion.es_principal,
-        activo: presentacion.activo
-      },
-      // Información del proveedor
-      proveedor: null, // TODO: Implementar consulta de proveedor si es necesario
-      // Información de lotes disponibles
-      lotes_disponibles: lotesData || []
+    const result = await Promise.all((presentacionesData || []).map(async (presentacion) => {
+      // Obtener información del proveedor si existe
+      let proveedorInfo = null;
+      if (presentacion.id_proveedor) {
+        const { data: proveedorData } = await supabase
+          .from('proveedor')
+          .select('id_proveedor, nombre_empresa')
+          .eq('id_proveedor', presentacion.id_proveedor)
+          .single();
+
+        if (proveedorData) {
+          proveedorInfo = {
+            id_proveedor: proveedorData.id_proveedor,
+            nombre_proveedor: proveedorData.nombre_empresa
+          };
+        }
+      }
+
+      return {
+        // Información del insumo
+        insumo: {
+          id_insumo: insumoData.id_insumo,
+          nombre_insumo: insumoData.nombre_insumo,
+          unidad_base: insumoData.unidad_base,
+          costo_promedio: insumoData.costo_promedio,
+          stock_minimo: insumoData.stock_minimo,
+          stock_maximo: insumoData.stock_maximo,
+          stock_actual: stockTotal,
+          activo: insumoData.activo
+        },
+        // Información de la presentación
+        presentacion: {
+          id_presentacion: presentacion.id_presentacion,
+          descripcion_presentacion: presentacion.descripcion_presentacion,
+          unidad_compra: presentacion.unidad_compra,
+          unidades_por_presentacion: presentacion.unidades_por_presentacion,
+          costo_compra_unitario: presentacion.costo_compra_unitario,
+          es_principal: presentacion.es_principal,
+          activo: presentacion.activo
+        },
+        // Información del proveedor
+        proveedor: proveedorInfo,
+        // Información de lotes disponibles
+        lotes_disponibles: lotesData || []
+      };
     }));
 
     return result;
@@ -839,11 +858,15 @@ export class InventarioService {
     if (insumoData.id_proveedor_principal) {
       const { data: provData } = await supabase
         .from('proveedor')
-        .select('nombre_proveedor, metodo_entrega')
+        .select('id_proveedor, nombre_empresa')
         .eq('id_proveedor', insumoData.id_proveedor_principal)
         .single();
       if (provData) {
-        proveedorPrincipal = provData;
+        proveedorPrincipal = {
+          id_proveedor: provData.id_proveedor,
+          nombre: provData.nombre_empresa,
+          nombre_empresa: provData.nombre_empresa
+        };
       }
     }
 
@@ -903,12 +926,16 @@ export class InventarioService {
         if ((presentacion as Record<string, unknown>).id_proveedor) {
           const { data: proveedorData, error: proveedorError } = await supabase
             .from('proveedor')
-            .select('nombre_proveedor, metodo_entrega')
+            .select('id_proveedor, nombre_empresa')
             .eq('id_proveedor', (presentacion as Record<string, unknown>).id_proveedor)
             .single();
 
           if (!proveedorError && proveedorData) {
-            (presentacion as Record<string, unknown>).proveedor = proveedorData;
+            (presentacion as Record<string, unknown>).proveedor = {
+              id_proveedor: proveedorData.id_proveedor,
+              nombre: proveedorData.nombre_empresa,
+              nombre_empresa: proveedorData.nombre_empresa
+            };
           }
         }
       }
@@ -936,7 +963,7 @@ export class InventarioService {
       throw new Error(`Error al obtener recepciones de mercadería: ${recepcionesError.message}`);
     }
 
-    // Para cada recepción, obtener los datos relacionados
+    // Para cada recepción, obtener los datos relacionados por separado
     const result = await Promise.all((recepciones || []).map(async (recepcion) => {
       // Obtener perfil de usuario
       const { data: perfil } = await supabase
@@ -948,14 +975,18 @@ export class InventarioService {
       // Obtener orden de compra si existe
       let ordenCompra = null;
       if (recepcion.id_orden) {
+        // Obtener orden de compra
         const { data: orden, error: ordenError } = await supabase
           .from('orden_compra')
-          .select('id_orden, numero_orden, fecha_orden, estado, id_proveedor')
+          .select('id_orden, fecha_orden, estado, id_proveedor')
           .eq('id_orden', recepcion.id_orden)
           .single();
 
-        if (!ordenError && orden) {
-          // Obtener proveedor
+        if (ordenError) {
+          console.error('Error obteniendo orden de compra:', ordenError);
+          ordenCompra = null;
+        } else {
+          // Obtener proveedor por separado si existe
           let proveedor = null;
           if (orden.id_proveedor) {
             const { data: prov } = await supabase
@@ -968,76 +999,77 @@ export class InventarioService {
 
           ordenCompra = {
             ...orden,
-            numero_orden: orden.numero_orden || `OC-${orden.id_orden}`,
+            numero_orden: `OC-${orden.id_orden}`,
             proveedor: proveedor ? {
               id_proveedor: proveedor.id_proveedor,
-              nombre: proveedor.nombre_empresa
+              nombre: proveedor.nombre_empresa,
+              nombre_empresa: proveedor.nombre_empresa
             } : null
           };
         }
-      }
 
-      // Obtener detalles de recepción
-      const { data: detalles, error: detallesError } = await supabase
-        .from('detalle_recepcion_mercaderia')
-        .select(`
-          id_detalle,
-          id_recepcion,
-          id_detalle_orden,
-          cantidad_recibida,
-          cantidad_aceptada,
-          id_lote,
-          id_presentacion,
-          lote_insumo (
-            id_insumo,
-            insumo (
-              nombre_insumo
-            )
-          )
-        `)
-        .eq('id_recepcion', recepcion.id_recepcion);
-
-      if (detallesError) {
-        console.error('Error obteniendo detalles de recepción:', detallesError);
-      }
-
-      // Para cada detalle, obtener la información del insumo
-      const detallesConInsumo = await Promise.all((detalles || []).map(async (detalle) => {
-        if (detalle.id_presentacion) {
-          const { data: presentacion } = await supabase
-            .from('insumo_presentacion')
-            .select(`
+        // Obtener detalles de recepción
+        const { data: detalles } = await supabase
+          .from('detalle_recepcion_mercaderia')
+          .select(`
+            id_detalle,
+            id_recepcion,
+            id_detalle_orden,
+            cantidad_recibida,
+            cantidad_aceptada,
+            id_lote,
+            id_presentacion,
+            insumo_presentacion!detalle_recepcion_mercaderia_id_presentacion_fkey (
               id_insumo,
-              insumo (
+              insumo!insumo_presentacion_id_insumo_fkey (
                 nombre_insumo
               )
-            `)
-            .eq('id_presentacion', detalle.id_presentacion)
-            .single();
+            )
+          `)
+          .eq('id_recepcion', recepcion.id_recepcion);
 
-          return {
-            ...detalle,
-            insumo_presentacion: presentacion ? {
-              id_insumo: presentacion.id_insumo,
-              insumo: presentacion.insumo
-            } : null
-          };
-        }
-        return detalle;
-      }));
+        return {
+          ...recepcion,
+          numero_orden: recepcion.id_orden ? `OC-${recepcion.id_orden}` : 'Sin orden',
+          perfil_usuario: perfil || null,
+          orden_compra: ordenCompra,
+          detalle_recepcion_mercaderia: detalles || [],
+          _count: {
+            detalle_recepcion_mercaderia: detalles?.length || 0
+          }
+        };
+      } else {
+        // Si no hay orden, obtener detalles de recepción directamente
+        const { data: detalles } = await supabase
+          .from('detalle_recepcion_mercaderia')
+          .select(`
+            id_detalle,
+            id_recepcion,
+            id_detalle_orden,
+            cantidad_recibida,
+            cantidad_aceptada,
+            id_lote,
+            id_presentacion,
+            insumo_presentacion!detalle_recepcion_mercaderia_id_presentacion_fkey (
+              id_insumo,
+              insumo!insumo_presentacion_id_insumo_fkey (
+                nombre_insumo
+              )
+            )
+          `)
+          .eq('id_recepcion', recepcion.id_recepcion);
 
-      console.log('Detalles con insumo obtenidos para recepción', recepcion.id_recepcion, ':', JSON.stringify(detallesConInsumo, null, 2));
-
-      return {
-        ...recepcion,
-        numero_orden: ordenCompra?.numero_orden || (recepcion.id_orden ? `OC-${recepcion.id_orden}` : 'Sin orden'),
-        perfil_usuario: perfil || null,
-        orden_compra: ordenCompra,
-        detalle_recepcion_mercaderia: detallesConInsumo || [],
-        _count: {
-          detalle_recepcion_mercaderia: detallesConInsumo?.length || 0
-        }
-      };
+        return {
+          ...recepcion,
+          numero_orden: 'Sin orden',
+          perfil_usuario: perfil || null,
+          orden_compra: null,
+          detalle_recepcion_mercaderia: detalles || [],
+          _count: {
+            detalle_recepcion_mercaderia: detalles?.length || 0
+          }
+        };
+      }
     }));
 
     return result;

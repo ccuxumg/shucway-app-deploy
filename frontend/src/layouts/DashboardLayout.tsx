@@ -466,7 +466,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     // Always render card; button color/label depends on cajaOpen.
     return (
       <>
-        <div className="flex items-center justify-center w-full">
+        <div className="flex items-center justify-center w-full mt-4 caja-quick-widget">
           {collapsed ? (
             // Vista colapsada: solo icono
             <button 
@@ -479,8 +479,13 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           ) : (
             // Vista expandida: card completa
             <div className="w-full bg-gray-50 rounded-lg p-4 flex flex-col items-center shadow-md">
+              <div className="text-xs uppercase font-semibold text-gray-500 mb-1">
+                {cajaOpen ? 'Caja Abierta' : 'Caja Cerrada'}
+              </div>
               <div className="text-lg font-semibold text-gray-700">{formatDateSpanish(startTs || Date.now())}</div>
-              <div className="text-4xl font-extrabold text-gray-800 mt-2">{formatCurrency(0)}</div>
+              {cajaOpen && (
+                <div className="text-sm text-gray-600 mt-1">{formatCurrency(0)}</div>
+              )}
               <div className="mt-3 w-full">
                 {!cajaOpen ? (
                   <button onClick={openCaja} className="w-full bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2">
@@ -659,7 +664,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   </motion.aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-y-auto bg-gradient-to-b from-white to-gray-50 w-full">
+      <main className="flex-1 flex flex-col bg-gradient-to-b from-white to-gray-50 w-full">
         {/* Header */}
   <header className="sticky top-0 z-30 bg-white backdrop-blur-sm w-full" style={{ boxShadow: '0 1px 0 rgba(16,24,40,0.04)' }}>
           <div className="w-full px-2 sm:px-3 md:px-4 py-2 sm:py-3 flex items-center gap-2 sm:gap-4">
@@ -876,7 +881,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           </div>
   </header>
 
-  <div className="flex-1 p-2 bg-transparent w-full overflow-y-auto">
+  <div className="flex-1 p-2 bg-transparent w-full overflow-y-auto min-h-0">
           <div className="animate-fade-in w-full h-full">{children}</div>
         </div>
       </main>

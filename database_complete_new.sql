@@ -1904,3 +1904,57 @@ ALTER TABLE auditoria_detalle DROP COLUMN IF EXISTS fecha_conteo;
 
 -- Actualizar tabla bitacora_auditoria
 ALTER TABLE bitacora_auditoria ADD COLUMN IF NOT EXISTS nombre_auditoria VARCHAR(100);
+
+-- ===============================================
+-- TABLAS DE ÓRDENES DE COMPRA
+-- ===============================================
+
+CREATE TABLE IF NOT EXISTS orden_compra (
+    id_orden SERIAL PRIMARY KEY,
+    fecha_orden DATE NOT NULL DEFAULT CURRENT_DATE,
+    id_proveedor INTEGER NOT NULL REFERENCES proveedor(id_proveedor) ON DELETE RESTRICT,
+    estado VARCHAR(20) DEFAULT 'pendiente' CHECK (estado IN ('pendiente', 'aprobada', 'recibida', 'cancelada')),
+    tipo_orden VARCHAR(20) DEFAULT 'manual' CHECK (tipo_orden IN ('manual', 'automatica')),
+    motivo_generacion TEXT,
+    fecha_aprobacion TIMESTAMP,
+    fecha_entrega_estimada DATE,
+    total DECIMAL(10,2) DEFAULT 0,
+    creado_por INTEGER REFERENCES perfil_usuario(id_perfil),
+    aprobado_por INTEGER REFERENCES perfil_usuario(id_perfil),
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS detalle_orden_compra (
+    id_detalle SERIAL PRIMARY KEY,
+    id_orden INTEGER NOT NULL REFERENCES orden_compra(id_orden) ON DELETE CASCADE,
+    id_insumo INTEGER NOT NULL REFERENCES insumo(id_insumo) ON DELETE RESTRICT,
+    cantidad DECIMAL(10,2) NOT NULL CHECK (cantidad > 0),
+    precio_unitario DECIMAL(10,2) NOT NULL CHECK (precio_unitario >= 0),
+    subtotal DECIMAL(10,2) GENERATED ALWAYS AS (cantidad * precio_unitario) STORED,
+    iva DECIMAL(10,2) DEFAULT 0,
+    id_presentacion INTEGER REFERENCES insumo_presentacion(id_presentacion),
+    cantidad_recibida DECIMAL(10,2) DEFAULT 0,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices para optimización
+CREATE INDEX IF NOT EXISTS idx_orden_compra_fecha ON orden_compra(fecha_orden);
+CREATE INDEX IF NOT EXISTS idx_orden_compra_proveedor ON orden_compra(id_proveedor);
+CREATE INDEX IF NOT EXISTS idx_orden_compra_estado ON orden_compra(estado);
+CREATE INDEX IF NOT EXISTS idx_detalle_orden_compra_orden ON detalle_orden_compra(id_orden);
+CREATE INDEX IF NOT EXISTS idx_detalle_orden_compra_insumo ON detalle_orden_compra(id_insumo);
+
+-- Trigger para actualizar fecha_actualizacion en orden_compra
+CREATE OR REPLACE FUNCTION actualizar_fecha_orden_compra()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.fecha_actualizacion = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER IF NOT EXISTS trigger_actualizar_fecha_orden_compra
+    BEFORE UPDATE ON orden_compra
+    FOR EACH ROW
+    EXECUTE FUNCTION actualizar_fecha_orden_compra();

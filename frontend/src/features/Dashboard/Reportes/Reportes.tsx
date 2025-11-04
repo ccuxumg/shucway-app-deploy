@@ -416,16 +416,22 @@ table{font-size:12px}
             <h3 className="text-base font-bold text-gray-800">Distribución por Categoría</h3>
             <span className="text-xs text-gray-500">{ini.toLocaleDateString("es-GT")} – {fin.toLocaleDateString("es-GT")}</span>
           </div>
-          <div className="h-[260px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={pieCategoria} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
-                  {pieCategoria.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
-                </Pie>
-                <Tooltip formatter={(v: number|string, n: string)=>[q(Number(v)), n]} />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
+          <div className="h-[260px] min-h-[260px]">
+            {loading || pieCategoria.length === 0 ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={pieCategoria} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
+                    {pieCategoria.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip formatter={(v: number|string, n: string)=>[q(Number(v)), n]} />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </motion.div>
 
@@ -434,16 +440,22 @@ table{font-size:12px}
             <h3 className="text-base font-bold text-gray-800">Métodos de Pago</h3>
             <span className="text-xs text-gray-500">{ini.toLocaleDateString("es-GT")} – {fin.toLocaleDateString("es-GT")}</span>
           </div>
-          <div className="h-[260px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={pieMetodo} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
+          <div className="h-[260px] min-h-[260px]">
+            {loading || pieMetodo.length === 0 ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={pieMetodo} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
                   {pieMetodo.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={(v: number|string, n: string)=>[q(Number(v)), n]} />
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
+            )}
           </div>
         </motion.div>
       </div>
@@ -464,16 +476,22 @@ table{font-size:12px}
               </select>
             </div>
           </div>
-          <div className="h-[240px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={topVendidos} margin={{left:10,right:10,top:10,bottom:10}}>
-                <CartesianGrid stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Bar dataKey="value" fill="#6366F1" radius={[6,6,0,0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="h-[240px] min-h-[240px]">
+            {loading || topVendidos.length === 0 ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={topVendidos} margin={{left:10,right:10,top:10,bottom:10}}>
+                  <CartesianGrid stroke="#f3f4f6" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Bar dataKey="value" fill="#6366F1" radius={[6,6,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </motion.div>
 
@@ -491,16 +509,22 @@ table{font-size:12px}
               </select>
             </div>
           </div>
-          <div className="h-[240px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={topRentables} margin={{left:10,right:10,top:10,bottom:10}}>
-                <CartesianGrid stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: number | string)=>q(Number(v))} />
-                <Bar dataKey="value" fill="#10B981" radius={[6,6,0,0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="h-[240px] min-h-[240px]">
+            {loading || topRentables.length === 0 ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={topRentables} margin={{left:10,right:10,top:10,bottom:10}}>
+                  <CartesianGrid stroke="#f3f4f6" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip formatter={(v: number | string)=>q(Number(v))} />
+                  <Bar dataKey="value" fill="#10B981" radius={[6,6,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </motion.div>
       </div>

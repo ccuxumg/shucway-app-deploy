@@ -75,11 +75,6 @@ type AuditoriaProps = {
 // Los datos ahora se cargan directamente desde la base de datos
 
 /* ============ Utilidades comunes ============ */
-function getDefaultStartDate(daysAgo: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() - daysAgo);
-  return date.toISOString().split("T")[0];
-}
 function getTodayDate(): string {
   return new Date().toISOString().split("T")[0];
 }
@@ -218,7 +213,7 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
   // ===== Modal "Iniciar Auditoría" =====
   const [showStartModal, setShowStartModal] = useState(false);
   const [auditLabel, setAuditLabel] = useState("");
-  const [auditStartDate, setAuditStartDate] = useState(() => getDefaultStartDate(14));
+  const [auditStartDate, setAuditStartDate] = useState(() => getTodayDate());
   const [auditEndDate, setAuditEndDate] = useState(() => getTodayDate());
 
   // Abre modal de bienvenida auto si no hay sesión activa
@@ -620,6 +615,17 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
         return;
       }
 
+      // Validar que fechaInicioPeriodo no sea anterior a hoy
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const startDate = new Date(auditStartDate);
+      startDate.setHours(0, 0, 0, 0);
+      
+      if (startDate < today) {
+        notify("error", "La fecha de inicio no puede ser anterior a hoy");
+        return;
+      }
+
       // Validar que fechaInicioPeriodo no sea posterior a fechaFinPeriodo
       if (new Date(auditStartDate) > new Date(auditEndDate)) {
         notify("error", "La fecha de inicio no puede ser posterior a la fecha fin");
@@ -893,7 +899,7 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
       setTerm("");
       setRows([]);
       setAuditLabel("");
-      setAuditStartDate(getDefaultStartDate(14));
+      setAuditStartDate(getTodayDate());
       setAuditEndDate(getTodayDate());
       setOptComentario("");
       clearFilters();
@@ -942,11 +948,19 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
         }),
       });
 
+      // Si la auditoría no existe (404) o hay error del servidor, aún limpiamos el estado local
       if (!response.ok) {
-        throw new Error('Error al cancelar auditoría');
+        if (response.status === 404) {
+          console.warn('Auditoría no encontrada en el servidor, limpiando estado local');
+        } else {
+          console.error('Error del servidor al cancelar auditoría:', response.status);
+        }
+      } else {
+        const result = await response.json();
+        console.log('Auditoría cancelada exitosamente:', result);
       }
 
-      // Actualizar estado y localStorage
+      // Limpiar estado local independientemente del resultado del servidor
       setSessionEstado('cancelada');
       localStorage.setItem('auditoria_estado', 'cancelada');
 
@@ -967,9 +981,28 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
       // ✅ DISPARAR EVENTO PARA ACTUALIZAR CONTADOR
       window.dispatchEvent(new Event('auditoria-changed'));
       
+      notify("success", "Auditoría cancelada correctamente");
+      
     } catch (error) {
       console.error("Error cancelando auditoría:", error);
-      notify("error", "Error al cancelar la auditoría");
+      
+      // Aún si hay error de red, limpiamos el estado local
+      setSessionEstado('cancelada');
+      localStorage.setItem('auditoria_estado', 'cancelada');
+      setSessionId(undefined);
+      setSessionDate(undefined);
+      setSessionLabel(undefined);
+      setRows([]);
+      localStorage.removeItem('auditoria_activa');
+      localStorage.removeItem('auditoria_label');
+      localStorage.removeItem('auditoria_fecha');
+      localStorage.removeItem('auditoria_estado');
+      
+      setShowCancelConfirmModal(false);
+      setShowCancelSuccessModal(true);
+      window.dispatchEvent(new Event('auditoria-changed'));
+      
+      notify("info", "Auditoría cancelada localmente (error de conexión)");
     } finally {
       setIsCanceling(false);
     }
@@ -1528,6 +1561,7 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
                     type="date"
                     value={auditStartDate}
                     onChange={(e) => setAuditStartDate(e.target.value)}
+                    min={getTodayDate()}
                     className="auditoria-modal-input"
                   />
                 </div>

@@ -81,22 +81,6 @@ export default function Catalogo() {
     if (filterParam && ['todos', 'perpetuos', 'operativos'].includes(filterParam)) {
       setActiveTab(filterParam as 'todos' | 'perpetuos' | 'operativos');
     }
-    // Si la URL contiene ?editProveedor=ID navegada desde otros puntos (ej: IngresoCompra), abrir edición
-    const editProv = urlParams.get('editProveedor');
-    if (editProv) {
-      const id = Number(editProv);
-      if (!Number.isNaN(id)) {
-        // llamar a la función que abre el drawer de edición de proveedor
-        // usar setTimeout para asegurar que openEditProveedor esté definido en el mismo render
-        setTimeout(() => {
-          try {
-            if (typeof (openEditProveedor as unknown) === 'function') (openEditProveedor as unknown as (n: number) => void)(id);
-          } catch (e) {
-            console.error('No se pudo abrir edición de proveedor desde query param:', e);
-          }
-        }, 0);
-      }
-    }
   }, [location.search]);
 
 
@@ -355,10 +339,6 @@ export default function Catalogo() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const navigate = useNavigate();
 
-  // Drawer para editar proveedor
-  const [openProveedorDrawer, setOpenProveedorDrawer] = useState(false);
-  const [editingProveedorId, setEditingProveedorId] = useState<number | null>(null);
-
   // MODAL de detalle
   const [detail, setDetail] = useState<Fila | null>(null);
   const kardexRef = useRef<HTMLDivElement | null>(null);
@@ -385,16 +365,6 @@ export default function Catalogo() {
     descripcion_presentacion: "",
   };
   const [form, setForm] = useState<Fila>(blankForm);
-
-  // Form para proveedor
-  const [proveedorForm, setProveedorForm] = useState({
-    nombre: "",
-    contacto: "",
-    telefono: "",
-    email: "",
-    direccion: "",
-    notas: "",
-  });
 
 
   // Debounce búsqueda
@@ -525,94 +495,6 @@ export default function Catalogo() {
   };
   const deleteRow = async (row: Fila) => {
     setDeleteModal({ open: true, row });
-  };
-
-  // Funciones para drawer de proveedor
-  const openEditProveedor = async (proveedorId: number) => {
-    setEditingProveedorId(proveedorId);
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Cargar datos del proveedor
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/dashboard/table-data/proveedor/${proveedorId}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const proveedorData = await response.json();
-      const proveedor = Array.isArray(proveedorData) ? proveedorData[0] : proveedorData;
-
-      setProveedorForm({
-        nombre: proveedor.nombre_empresa || '',
-        contacto: proveedor.nombre_contacto || '',
-        telefono: proveedor.telefono || '',
-        email: proveedor.email || '',
-        direccion: proveedor.direccion || '',
-        notas: proveedor.notas || '',
-      });
-
-      setOpenProveedorDrawer(true);
-    } catch (err) {
-      console.error('Error cargando datos del proveedor:', err);
-      const message = err instanceof Error ? err.message : String(err);
-      setError(`Error al cargar datos del proveedor: ${message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const saveProveedor = async () => {
-    if (!proveedorForm.nombre.trim()) {
-      alert("El nombre del proveedor es obligatorio");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const payload = {
-        nombre_empresa: proveedorForm.nombre,
-        nombre_contacto: proveedorForm.contacto,
-        telefono: proveedorForm.telefono,
-        email: proveedorForm.email,
-        direccion: proveedorForm.direccion,
-        notas: proveedorForm.notas,
-      };
-
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/dashboard/table-data/proveedor/${editingProveedorId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body?.message || `HTTP ${response.status}`);
-      }
-
-      // Recargar datos para reflejar cambios
-      await reloadData();
-      setOpenProveedorDrawer(false);
-      setEditingProveedorId(null);
-
-      message.success('Proveedor actualizado correctamente');
-    } catch (err) {
-      console.error('Error guardando proveedor:', err);
-      const message = err instanceof Error ? err.message : String(err);
-      setError(`Error guardando proveedor: ${message}`);
-    } finally {
-      setLoading(false);
-    }
   };
 
   // Acción real de eliminación tras confirmar en el modal
@@ -757,6 +639,22 @@ export default function Catalogo() {
   /** Render */
   return (
     <div className="w-full">
+      {/* Header con título y botón de regresar */}
+      <div className="mb-6">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate(-1)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M19 12H5M12 19L5 12L12 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Regresar
+          </button>
+          <h1 className="text-2xl font-bold text-gray-900">Catálogo de Insumos</h1>
+        </div>
+      </div>
+
       {/* Modal de confirmación de eliminación */}
       <AnimatePresence>
         {deleteModal.open && deleteModal.row && (
@@ -893,11 +791,6 @@ export default function Catalogo() {
                     <div className="flex items-center gap-2 justify-end">
                       <IconBtn title={`Ver ${r.nombre}`} onClick={() => { setDetail(r); }}><PiEyeBold /></IconBtn>
                       <IconBtn title="Editar" onClick={() => openEdit(r)}><PiPencilSimpleBold /></IconBtn>
-                      {r.proveedorId && (
-                        <IconBtn title="Editar Proveedor" onClick={() => openEditProveedor(r.proveedorId!)} style={{ color: '#7c3aed' }}>
-                          <PiPencilSimpleBold />
-                        </IconBtn>
-                      )}
                       <IconBtn title="Eliminar" onClick={() => deleteRow(r)}><PiTrashBold /></IconBtn>
                     </div>
                   </td>
@@ -1210,129 +1103,7 @@ export default function Catalogo() {
         )}
       </AnimatePresence>
 
-      {/* Drawer editar proveedor */}
-      <AnimatePresence>
-        {openProveedorDrawer && (
-          <motion.aside
-            initial={{ x: 520, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: 520, opacity: 0 }}
-            transition={{ duration: 0.22, ease: "easeOut" }}
-            className="fixed inset-y-0 right-0 z-50 w-full md:max-w-[600px] bg-white shadow-2xl border-l border-gray-100"
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="h-14 px-5 flex items-center justify-between border-b border-gray-100">
-              <h3 className="text-base md:text-lg font-bold text-gray-800">
-                Editar Proveedor
-              </h3>
-              <button onClick={() => setOpenProveedorDrawer(false)} className="p-2 rounded-lg hover:bg-gray-100" aria-label="Cerrar">
-                <MdClose size={20} />
-              </button>
-            </div>
-
-            <div className="h-[calc(100vh-56px)] overflow-y-auto p-5 md:p-6 space-y-5">
-              {/* Información del Proveedor */}
-              <section className="bg-white rounded-xl border border-gray-200/70 shadow-sm p-4 md:p-5">
-                <div className="text-sm font-bold text-gray-800 mb-4">Información del Proveedor</div>
-                <div className="grid gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="proveedor-nombre">Nombre de la Empresa *</label>
-                    <input
-                      id="proveedor-nombre"
-                      value={proveedorForm.nombre}
-                      onChange={(e) => setProveedorForm(prev => ({ ...prev, nombre: e.target.value }))}
-                      placeholder="Ej: Distribuidora ABC"
-                      className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="proveedor-contacto">Nombre del Contacto</label>
-                    <input
-                      id="proveedor-contacto"
-                      value={proveedorForm.contacto}
-                      onChange={(e) => setProveedorForm(prev => ({ ...prev, contacto: e.target.value }))}
-                      placeholder="Ej: Juan Pérez"
-                      className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="proveedor-telefono">Teléfono</label>
-                      <input
-                        id="proveedor-telefono"
-                        value={proveedorForm.telefono}
-                        onChange={(e) => setProveedorForm(prev => ({ ...prev, telefono: e.target.value }))}
-                        placeholder="Ej: 5555-1234"
-                        className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="proveedor-email">Email</label>
-                      <input
-                        id="proveedor-email"
-                        type="email"
-                        value={proveedorForm.email}
-                        onChange={(e) => setProveedorForm(prev => ({ ...prev, email: e.target.value }))}
-                        placeholder="Ej: contacto@empresa.com"
-                        className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="proveedor-direccion">Dirección</label>
-                    <textarea
-                      id="proveedor-direccion"
-                      value={proveedorForm.direccion}
-                      onChange={(e) => setProveedorForm(prev => ({ ...prev, direccion: e.target.value }))}
-                      placeholder="Dirección completa del proveedor"
-                      rows={3}
-                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="proveedor-notas">Notas Adicionales</label>
-                    <textarea
-                      id="proveedor-notas"
-                      value={proveedorForm.notas}
-                      onChange={(e) => setProveedorForm(prev => ({ ...prev, notas: e.target.value }))}
-                      placeholder="Información adicional sobre el proveedor"
-                      rows={2}
-                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-                    />
-                  </div>
-                </div>
-              </section>
-
-              <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                <button
-                  onClick={saveProveedor}
-                  disabled={loading}
-                  className="h-11 rounded-lg bg-purple-500 px-4 text-sm font-semibold text-white hover:bg-purple-600 disabled:opacity-60 flex items-center justify-center gap-2"
-                >
-                  {loading ? "Guardando..." : "Guardar Cambios"}
-                </button>
-                <button
-                  type="button"
-                  className="h-11 rounded-lg border px-4 text-sm font-semibold hover:bg-gray-50"
-                  onClick={() => setOpenProveedorDrawer(false)}
-                >
-                  Cancelar
-                </button>
-              </div>
-
-              {error && (
-                <div className="p-3 text-sm text-rose-700 bg-rose-50 rounded-md">Error: {error}</div>
-              )}
-            </div>
-          </motion.aside>
-        )}
-      </AnimatePresence>
+      {/* MODAL: Vista rápida de insumo */}
 
       {/* MODAL: Vista rápida de insumo */}
       <AnimatePresence>
@@ -1493,15 +1264,6 @@ export default function Catalogo() {
                         <PiChartBar size={16} />
                         Ver Kárdex
                       </button>
-                      {detail.proveedorId && (
-                        <button 
-                          className="h-9 px-3 rounded-md border border-purple-300 text-sm font-medium text-purple-700 hover:bg-purple-50 hover:border-purple-400 transition-colors flex items-center gap-2" 
-                          onClick={() => { setDetail(null); openEditProveedor(detail.proveedorId!); }}
-                        >
-                          <PiPencilSimpleBold size={16} />
-                          Editar Proveedor
-                        </button>
-                      )}
                       <button 
                         className="h-9 px-3 rounded-md text-sm font-medium text-white transition-colors flex items-center gap-2" 
                         style={{ backgroundColor: '#12443d' }}

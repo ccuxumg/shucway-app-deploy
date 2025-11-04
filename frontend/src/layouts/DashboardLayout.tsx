@@ -226,6 +226,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     { name: 'Inventario', route: '/inventario', section: 'Operaciones' },
     { name: 'Categorias', route: '/inventario/categorias', section: 'Operaciones' },
     { name: 'Recepción de Mercadería', route: '/inventario/recepcion-mercaderia', section: 'Operaciones' },
+    { name: 'Proveedores', route: '/proveedores', section: 'Operaciones' },
     { name: 'Reportes', route: '/reportes', section: 'Operaciones' },
     { name: 'Perfil', route: '/perfil', section: 'General' },
     { name: 'Soporte', route: '/soporte', section: 'General' },

@@ -87,3 +87,24 @@ export const updateProveedor = async (req: Request, res: Response) => {
     return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
+
+export const deleteProveedor = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const { error } = await supabase
+      .from('proveedor')
+      .delete()
+      .eq('id_proveedor', id);
+
+    if (error) {
+      console.error('Error al eliminar proveedor:', error);
+      return res.status(500).json({ message: 'Error interno del servidor' });
+    }
+
+    return res.json({ message: 'Proveedor eliminado correctamente' });
+  } catch (error) {
+    console.error('Error inesperado:', error);
+    return res.status(500).json({ message: 'Error interno del servidor' });
+  }
+};

@@ -214,6 +214,21 @@ const Perfil: React.FC = () => {
                         // Actualizar UI
                         setFormData((prev: Partial<UsuarioDataType>) => ({ ...prev, avatar_url: publicUrl }));
                         setUserData((prev: UsuarioDataType | null) => prev ? ({ ...prev, avatar_url: publicUrl }) : prev);
+
+                        // Actualizar localStorage para que se refleje en el dashboard
+                        try {
+                          const userStr = localStorage.getItem('user');
+                          if (userStr) {
+                            const currentUser = JSON.parse(userStr);
+                            const updatedUser = { ...currentUser, avatar_url: publicUrl };
+                            localStorage.setItem('user', JSON.stringify(updatedUser));
+                            // Notificar a otros componentes que el perfil del usuario se actualizó
+                            window.dispatchEvent(new CustomEvent('userProfileUpdated'));
+                          }
+                        } catch (storageError) {
+                          console.warn('Error actualizando localStorage:', storageError);
+                        }
+
                         message.success('Avatar actualizado correctamente');
                       } catch (err: unknown) {
                         const errMsg = err instanceof Error ? err.message : String(err);
@@ -418,20 +433,18 @@ const Perfil: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               <div className="text-center p-4 bg-blue-50 rounded-lg">
                 <div className="text-2xl font-bold text-blue-600">0</div>
-                <div className="text-sm text-gray-600">Ventas Realizadas</div>
+                <div className="text-sm text-gray-600">Ventas Registradas</div>
               </div>
               <div className="text-center p-4 bg-green-50 rounded-lg">
-                <div className="text-2xl font-bold text-green-600">0</div>
-                <div className="text-sm text-gray-600">Productos Gestionados</div>
-              </div>
-              <div className="text-center p-4 bg-purple-50 rounded-lg">
-                <div className="text-2xl font-bold text-purple-600">0</div>
-                <div className="text-sm text-gray-600">Reportes Generados</div>
-              </div>
-              <div className="text-center p-4 bg-orange-50 rounded-lg">
-                <div className="text-2xl font-bold text-orange-600">0</div>
+                <div className="text-2xl font-bold text-green-600">
+                  {userData?.fecha_registro ? Math.floor((new Date().getTime() - new Date(userData.fecha_registro).getTime()) / (1000 * 60 * 60 * 24)) : 0}
+                </div>
                 <div className="text-sm text-gray-600">Días Activo</div>
               </div>
+            </div>
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Rol</label>
+              <p className="text-gray-900 font-medium">{userData?.roles || 'No especificado'}</p>
             </div>
           </div>
         </div>

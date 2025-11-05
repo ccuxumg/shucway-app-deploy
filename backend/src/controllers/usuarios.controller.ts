@@ -458,6 +458,40 @@ export class UsuariosController {
       next(error);
     }
   }
+
+  async checkEmailExists(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const { email, excludeId } = req.query;
+      const exists = await new UsuariosService().checkEmailExists(
+        email as string,
+        excludeId ? parseInt(excludeId as string) : undefined
+      );
+
+      res.json({
+        success: true,
+        exists,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async checkUsernameExists(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const { username, excludeId } = req.query;
+      const exists = await new UsuariosService().checkUsernameExists(
+        username as string,
+        excludeId ? parseInt(excludeId as string) : undefined
+      );
+
+      res.json({
+        success: true,
+        exists,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const usuariosController = new UsuariosController();

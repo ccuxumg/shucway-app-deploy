@@ -147,7 +147,8 @@ export class InventarioService {
       .from('insumo')
       .select(`
         *,
-        lote_insumo!inner(cantidad_actual)
+        categoria_insumo(tipo_categoria),
+        lote_insumo(cantidad_actual)
       `)
       .order('nombre_insumo');
 
@@ -162,6 +163,7 @@ export class InventarioService {
     // Calcular stock_actual sumando cantidad_actual de todos los lotes
     const insumosConStock = (data || []).map(insumo => ({
       ...insumo,
+      tipo_insumo: insumo.categoria_insumo?.tipo_categoria || 'operativo',
       stock_actual: Array.isArray(insumo.lote_insumo)
         ? insumo.lote_insumo.reduce((sum: number, lote: { cantidad_actual: number }) => sum + (lote.cantidad_actual || 0), 0)
         : 0

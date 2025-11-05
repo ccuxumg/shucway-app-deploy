@@ -14,6 +14,7 @@ import { uploadFile } from "../../api/uploadFIle";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { addUsuario } from "../../api/addUsuario";
 import { getRoles, Rol } from "../../api/rolesService";
+import { checkEmailExists, checkUsernameExists } from "../../api/usuariosService";
 import { useLocation } from "react-router-dom";
 import { useToggleDrawer } from "../../hooks/usetoggleDrawer";
 import { Controller, useForm } from "react-hook-form";
@@ -85,6 +86,37 @@ const AddDrawer = () => {
     const showDrawerParam = queryParams.get("showDrawerAdd");
     setIsDrawerOpen(showDrawerParam === "true");
   }, [location.search]);
+
+  // Función de validación asíncrona para email
+  const validateEmail = async (value: string | null) => {
+    if (!value) return 'El correo es requerido';
+
+    const emailPattern = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i;
+    if (!emailPattern.test(value)) return 'Correo electrónico inválido';
+
+    try {
+      const exists = await checkEmailExists(value);
+      if (exists) return 'Ya existe un usuario con este correo electrónico';
+      return true;
+    } catch (error) {
+      console.error('Error al validar email:', error);
+      return 'Error al validar el correo electrónico';
+    }
+  };
+
+  // Función de validación asíncrona para username
+  const validateUsername = async (value: string | null) => {
+    if (!value) return 'El username es requerido';
+
+    try {
+      const exists = await checkUsernameExists(value);
+      if (exists) return 'Ya existe un usuario con este username';
+      return true;
+    } catch (error) {
+      console.error('Error al validar username:', error);
+      return 'Error al validar el username';
+    }
+  };
 
   const onCloseDrawer = () => {
     toggleDrawer(false, "showDrawerAdd");
@@ -331,11 +363,7 @@ const AddDrawer = () => {
                 name="email"
                 control={control}
                 rules={{
-                  required: 'El correo es requerido',
-                  pattern: {
-                    value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                    message: 'Correo electrónico inválido'
-                  }
+                  validate: validateEmail
                 }}
                 render={({ field }) => (
                   <Input
@@ -391,8 +419,8 @@ const AddDrawer = () => {
                 control={control}
                 rules={{
                   pattern: {
-                    value: /^\d{8,}$/,
-                    message: "El teléfono debe tener al menos 8 dígitos",
+                    value: /^\d{8}$/,
+                    message: "El teléfono debe tener exactamente 8 dígitos",
                   },
                 }}
                 render={({ field }) => (
@@ -467,6 +495,9 @@ const AddDrawer = () => {
               <Controller
                 name="username"
                 control={control}
+                rules={{
+                  validate: validateUsername
+                }}
                 render={({ field }) => (
                   <Input
                     {...field}

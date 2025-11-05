@@ -615,14 +615,13 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
         return;
       }
 
-      // Validar que fechaInicioPeriodo no sea anterior a hoy
+      // Validar que fechaInicioPeriodo no sea anterior a hoy (permite hoy)
       const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      today.setHours(23, 59, 59, 999); // Fin del día de hoy
       const startDate = new Date(auditStartDate);
-      startDate.setHours(0, 0, 0, 0);
       
-      if (startDate < today) {
-        notify("error", "La fecha de inicio no puede ser anterior a hoy");
+      if (startDate > today) {
+        notify("error", "La fecha de inicio no puede ser posterior a hoy");
         return;
       }
 
@@ -1287,9 +1286,14 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
         <div className="auditoria-actions-wrapper">
           <div className="auditoria-actions">
             {sessionId ? (
-              <button className="btn primary" onClick={() => setShowFinalizeModal(true)} disabled={isFinalizing}>
-                {isFinalizing ? "Aplicando..." : "Finalizar Auditoría"}
-              </button>
+              <>
+                <button className="btn primary" onClick={() => setShowFinalizeModal(true)} disabled={isFinalizing}>
+                  {isFinalizing ? "Aplicando..." : "Finalizar Auditoría"}
+                </button>
+                <button className="btn danger" onClick={() => setShowCancelConfirmModal(true)} disabled={isCanceling}>
+                  {isCanceling ? "Cancelando..." : "Cancelar Auditoría"}
+                </button>
+              </>
             ) : (
               <button className="btn primary" onClick={() => setShowStartModal(true)} disabled={isStarting}>
                 {isStarting ? "Iniciando..." : "Iniciar Auditoría"}
@@ -1561,7 +1565,6 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
                     type="date"
                     value={auditStartDate}
                     onChange={(e) => setAuditStartDate(e.target.value)}
-                    min={getTodayDate()}
                     className="auditoria-modal-input"
                   />
                 </div>

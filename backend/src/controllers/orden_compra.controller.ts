@@ -101,3 +101,28 @@ export const deleteOrdenCompra = async (req: Request, res: Response) => {
     return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
+
+export const getDetallesOrdenCompra = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { data, error } = await supabase
+      .from('detalle_orden_compra')
+      .select(`
+        *,
+        insumo:insumo(nombre_insumo),
+        insumo_presentacion:insumo_presentacion(descripcion_presentacion)
+      `)
+      .eq('id_orden', id)
+      .order('id_detalle', { ascending: true });
+
+    if (error) {
+      console.error('Error al consultar detalles de orden de compra:', error);
+      return res.status(500).json({ message: 'Error interno del servidor' });
+    }
+
+    return res.json(data);
+  } catch (error) {
+    console.error('Error inesperado:', error);
+    return res.status(500).json({ message: 'Error interno del servidor' });
+  }
+};

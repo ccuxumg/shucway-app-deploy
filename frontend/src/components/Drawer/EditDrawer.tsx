@@ -64,13 +64,10 @@ async function uploadAvatarToUserBucket(
 }
 
 /** Normalizador SOLO para el formulario
- *  (tu tipo de UsuarioFormData.estado no acepta "suspendido").
- *  Como el campo está deshabilitado, es suficiente con mapear a
- *  un valor permitido para que TS no marque error.
+ *  Ahora soporta todos los estados incluyendo "suspendido".
  */
 function toFormEstado(raw?: string | null): Exclude<UsuarioFormData["estado"], undefined> {
-  if (raw === "suspendido") return "inactivo"; // evita error de tipos
-  if (raw === "activo" || raw === "inactivo" || raw === "eliminado") return raw;
+  if (raw === "activo" || raw === "inactivo" || raw === "suspendido" || raw === "eliminado") return raw;
   return "activo";
 }
 
@@ -210,7 +207,7 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
           ? (updatedData.fecha_nacimiento as Dayjs).format("YYYY-MM-DD")
           : (updatedData.fecha_nacimiento as unknown as string | null) || null;
 
-      // Ahora sí se puede editar estado y email
+      // Ahora sí se puede editar estado, email y username
       const bodyPartial: Partial<UsuarioDataType> = {
         primer_nombre: updatedData.primer_nombre,
         segundo_nombre: updatedData.segundo_nombre,
@@ -222,6 +219,7 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
         avatar_url: updatedData.avatar_url,
         estado: updatedData.estado,
         email: updatedData.email,
+        username: updatedData.username,
       };
 
       // Normalizar valores null -> undefined para cumplir UpdateUsuarioDTO
@@ -237,6 +235,7 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
         if (p.avatar_url !== null && p.avatar_url !== undefined) out.avatar_url = String(p.avatar_url);
         if (p.estado !== null && p.estado !== undefined) out.estado = String(p.estado);
         if (p.email !== null && p.email !== undefined) out.email = String(p.email);
+        if (p.username !== null && p.username !== undefined) out.username = String(p.username);
         return out;
       };
 
@@ -258,6 +257,33 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
       // Invalidar todas las queries relacionadas con usuarios
       queryClient.invalidateQueries({ queryKey: ["usuarios"], exact: false });
 
+      // Actualizar el localStorage con la nueva información del usuario para que se refleje en el dashboard
+      try {
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+          const currentUser = JSON.parse(userStr);
+          // Actualizar solo los campos que se modificaron
+          const updatedUser = {
+            ...currentUser,
+            primer_nombre: updatedData.primer_nombre || currentUser.primer_nombre,
+            segundo_nombre: updatedData.segundo_nombre || currentUser.segundo_nombre,
+            primer_apellido: updatedData.primer_apellido || currentUser.primer_apellido,
+            segundo_apellido: updatedData.segundo_apellido || currentUser.segundo_apellido,
+            email: updatedData.email || currentUser.email,
+            username: updatedData.username || currentUser.username,
+            telefono: updatedData.telefono || currentUser.telefono,
+            direccion: updatedData.direccion || currentUser.direccion,
+            avatar_url: updatedData.avatar_url || currentUser.avatar_url,
+            fecha_nacimiento: fechaNacimientoISO || currentUser.fecha_nacimiento,
+          };
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+          // Notificar a otros componentes que el perfil del usuario se actualizó
+          window.dispatchEvent(new CustomEvent('userProfileUpdated'));
+        }
+      } catch (storageError) {
+        console.warn('Error actualizando localStorage:', storageError);
+      }
+
       // Rol: usar endpoint backend para asignar/remover rol (evita permission denied desde anon key)
       if (data?.id_perfil) {
         if (selectedRoleId !== null && selectedRoleId !== undefined) {
@@ -274,7 +300,22 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
       setIsEditingPassword(false);
       onClose();
     } catch (err) {
-      message.error("Error al actualizar el usuario: " + ((err as Error)?.message || String(err)));
+      console.error('Error guardando usuario - raw error:', err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const lower = errorMessage.toLowerCase();
+      if (lower.includes('forbidden') || lower.includes('permission') || lower.includes('policy')) {
+        message.error(`Error de permisos al guardar usuario. Revisa roles/permisos en el backend. Detalles: ${errorMessage}`);
+      } else if (lower.includes('duplicate') || lower.includes('unique') || lower.includes('already exists')) {
+        if (lower.includes('email') || lower.includes('correo')) {
+          message.error(`El correo electrónico ya está registrado. Por favor, utiliza otro correo. Detalles: ${errorMessage}`);
+        } else if (lower.includes('username') || lower.includes('usuario')) {
+          message.error(`El nombre de usuario ya está registrado. Por favor, utiliza otro nombre de usuario. Detalles: ${errorMessage}`);
+        } else {
+          message.error(`El usuario o correo ya existe. Revisa los datos e intenta nuevamente. Detalles: ${errorMessage}`);
+        }
+      } else {
+        message.error(`Error guardando usuario. Revisa la consola para más detalles. ${errorMessage}`);
+      }
     }
   };
 

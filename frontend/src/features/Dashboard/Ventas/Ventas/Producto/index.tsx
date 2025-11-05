@@ -6,6 +6,7 @@
 import React, { useMemo, useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { getInsumos } from '@/api/inventarioService';
 import {
   PiEyeBold,
   PiPencilSimpleBold,
@@ -22,6 +23,7 @@ import {
 type CategoriaProducto = {
   id_categoria: number;
   nombre: string;
+  tipo_categoria?: 'perpetuo' | 'operativo';
 };
 
 type Insumo = {
@@ -29,6 +31,18 @@ type Insumo = {
   nombre: string;
   costo_promedio: number;
   unidad_medida_compra: string;
+  id_categoria?: number;
+  stock_actual?: number;
+};
+
+type InsumoRaw = {
+  id_insumo: number;
+  nombre_insumo: string;
+  tipo_insumo: string;
+  costo_promedio: number;
+  unidad_base: string;
+  id_categoria: number;
+  stock_actual: number;
 };
 
 type Producto = {
@@ -126,12 +140,12 @@ const SEED: Producto[] = BASE.map((p, i) => ({
 }));
 
 const CATEGORIAS_SEED: CategoriaProducto[] = [
-  { id_categoria: 1, nombre: "Shucos" },
-  { id_categoria: 2, nombre: "Hamburguesas" },
-  { id_categoria: 3, nombre: "Gringas" },
-  { id_categoria: 4, nombre: "Pollo" },
-  { id_categoria: 5, nombre: "Bebidas" },
-  { id_categoria: 6, nombre: "Papas" },
+  { id_categoria: 1, nombre: "Shucos", tipo_categoria: "perpetuo" },
+  { id_categoria: 2, nombre: "Hamburguesas", tipo_categoria: "perpetuo" },
+  { id_categoria: 3, nombre: "Gringas", tipo_categoria: "perpetuo" },
+  { id_categoria: 4, nombre: "Pollo", tipo_categoria: "perpetuo" },
+  { id_categoria: 5, nombre: "Bebidas", tipo_categoria: "perpetuo" },
+  { id_categoria: 6, nombre: "Papas", tipo_categoria: "perpetuo" },
 ];
 
 const INSUMOS_SEED: Insumo[] = [
@@ -152,6 +166,7 @@ export default function Productos() {
   const [rows, setRows] = useState<Producto[]>(SEED);
   const [categorias] = useState<CategoriaProducto[]>(CATEGORIAS_SEED);
   const [loading] = useState(false);
+  const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [recetas, setRecetas] = useState<Record<string, RecetaLinea[]>>({
     p1: [
       { id_producto: "p1", id_insumo: 1, cantidad_insumo: 1, unidad_medida: "u", es_obligatorio: true, insumo: { nombre: "Pan para Shuco", costo_promedio: 1.5 } },
@@ -173,6 +188,8 @@ export default function Productos() {
         data: FormProducto;
       }
   >(null);
+
+  const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; productId: string; productName: string } | null>(null);
 
   const [openRecetario, setOpenRecetario] = useState<{ open: boolean; initialProductId?: string }>({ open: false });
 
@@ -309,13 +326,22 @@ export default function Productos() {
   };
 
   const onDelete = (id: string) => {
-    if (!confirm("¿Eliminar este producto?")) return;
-    setRows((prev) => prev.filter((r) => r.id !== id));
-    setRecetas((prev) => {
-      const n = { ...prev };
-      delete n[id];
-      return n;
-    });
+    const product = rows.find(r => r.id === id);
+    if (product) {
+      setDeleteConfirm({ show: true, productId: id, productName: product.nombre });
+    }
+  };
+
+  const confirmDelete = () => {
+    if (deleteConfirm) {
+      setRows((prev) => prev.filter((r) => r.id !== deleteConfirm.productId));
+      setRecetas((prev) => {
+        const n = { ...prev };
+        delete n[deleteConfirm.productId];
+        return n;
+      });
+      setDeleteConfirm(null);
+    }
   };
 
   const handleRecetaSaved = (productId: string, nuevoCosto: number) => {
@@ -323,6 +349,40 @@ export default function Productos() {
       prevRows.map((p) => (p.id === productId ? { ...p, costo_total_producto: nuevoCosto } : p))
     );
   };
+
+  // cargar insumos desde API usando inventarioService para obtener solo operativos
+  useEffect(() => {
+    const loadInsumos = async () => {
+      try {
+        const insumosData = await getInsumos();
+        // Usar todos los insumos (considerando operativos por defecto)
+        const operativos = (insumosData.data as InsumoRaw[])
+          .map((item) => ({
+            id_insumo: item.id_insumo,
+            nombre: item.nombre_insumo,
+            costo_promedio: item.costo_promedio,
+            unidad_medida_compra: item.unidad_base,
+            id_categoria: item.id_categoria,
+            stock_actual: item.stock_actual,
+          }));
+
+        console.log('Insumos cargados:', operativos);
+        if (operativos.length === 0) {
+          console.log('No hay insumos, usando datos seed');
+          setInsumos(INSUMOS_SEED);
+        } else {
+          setInsumos(operativos);
+        }
+      } catch (error) {
+        console.warn('Error obteniendo insumos:', error);
+        // fallback a datos seed si falla la API
+        console.log('Usando datos seed como fallback');
+        setInsumos(INSUMOS_SEED);
+      }
+    };
+
+    loadInsumos();
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -576,7 +636,7 @@ export default function Productos() {
                     {recetas[showView.id]?.length ? (
                       <ul className="list-disc pl-5 text-gray-700">
                         {recetas[showView.id].map((it, i) => (
-                          <li key={i}>
+                          <li key={`${it.id_insumo}-${i}`}>
                             {it.insumo?.nombre || "Insumo desconocido"} — {it.cantidad_insumo} {it.unidad_medida}
                             {it.es_obligatorio ? " (obligatorio)" : ""}
                           </li>
@@ -609,7 +669,64 @@ export default function Productos() {
           categorias={categorias}
           onClose={() => setModalProducto(null)}
           onSave={onSaveProducto}
-          insumosSeed={INSUMOS_SEED}
+          insumos={insumos}
+        />
+
+        {/* Modal de confirmación de eliminación */}
+        <AnimatePresence>
+          {deleteConfirm?.show && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center"
+            >
+              <div
+                className="absolute inset-0 bg-black/40"
+                onClick={() => setDeleteConfirm(null)}
+              />
+              <motion.div
+                initial={{ scale: 0.98, y: 8, opacity: 0 }}
+                animate={{ scale: 1, y: 0, opacity: 1 }}
+                exit={{ scale: 0.98, y: 8, opacity: 0 }}
+                className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-gray-100 p-6"
+              >
+                <div className="text-center">
+                  <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
+                    <PiTrashBold className="w-6 h-6 text-red-600" />
+                  </div>
+                  <h3 className="text-lg font-bold text-gray-800 mb-2">Eliminar Producto</h3>
+                  <p className="text-gray-600 mb-6">
+                    ¿Estás seguro de que quieres eliminar <strong>"{deleteConfirm.productName}"</strong>?
+                    Esta acción no se puede deshacer.
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setDeleteConfirm(null)}
+                      className="flex-1 h-10 rounded-lg border border-gray-200 text-gray-700 font-semibold hover:bg-gray-50"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={confirmDelete}
+                      className="flex-1 h-10 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Modal de Producto */}
+        <ProductoModal
+          modal={modalProducto}
+          categorias={categorias}
+          onClose={() => setModalProducto(null)}
+          onSave={onSaveProducto}
+          insumos={insumos}
         />
 
         {/* Gestor de Recetas adicional (opcional) */}
@@ -621,7 +738,7 @@ export default function Productos() {
           setRecetas={setRecetas}
           initialProductId={openRecetario.initialProductId}
           onRecetaSaved={handleRecetaSaved}
-          insumosSeed={INSUMOS_SEED}
+          insumos={insumos}
         />
       </div>
     </div>
@@ -646,7 +763,7 @@ function ProductoModal({
   categorias,
   onClose,
   onSave,
-  insumosSeed,
+  insumos,
 }: {
   modal: { mode: "create" | "edit"; data: FormProducto } | null;
   categorias: CategoriaProducto[];
@@ -658,7 +775,7 @@ function ProductoModal({
     singleInsumo?: Insumo;
     recipeLines?: RecetaLinea[];
   }) => void;
-  insumosSeed: Insumo[];
+  insumos: Insumo[];
 }) {
   const [form, setForm] = useState<FormProducto | null>(modal?.data ?? null);
 
@@ -677,16 +794,42 @@ function ProductoModal({
   const [uploading, setUploading] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
-  const searchInsumos = useCallback((query: string) => {
+  const searchInsumos = useCallback(async (query: string) => {
     if (!query) {
       setInsumoResults([]);
       return;
     }
     const s = query.toLowerCase();
-    setInsumoResults(
-      insumosSeed.filter((i) => i.nombre.toLowerCase().includes(s)).slice(0, 6)
+
+    // Filtrar insumos por nombre
+    const filtered = insumos
+      .filter((i) => i.nombre.toLowerCase().includes(s))
+      .slice(0, 6);
+
+    // Obtener stock actual para cada insumo
+    const insumosWithStock = await Promise.all(
+      filtered.map(async (insumo) => {
+        try {
+          const stockResponse = await fetch(`${import.meta.env.VITE_API_URL}/inventario/stock?idInsumo=${insumo.id_insumo}`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+          });
+          const stockData = await stockResponse.json();
+          return {
+            ...insumo,
+            stock_actual: stockData.data || 0
+          };
+        } catch (error) {
+          console.warn(`Error obteniendo stock para insumo ${insumo.id_insumo}:`, error);
+          return {
+            ...insumo,
+            stock_actual: 0
+          };
+        }
+      })
     );
-  }, [insumosSeed]);
+
+    setInsumoResults(insumosWithStock);
+  }, [insumos]);
 
   // inicializa cuando recibe el modal
   useEffect(() => {
@@ -706,14 +849,14 @@ function ProductoModal({
       return singleInsumo.costo_promedio;
     }
     if (link === "complex" && recipeLines.length > 0) {
-      return recipeLines.reduce((acc, l) => {
+      return recipeLines.reduce((acc, l: RecetaLinea) => {
         const costo = l.insumo?.costo_promedio ??
-          insumosSeed.find((i) => i.id_insumo === l.id_insumo)?.costo_promedio ?? 0;
+          (Array.isArray(insumos) ? insumos.find((i) => i.id_insumo === l.id_insumo)?.costo_promedio : 0) ?? 0;
         return acc + (l.cantidad_insumo || 0) * costo;
       }, 0);
     }
     return form.costo_total_producto ?? 0;
-  }, [form, link, singleInsumo, recipeLines, insumosSeed]);
+  }, [form, link, singleInsumo, recipeLines, insumos]);
 
   // margen calculado
   const precioBase = form?.precio_venta ?? 0;
@@ -792,7 +935,7 @@ function ProductoModal({
             initial={{ scale: 0.98, y: 8, opacity: 0 }}
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.98, y: 8, opacity: 0 }}
-            className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-gray-100 p-6"
+            className="relative w-full max-w-6xl bg-white rounded-2xl shadow-2xl border border-gray-100 p-6"
           >
             {/* Header */}
             <div className="flex items-center justify-between mb-2">
@@ -808,6 +951,7 @@ function ProductoModal({
             {/* Body */}
             <div className="max-h-[70vh] overflow-y-auto p-1 pr-3">
               <div className="grid gap-4">
+
                 {/* Información Básica */}
                 <section className="bg-white rounded-xl border border-gray-200/70 shadow-sm p-4">
                   <div className="text-sm font-bold text-gray-800 mb-3">Información Básica</div>
@@ -847,6 +991,83 @@ function ProductoModal({
                       />
                     </div>
 
+                    {/* Vínculo con inventario (Receta) */}
+                    <div className="sm:col-span-2">
+                      <div className="text-sm font-bold text-gray-800 mb-3">Vínculo con Inventario (Receta)</div>
+
+                      {/* SOLO 2 opciones */}
+                      <div className="space-y-2">
+                        <label className="flex items-center gap-2 text-sm p-2 rounded-lg hover:bg-gray-50">
+                          <input type="radio" name="link" value="single" checked={link === "single"} onChange={() => setLink("single")} />
+                          Insumo sin receta (Ej: soda)
+                        </label>
+                        <label className="flex items-center gap-2 text-sm p-2 rounded-lg hover:bg-gray-50">
+                          <input type="radio" name="link" value="complex" checked={link === "complex"} onChange={() => setLink("complex")} />
+                          Insumo con receta (Ej: Shuco de Asada)
+                        </label>
+                      </div>
+
+                      {/* SINGLE: buscador de insumo */}
+                      {link === "single" && (
+                        <div className="mt-3 relative">
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Selecciona el Insumo *</label>
+                          {singleInsumo ? (
+                            <div className="flex items-center justify-between p-2 bg-emerald-50 rounded-lg border border-emerald-200">
+                              <span className="text-sm font-medium text-emerald-700">{singleInsumo.nombre}</span>
+                              <button type="button" onClick={() => setSingleInsumo(null)} className="text-xs font-bold">✕</button>
+                            </div>
+                          ) : (
+                            <div>
+                              <input
+                                type="text"
+                                value={insumoQuery}
+                                onChange={(e) => { setInsumoQuery(e.target.value); searchInsumos(e.target.value); }}
+                                placeholder="Buscar insumo (ej: Coca Cola)"
+                                className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                              />
+                              {insumoResults.length > 0 && (
+                                <ul className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                                  {insumoResults.map((ins) => (
+                                    <li
+                                      key={ins.id_insumo}
+                                      onClick={() => {
+                                        setSingleInsumo(ins);
+                                        setInsumoQuery("");
+                                        setInsumoResults([]);
+                                      }}
+                                      className="p-3 text-sm hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                    >
+                                      <div className="font-medium text-gray-800">{ins.nombre}</div>
+                                      <div className="text-xs text-gray-600 mt-1">
+                                        Cantidad actual: {ins.stock_actual || 0} | Precio unitario: {currency(ins.costo_promedio)} | Unidad base: {ins.unidad_medida_compra || 'N/A'}
+                                      </div>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          )}
+                          <p className="text-[11px] text-gray-500 mt-1">
+                            Costo calculado: {currency(singleInsumo?.costo_promedio || 0)}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* COMPLEX: editor de receta inline */}
+                      {link === "complex" && (
+                        <div className="mt-4 space-y-2">
+                          <InlineRecipeEditor
+                            lines={recipeLines}
+                            setLines={setRecipeLines}
+                            insumos={insumos}
+                          />
+                          <div className="text-sm text-emerald-600 font-semibold">
+                            Costo de Receta (Calculado): {currency(costoCalculado)}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <div>
                       <label className="block text-xs font-semibold text-gray-600 mb-1">Costo (Calculado)</label>
                       <input
@@ -864,7 +1085,13 @@ function ProductoModal({
                         className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm bg-gray-50 text-emerald-600 font-medium focus:outline-none"
                       />
                     </div>
+                  </div>
+                </section>
 
+                {/* Información Adicional */}
+                <section className="bg-white rounded-xl border border-gray-200/70 shadow-sm p-4">
+                  <div className="text-sm font-bold text-gray-800 mb-3">Información Adicional</div>
+                  <div className="grid gap-3 sm:grid-cols-2">
                     {/* Descripción */}
                     <div className="sm:col-span-2">
                       <label className="block text-xs font-semibold text-gray-600 mb-1">Descripción</label>
@@ -878,80 +1105,6 @@ function ProductoModal({
                     {/* Imagen */}
                     <ProductoImagen form={form} setForm={setForm} uploading={uploading} fileInputRef={fileInputRef} onUpload={handleUpload} />
                   </div>
-                </section>
-
-                {/* Vínculo con inventario (Receta inline) */}
-                <section className="bg-white rounded-xl border border-gray-200/70 shadow-sm p-4">
-                  <div className="text-sm font-bold text-gray-800 mb-3">Vínculo con Inventario (Receta)</div>
-
-                  {/* SOLO 2 opciones */}
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 text-sm p-2 rounded-lg hover:bg-gray-50">
-                      <input type="radio" name="link" value="single" checked={link === "single"} onChange={() => setLink("single")} />
-                      Insumo sin receta (Ej: soda)
-                    </label>
-                    <label className="flex items-center gap-2 text-sm p-2 rounded-lg hover:bg-gray-50">
-                      <input type="radio" name="link" value="complex" checked={link === "complex"} onChange={() => setLink("complex")} />
-                      Insumo con receta (Ej: Shuco de Asada)
-                    </label>
-                  </div>
-
-                  {/* SINGLE: buscador de insumo */}
-                  {link === "single" && (
-                    <div className="mt-3 relative">
-                      <label className="block text-xs font-semibold text-gray-600 mb-1">Selecciona el Insumo *</label>
-                      {singleInsumo ? (
-                        <div className="flex items-center justify-between p-2 bg-emerald-50 rounded-lg border border-emerald-200">
-                          <span className="text-sm font-medium text-emerald-700">{singleInsumo.nombre}</span>
-                          <button type="button" onClick={() => setSingleInsumo(null)} className="text-xs font-bold">✕</button>
-                        </div>
-                      ) : (
-                        <div>
-                          <input
-                            type="text"
-                            value={insumoQuery}
-                            onChange={(e) => { setInsumoQuery(e.target.value); searchInsumos(e.target.value); }}
-                            placeholder="Buscar insumo (ej: Coca Cola)"
-                            className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                          />
-                          {insumoResults.length > 0 && (
-                            <ul className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-40 overflow-y-auto">
-                              {insumoResults.map((ins) => (
-                                <li
-                                  key={ins.id_insumo}
-                                  onClick={() => {
-                                    setSingleInsumo(ins);
-                                    setInsumoQuery("");
-                                    setInsumoResults([]);
-                                  }}
-                                  className="p-2 text-sm hover:bg-gray-100 cursor-pointer"
-                                >
-                                  {ins.nombre} ({currency(ins.costo_promedio)})
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      )}
-                      <p className="text-[11px] text-gray-500 mt-1">
-                        Costo calculado: {currency(singleInsumo?.costo_promedio || 0)}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* COMPLEX: editor de receta inline */}
-                  {link === "complex" && (
-                    <div className="mt-4 space-y-2">
-                      <InlineRecipeEditor
-                        lines={recipeLines}
-                        setLines={setRecipeLines}
-                        insumosSeed={insumosSeed}
-                      />
-                      <div className="text-sm text-emerald-600 font-semibold">
-                        Costo de Receta (Calculado): {currency(costoCalculado)}
-                      </div>
-                    </div>
-                  )}
                 </section>
               </div>
             </div>
@@ -1040,24 +1193,38 @@ function ProductoImagen({
 function InlineRecipeEditor({
   lines,
   setLines,
-  insumosSeed,
+  insumos,
 }: {
   lines: RecetaLinea[];
   setLines: React.Dispatch<React.SetStateAction<RecetaLinea[]>>;
-  insumosSeed: Insumo[];
+  insumos: Insumo[];
 }) {
+  // Filtrar solo insumos operativos (ya vienen filtrados desde la API)
+  const insumosOperativos = React.useMemo(() => {
+    return insumos;
+  }, [insumos]);
+
   const addLinea = () => {
-    const ins = insumosSeed[0];
-    if (!ins) return alert("No hay insumos en catálogo");
+    console.log('Intentando agregar línea, insumosOperativos:', insumosOperativos);
+    if (!insumosOperativos || insumosOperativos.length === 0) {
+      console.error('No hay insumos operativos disponibles:', insumosOperativos);
+      alert(`No hay insumos disponibles para crear la receta. Verifica que los insumos estén cargados y que haya categorías de insumo configuradas.`);
+      return;
+    }
+
+    // Agregar una línea vacía que el usuario podrá configurar
     setLines((prev) => [
       ...prev,
       {
         id_producto: "",
-        id_insumo: ins.id_insumo,
+        id_insumo: insumosOperativos[0]?.id_insumo || 0,
         cantidad_insumo: 1,
-        unidad_medida: ins.unidad_medida_compra || "u",
+        unidad_medida: insumosOperativos[0]?.unidad_medida_compra || "u",
         es_obligatorio: true,
-        insumo: { nombre: ins.nombre, costo_promedio: ins.costo_promedio },
+        insumo: insumosOperativos[0] ? {
+          nombre: insumosOperativos[0].nombre,
+          costo_promedio: insumosOperativos[0].costo_promedio
+        } : undefined
       },
     ]);
   };
@@ -1067,7 +1234,7 @@ function InlineRecipeEditor({
       const copy = [...prev];
       const linea = { ...copy[index], [field]: value } as RecetaLinea;
       if (field === "id_insumo") {
-        const i = insumosSeed.find((x) => x.id_insumo === Number(value));
+        const i = insumosOperativos.find((x: Insumo) => x.id_insumo === Number(value));
         if (i) {
           linea.unidad_medida = i.unidad_medida_compra || "u";
           linea.insumo = { nombre: i.nombre, costo_promedio: i.costo_promedio };
@@ -1087,24 +1254,36 @@ function InlineRecipeEditor({
         <button
           type="button"
           onClick={addLinea}
-          className="h-9 rounded-lg border px-3 text-sm font-semibold hover:bg-gray-50 flex items-center gap-1"
+          disabled={insumosOperativos.length === 0}
+          className={`h-9 rounded-lg border px-3 text-sm font-semibold flex items-center gap-1 ${
+            insumosOperativos.length === 0
+              ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+              : "hover:bg-gray-50"
+          }`}
         >
           <PiPlusBold /> Añadir Insumo
         </button>
       </div>
 
       {lines.length === 0 ? (
-        <p className="text-sm text-gray-500">Aún no has agregado líneas a la receta.</p>
+        <p className="text-sm text-gray-500">
+          {insumos.length === 0
+            ? "Cargando insumos..."
+            : insumosOperativos.length === 0
+            ? "No hay insumos operativos disponibles. Verifica que haya insumos con categorías operativas configuradas."
+            : "Aún no has agregado líneas a la receta."
+          }
+        </p>
       ) : (
         <div className="space-y-2">
           {lines.map((l, index) => (
-            <div key={index} className="flex gap-2 items-center p-2 rounded-lg border">
+            <div key={`${l.id_insumo}-${index}`} className="flex gap-2 items-center p-2 rounded-lg border">
               <select
                 value={l.id_insumo}
                 onChange={(e) => updateLinea(index, "id_insumo", Number(e.target.value))}
                 className="flex-1 h-9 rounded-md border border-gray-200 px-2 text-sm"
               >
-                {insumosSeed.map((ins) => (
+                {insumosOperativos.map((ins: Insumo) => (
                   <option key={ins.id_insumo} value={ins.id_insumo}>
                     {ins.nombre} ({currency(ins.costo_promedio)})
                   </option>
@@ -1119,8 +1298,8 @@ function InlineRecipeEditor({
               <input
                 type="text"
                 value={l.unidad_medida}
-                onChange={(e) => updateLinea(index, "unidad_medida", e.target.value)}
-                className="w-16 h-9 rounded-md border border-gray-200 px-2 text-sm"
+                readOnly
+                className="w-16 h-9 rounded-md border border-gray-200 px-2 text-sm bg-gray-50"
               />
               <label className="flex items-center gap-1 text-xs">
                 <input
@@ -1155,7 +1334,7 @@ function RecetarioModal({
   setRecetas,
   initialProductId,
   onRecetaSaved,
-  insumosSeed,
+  insumos,
 }: {
   open: boolean;
   onClose: () => void;
@@ -1164,13 +1343,18 @@ function RecetarioModal({
   setRecetas: React.Dispatch<React.SetStateAction<Record<string, RecetaLinea[]>>>;
   initialProductId?: string;
   onRecetaSaved: (productId: string, nuevoCosto: number) => void;
-  insumosSeed: Insumo[];
+  insumos: Insumo[];
 }) {
+  const productosSinReceta = useMemo(() => {
+    return productos.filter(p => !recetas[p.id] || recetas[p.id].length === 0);
+  }, [productos, recetas]);
+
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [currentReceta, setCurrentReceta] = useState<RecetaLinea[]>([]);
-  const [allInsumos] = useState<Insumo[]>(insumosSeed);
+  const [allInsumos] = useState<Insumo[]>(Array.isArray(insumos) ? insumos : []);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showCreateRecipe, setShowCreateRecipe] = useState(false);
 
   const loadReceta = useCallback((productId: string) => {
     setLoading(true);
@@ -1270,7 +1454,18 @@ function RecetarioModal({
           >
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-bold text-gray-800">📖 Gestor de Recetas</h3>
+              <div className="flex items-center gap-4">
+                <h3 className="text-lg font-bold text-gray-800">Gestor de Recetas</h3>
+                {productosSinReceta.length > 0 && (
+                  <button
+                    onClick={() => setShowCreateRecipe(true)}
+                    className="h-9 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-700 flex items-center gap-2"
+                  >
+                    <PiPlusBold size={16} />
+                    Crear Receta
+                  </button>
+                )}
+              </div>
               <button className="p-2 rounded-lg hover:bg-gray-100" onClick={onClose}>
                 ✕
               </button>
@@ -1316,13 +1511,13 @@ function RecetarioModal({
                       {loading && <p>Cargando receta...</p>}
 
                       {currentReceta.map((linea, index) => (
-                        <div key={index} className="flex gap-2 items-center p-2 rounded-lg border">
+                        <div key={`${linea.id_insumo}-${index}`} className="flex gap-2 items-center p-2 rounded-lg border">
                           <select
                             value={linea.id_insumo}
                             onChange={(e) => updateLinea(index, "id_insumo", Number(e.target.value))}
                             className="flex-1 h-9 rounded-md border border-gray-200 px-2 text-sm"
                           >
-                            {insumosSeed.map((ins) => (
+                            {insumos.map((ins: Insumo) => (
                               <option key={ins.id_insumo} value={ins.id_insumo}>
                                 {ins.nombre} ({currency(ins.costo_promedio)})
                               </option>
@@ -1391,6 +1586,63 @@ function RecetarioModal({
                 )}
               </div>
             </div>
+          </motion.div>
+        </motion.div>
+      )}
+
+      {/* Modal para seleccionar producto para nueva receta */}
+      {showCreateRecipe && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-center justify-center"
+        >
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowCreateRecipe(false)} />
+          <motion.div
+            initial={{ scale: 0.98, y: 8, opacity: 0 }}
+            animate={{ scale: 1, y: 0, opacity: 1 }}
+            exit={{ scale: 0.98, y: 8, opacity: 0 }}
+            className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-100 p-6"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-800">Crear Nueva Receta</h3>
+              <button
+                className="p-2 rounded-lg hover:bg-gray-100"
+                onClick={() => setShowCreateRecipe(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-600 mb-4">
+              Selecciona un producto para crear su receta:
+            </p>
+
+            <div className="max-h-60 overflow-y-auto">
+              {productosSinReceta.map((producto) => (
+                <button
+                  key={producto.id}
+                  onClick={() => {
+                    setSelectedProductId(producto.id);
+                    setCurrentReceta([]);
+                    setShowCreateRecipe(false);
+                  }}
+                  className="w-full text-left p-3 rounded-lg hover:bg-emerald-50 border border-gray-200 mb-2"
+                >
+                  <div className="font-medium text-gray-800">{producto.nombre}</div>
+                  <div className="text-sm text-gray-500">
+                    Precio: {currency(producto.precio_venta)}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {productosSinReceta.length === 0 && (
+              <p className="text-center text-gray-500 py-4">
+                No hay productos disponibles sin receta.
+              </p>
+            )}
           </motion.div>
         </motion.div>
       )}

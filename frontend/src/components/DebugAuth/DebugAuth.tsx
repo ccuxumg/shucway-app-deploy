@@ -21,7 +21,7 @@ export const DebugAuth = () => {
       padding: '10px',
       borderRadius: '5px',
       fontSize: '12px',
-      fontFamily: 'monospace',
+      fontFamily: 'Poppins',
       zIndex: 9999,
       maxWidth: '300px'
     }}>

@@ -36,6 +36,7 @@ const Reportes: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [categoriasDisponibles, setCategoriasDisponibles] = useState<string[]>([]);
+  const [chartsReady, setChartsReady] = useState(false);
 
   /* ---------- Filtros GLOBALes (afectan KPIs + Tabla) ---------- */
   type Periodo = "hoy" | "ayer" | "30d" | "rango";
@@ -143,6 +144,14 @@ const Reportes: React.FC = () => {
   useEffect(() => {
     cargarDatos();
   }, [cargarDatos]);
+
+  // Delay para permitir que los contenedores se estabilicen antes de renderizar gráficos
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setChartsReady(true);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
 
   /* ---------- Tabla agregada por producto ---------- */
   type RowAgg = { producto: string; categoria: string; unidades: number; ventaQ: number; cogsQ: number; gananciaQ: number; };
@@ -417,12 +426,12 @@ table{font-size:12px}
             <span className="text-xs text-gray-500">{ini.toLocaleDateString("es-GT")} – {fin.toLocaleDateString("es-GT")}</span>
           </div>
           <div className="h-[260px] min-h-[260px]">
-            {loading || pieCategoria.length === 0 ? (
+            {loading || pieCategoria.length === 0 || !chartsReady ? (
               <div className="flex items-center justify-center h-full">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" key={`pie-categoria-${pieCategoria.length}`}>
                 <PieChart>
                   <Pie data={pieCategoria} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
                     {pieCategoria.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
@@ -441,20 +450,20 @@ table{font-size:12px}
             <span className="text-xs text-gray-500">{ini.toLocaleDateString("es-GT")} – {fin.toLocaleDateString("es-GT")}</span>
           </div>
           <div className="h-[260px] min-h-[260px]">
-            {loading || pieMetodo.length === 0 ? (
+            {loading || pieMetodo.length === 0 || !chartsReady ? (
               <div className="flex items-center justify-center h-full">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" key={`pie-metodo-${pieMetodo.length}`}>
                 <PieChart>
                   <Pie data={pieMetodo} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
-                  {pieMetodo.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
-                </Pie>
-                <Tooltip formatter={(v: number|string, n: string)=>[q(Number(v)), n]} />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
+                    {pieMetodo.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip formatter={(v: number|string, n: string)=>[q(Number(v)), n]} />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
             )}
           </div>
         </motion.div>
@@ -510,12 +519,12 @@ table{font-size:12px}
             </div>
           </div>
           <div className="h-[240px] min-h-[240px]">
-            {loading || topRentables.length === 0 ? (
+            {loading || topRentables.length === 0 || !chartsReady ? (
               <div className="flex items-center justify-center h-full">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" key={`bar-rentables-${topRentables.length}`}>
                 <BarChart data={topRentables} margin={{left:10,right:10,top:10,bottom:10}}>
                   <CartesianGrid stroke="#f3f4f6" vertical={false} />
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} />

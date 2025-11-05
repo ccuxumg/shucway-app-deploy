@@ -21,6 +21,17 @@ export const fetchProveedores = async () => {
   return response.data;
 };
 
+export const getStockActual = async (idInsumo?: number) => {
+  const params = idInsumo ? { idInsumo } : {};
+  const response = await api.get("/inventario/stock", { params });
+  return response.data;
+};
+
+export const getCategoriasInsumo = async () => {
+  const response = await api.get("/dashboard/table-data/categoria_insumo");
+  return response.data;
+};
+
 type ProveedorAPIData = {
   nombre_empresa: string;
   nombre_contacto?: string | null;
@@ -95,7 +106,7 @@ export const updateOrdenCompra = async (id_orden: string | number, ordenData: Pa
   id_proveedor: number;
   estado: string;
   tipo_orden: string;
-  motivo_generacion: string;
+  motivo_generacion?: string;
   fecha_entrega_estimada: string;
   total: number;
 }>) => {
@@ -142,4 +153,9 @@ export const saveInsumo = async (insumo: InsumoDataType) => {
     if (error) throw new Error(error.message);
     return data;
   }
+};
+
+export const getInsumos = async () => {
+  const response = await api.get("/inventario/insumos");
+  return response.data;
 };

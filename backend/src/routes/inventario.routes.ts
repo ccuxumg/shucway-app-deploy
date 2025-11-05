@@ -91,5 +91,12 @@ router.get('/stock/bajo', requireCajero, inventarioController.getInsumosStockBaj
 // Nivel mínimo: Cajero (30)
 
 router.get('/recepciones-mercaderia', requireCajero, inventarioController.getRecepcionesMercaderia.bind(inventarioController));
+router.post('/recepcion-mercaderia', requireCajero, inventarioController.createRecepcionMercaderia.bind(inventarioController));
+router.post('/detalle-recepcion-mercaderia', requireCajero, inventarioController.createDetalleRecepcionMercaderia.bind(inventarioController));
+
+console.log('[BACKEND] Rutas de recepción registradas:');
+console.log('- GET /recepciones-mercaderia');
+console.log('- POST /recepcion-mercaderia');
+console.log('- POST /detalle-recepcion-mercaderia');
 
 export default router;

@@ -155,7 +155,38 @@ export const saveInsumo = async (insumo: InsumoDataType) => {
   }
 };
 
+export const createRecepcionMercaderia = async (recepcionData: {
+  id_orden: number;
+  fecha_recepcion: string;
+  id_perfil: number;
+  numero_factura?: string;
+}) => {
+  const response = await api.post('/inventario/recepcion-mercaderia', recepcionData);
+  return response.data;
+};
+
+export const createDetalleRecepcionMercaderia = async (detalleData: {
+  id_recepcion: number;
+  id_detalle_orden: number;
+  cantidad_recibida: number;
+  cantidad_aceptada: number;
+  id_presentacion: number;
+}) => {
+  const response = await api.post('/inventario/detalle-recepcion-mercaderia', detalleData);
+  return response.data;
+};
+
 export const getInsumos = async () => {
   const response = await api.get("/inventario/insumos");
+  return response.data;
+};
+
+export const getRecepcionesMercaderia = async () => {
+  const response = await api.get('/inventario/recepciones-mercaderia');
+  return response.data;
+};
+
+export const getOrdenCompraById = async (id: number) => {
+  const response = await api.get(`/ordenes-compra/${id}`);
   return response.data;
 };

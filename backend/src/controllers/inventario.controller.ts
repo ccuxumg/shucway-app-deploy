@@ -383,6 +383,38 @@ export class InventarioController {
       next(error);
     }
   }
+
+  async createRecepcionMercaderia(req: AuthRequest, res: Response, next: NextFunction) {
+    console.log('[BACKEND] createRecepcionMercaderia llamado con:', req.body);
+    try {
+      const recepcionData = req.body;
+      const result = await inventarioService.createRecepcionMercaderia(recepcionData);
+      console.log('[BACKEND] Recepción creada exitosamente:', result);
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      console.error('[BACKEND] Error en createRecepcionMercaderia:', error);
+      next(error);
+    }
+  }
+
+  async createDetalleRecepcionMercaderia(req: AuthRequest, res: Response, next: NextFunction) {
+    console.log('[BACKEND] createDetalleRecepcionMercaderia llamado con:', req.body);
+    try {
+      const detalleData = req.body;
+      const result = await inventarioService.createDetalleRecepcionMercaderia(detalleData);
+      console.log('[BACKEND] Detalle de recepción creado exitosamente:', result);
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      console.error('[BACKEND] Error en createDetalleRecepcionMercaderia:', error);
+      next(error);
+    }
+  }
 }
 
 export const inventarioController = new InventarioController();

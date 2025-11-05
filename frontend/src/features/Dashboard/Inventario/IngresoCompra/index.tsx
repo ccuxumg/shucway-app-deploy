@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from "framer-motion";
 import { PiEyeBold, PiTrashBold, PiSpinnerBold, PiFloppyDiskBold, PiPlusBold, PiPackageBold, PiPencilSimpleBold, PiWarningBold } from "react-icons/pi";
 import { message } from 'antd';
-import { fetchProveedores, fetchOrdenesCompra, createOrdenCompra, createDetalleOrdenCompra, updateOrdenCompra, deleteOrdenCompra } from "../../../../api/inventarioService";
+import { fetchProveedores, fetchOrdenesCompra, createOrdenCompra, createDetalleOrdenCompra, updateOrdenCompra, deleteOrdenCompra, createRecepcionMercaderia, createDetalleRecepcionMercaderia, getRecepcionesMercaderia, getOrdenCompraById } from "../../../../api/inventarioService";
 import { getProfile } from '../../../../api/authService';
 
 /* =============== Tipos API =============== */
@@ -1408,11 +1408,21 @@ function PurchaseOrderForm({
 
   // (Eliminado require, ahora se usa import al inicio del archivo)
   const handleSave = async (aprobarAutomaticamente = false) => {
-    if (!selectedProveedorId) return alert("Por favor, selecciona un proveedor.");
-    if (!fecha) return alert("Por favor, ingresa una fecha.");
-    if (!fechaEntregaEstimada) return alert("Por favor, ingresa una fecha de entrega estimada.");
+    if (!selectedProveedorId) {
+      message.error("Por favor, selecciona un proveedor.");
+      return;
+    }
+    if (!fecha) {
+      message.error("Por favor, ingresa una fecha.");
+      return;
+    }
+    if (!fechaEntregaEstimada) {
+      message.error("Por favor, ingresa una fecha de entrega estimada.");
+      return;
+    }
     if (new Date(fechaEntregaEstimada) <= new Date(fecha)) {
-      return alert("La fecha de entrega estimada debe ser posterior a la fecha de la orden.");
+      message.error("La fecha de entrega estimada debe ser posterior a la fecha de la orden.");
+      return;
     }
     if (items.length === 0 || items.every((it) => !(it.descripcion || "").trim() && !it.id_insumo)) return alert("Agrega al menos un ítem válido.");
 
@@ -1433,8 +1443,46 @@ function PurchaseOrderForm({
       };
       let ordenResult: Record<string, unknown>;
       if (detail && detail.id_orden) {
+        console.log('Procesando OC:', detail.id_orden, 'Estado actual:', detail.estado, 'Nuevo estado:', estado);
+        
+        // Si se cambió a 'recibida', crear recepción si no existe
+        if (estado === 'recibida' && detail.estado !== 'recibida') {
+          console.log('Cambiando OC a recibida, estado anterior:', detail.estado);
+          try {
+            const recepciones = await getRecepcionesMercaderia();
+            const existingRecepcion = recepciones.data?.find((r: Recepcion) => r.id_orden === Number(detail.id_orden));
+            if (!existingRecepcion) {
+              const ordenData = await getOrdenCompraById(Number(detail.id_orden));
+              const userProfile = await getProfile();
+              const recepcionData = {
+                id_orden: Number(detail.id_orden),
+                fecha_recepcion: new Date().toISOString().split('T')[0],
+                id_perfil: userProfile.id_perfil,
+                numero_factura: nota || undefined,
+              };
+              const recepcionResult = await createRecepcionMercaderia(recepcionData);
+              console.log('Recepción creada:', recepcionResult);
+              // Crear detalles de recepción
+              for (const detalle of ordenData.detalle_orden_compra || []) {
+                await createDetalleRecepcionMercaderia({
+                  id_recepcion: recepcionResult.id_recepcion,
+                  id_detalle_orden: detalle.id_detalle,
+                  cantidad_recibida: detalle.cantidad,
+                  cantidad_aceptada: detalle.cantidad,
+                  id_presentacion: detalle.id_presentacion,
+                });
+              }
+              console.log('Detalles de recepción creados para OC:', detail.id_orden);
+            }
+          } catch (error) {
+            console.warn('Error creando recepción automática:', error);
+          }
+        }
+        
         // Editar orden existente (solo campos editables)
         ordenResult = await updateOrdenCompra(detail.id_orden, ordenPayload);
+        console.log('OC actualizada a estado:', estado, 'Resultado:', ordenResult);
+        
         if (ordenResult.id_orden && Array.isArray(items)) {
           // Eliminar detalles existentes antes de crear nuevos
           try {
@@ -1475,21 +1523,41 @@ function PurchaseOrderForm({
       } else {
         // Crear nueva orden
         ordenResult = await createOrdenCompra(ordenPayload);
+        const detallesCreados: { id_detalle: number; item: Item }[] = [];
         if (ordenResult.id_orden && Array.isArray(items)) {
           for (const item of items) {
-            await createDetalleOrdenCompra({
+            const detalle = await createDetalleOrdenCompra({
               id_orden: Number(ordenResult.id_orden),
               id_insumo: item.id_insumo!,
               cantidad: item.qty,
               precio_unitario: item.precio,
               id_presentacion: item.id_presentacion!,
             });
+            detallesCreados.push({ ...detalle, item });
           }
         }
 
-        // Si se aprueba automáticamente, actualizar el estado a "recibida" para activar los triggers
+        // Si se aprueba automáticamente, crear recepción automática
         if (aprobarAutomaticamente) {
-          await updateOrdenCompra(String(ordenResult.id_orden), { estado: "recibida" });
+          const userProfile = await getProfile();
+          const recepcionData = {
+            id_orden: Number(ordenResult.id_orden),
+            fecha_recepcion: new Date().toISOString().split('T')[0],
+            id_perfil: userProfile.id_perfil,
+            numero_factura: nota || undefined,
+          };
+          const recepcionResult = await createRecepcionMercaderia(recepcionData);
+          
+          // Crear detalles de recepción
+          for (const detalle of detallesCreados) {
+            await createDetalleRecepcionMercaderia({
+              id_recepcion: recepcionResult.id_recepcion,
+              id_detalle_orden: detalle.id_detalle,
+              cantidad_recibida: detalle.item.qty,
+              cantidad_aceptada: detalle.item.qty,
+              id_presentacion: detalle.item.id_presentacion!,
+            });
+          }
         }
 
         setRows(prev => [
@@ -1574,6 +1642,8 @@ function PurchaseOrderForm({
     <>
       <form className="p-6 lg:p-7 space-y-6" onSubmit={(e) => e.preventDefault()}>
       {/* Proveedor/Fecha/Número */}  
+  
+  
       <section className="bg-gray-50 rounded-xl border border-gray-200 p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
         <div>
           <label htmlFor="proveedorSelectForm" className="block text-xs font-semibold text-gray-600 mb-1">Proveedor *</label>
@@ -1921,7 +1991,6 @@ function PurchaseOrderForm({
                             // Si está entre mínimo y máximo, sugerir llegar al máximo
                             sugerenciaMaxima = stockMaximo - stockActual;
                           }
-                          // Si stockActual >= stockMaximo, no hay sugerencia (ya está al máximo o por encima)
                         }
 
                         // Bloquear si excede la sugerencia calculada
@@ -2247,3 +2316,14 @@ function ProviderInsumosModal({ id_proveedor, proveedorData }: { id_proveedor: n
     </div>
   );
 }
+
+/* ======================================================================
+ * ===== Tipos adicionales para Recepción y Detalle de Recepción =====
+ * ====================================================================== */
+type Recepcion = {
+  id_recepcion: number;
+  id_orden: number;
+  fecha_recepcion: string;
+  id_perfil: number;
+  numero_factura?: string;
+};

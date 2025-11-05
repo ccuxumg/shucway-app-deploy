@@ -355,8 +355,9 @@ export default function Productos() {
     const loadInsumos = async () => {
       try {
         const insumosData = await getInsumos();
-        // Usar todos los insumos (considerando operativos por defecto)
+        // Usar solo los insumos operativos
         const operativos = (insumosData.data as InsumoRaw[])
+          .filter((item) => item.tipo_insumo === 'operativo')
           .map((item) => ({
             id_insumo: item.id_insumo,
             nombre: item.nombre_insumo,
@@ -366,15 +367,15 @@ export default function Productos() {
             stock_actual: item.stock_actual,
           }));
 
-        console.log('Insumos cargados:', operativos);
+        console.log('Insumos operativos cargados:', operativos);
         if (operativos.length === 0) {
-          console.log('No hay insumos, usando datos seed');
+          console.log('No hay insumos operativos, usando datos seed');
           setInsumos(INSUMOS_SEED);
         } else {
           setInsumos(operativos);
         }
       } catch (error) {
-        console.warn('Error obteniendo insumos:', error);
+        console.warn('Error obteniendo insumos operativos:', error);
         // fallback a datos seed si falla la API
         console.log('Usando datos seed como fallback');
         setInsumos(INSUMOS_SEED);

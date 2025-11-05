@@ -1076,6 +1076,50 @@ export class InventarioService {
 
     return result;
   }
+
+  async createRecepcionMercaderia(recepcionData: {
+    id_orden: number;
+    fecha_recepcion: string;
+    id_perfil: number;
+    numero_factura?: string;
+  }): Promise<{ id_recepcion: number }> {
+    const { data, error } = await supabase
+      .from('recepcion_mercaderia')
+      .insert({
+        id_orden: recepcionData.id_orden,
+        fecha_recepcion: recepcionData.fecha_recepcion,
+        id_perfil: recepcionData.id_perfil,
+        numero_factura: recepcionData.numero_factura,
+      })
+      .select('id_recepcion')
+      .single();
+
+    if (error) throw new Error(`Error creando recepción: ${error.message}`);
+    return data;
+  }
+
+  async createDetalleRecepcionMercaderia(detalleData: {
+    id_recepcion: number;
+    id_detalle_orden: number;
+    cantidad_recibida: number;
+    cantidad_aceptada: number;
+    id_presentacion: number;
+  }): Promise<{ id_detalle: number }> {
+    const { data, error } = await supabase
+      .from('detalle_recepcion_mercaderia')
+      .insert({
+        id_recepcion: detalleData.id_recepcion,
+        id_detalle_orden: detalleData.id_detalle_orden,
+        cantidad_recibida: detalleData.cantidad_recibida,
+        cantidad_aceptada: detalleData.cantidad_aceptada,
+        id_presentacion: detalleData.id_presentacion,
+      })
+      .select('id_detalle')
+      .single();
+
+    if (error) throw new Error(`Error creando detalle recepción: ${error.message}`);
+    return data;
+  }
 }
 
 export const inventarioService = new InventarioService();

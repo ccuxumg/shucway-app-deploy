@@ -415,6 +415,28 @@ export class InventarioController {
       next(error);
     }
   }
+
+  async deleteRecepcionMercaderia(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        res.status(400).json({
+          success: false,
+          message: 'ID inválido',
+        });
+        return;
+      }
+      
+      await inventarioService.deleteRecepcionMercaderia(id);
+      res.json({
+        success: true,
+        message: 'Recepción eliminada exitosamente',
+      });
+    } catch (error) {
+      console.error('[BACKEND] Error en deleteRecepcionMercaderia:', error);
+      next(error);
+    }
+  }
 }
 
 export const inventarioController = new InventarioController();

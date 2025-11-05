@@ -93,10 +93,12 @@ router.get('/stock/bajo', requireCajero, inventarioController.getInsumosStockBaj
 router.get('/recepciones-mercaderia', requireCajero, inventarioController.getRecepcionesMercaderia.bind(inventarioController));
 router.post('/recepcion-mercaderia', requireCajero, inventarioController.createRecepcionMercaderia.bind(inventarioController));
 router.post('/detalle-recepcion-mercaderia', requireCajero, inventarioController.createDetalleRecepcionMercaderia.bind(inventarioController));
+router.delete('/recepciones-mercaderia/:id', requireAdministrador, inventarioController.deleteRecepcionMercaderia.bind(inventarioController));
 
 console.log('[BACKEND] Rutas de recepción registradas:');
 console.log('- GET /recepciones-mercaderia');
 console.log('- POST /recepcion-mercaderia');
 console.log('- POST /detalle-recepcion-mercaderia');
+console.log('- DELETE /recepciones-mercaderia/:id');
 
 export default router;

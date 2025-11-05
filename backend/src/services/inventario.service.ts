@@ -115,6 +115,253 @@ export class InventarioService {
       console.error(`Error en updateProveedorPrincipal para insumo ${idInsumo}:`, error);
     }
   }
+
+  /**
+   * Genera un resumen visible en logs sobre la sincronización entre la OC, la recepción y los movimientos generados.
+   */
+  private async registrarResumenRecepcion(idOrden: number, idRecepcion: number): Promise<void> {
+    try {
+      const [
+        detallesOrdenResp,
+        detallesRecepcionResp,
+        movimientosResp,
+        ordenResp
+      ] = await Promise.all([
+        supabase
+          .from('detalle_orden_compra')
+          .select('id_detalle, cantidad, id_presentacion')
+          .eq('id_orden', idOrden),
+        supabase
+          .from('detalle_recepcion_mercaderia')
+          .select('id_detalle, cantidad_aceptada, id_lote, id_presentacion')
+          .eq('id_recepcion', idRecepcion),
+        supabase
+          .from('movimiento_inventario')
+          .select('id_movimiento, id_insumo, cantidad, tipo_movimiento, descripcion')
+          .eq('id_referencia', idRecepcion)
+          .eq('tipo_movimiento', 'entrada_compra'),
+        supabase
+          .from('orden_compra')
+          .select('estado, fecha_aprobacion')
+          .eq('id_orden', idOrden)
+          .single()
+      ]);
+
+      if (detallesOrdenResp.error) {
+        console.warn(`[Backend] No se pudo obtener el detalle de la OC ${idOrden} para el resumen:`, detallesOrdenResp.error.message);
+      }
+      if (detallesRecepcionResp.error) {
+        console.warn(`[Backend] No se pudo obtener el detalle de la recepcion ${idRecepcion} para el resumen:`, detallesRecepcionResp.error.message);
+      }
+      if (movimientosResp.error) {
+        console.warn(`[Backend] No se pudo obtener los movimientos de inventario para la recepcion ${idRecepcion}:`, movimientosResp.error.message);
+      }
+      if (ordenResp.error) {
+        console.warn(`[Backend] No se pudo obtener la orden de compra ${idOrden} para el resumen:`, ordenResp.error.message);
+      }
+
+      const formatCantidad = (value: number) => (Number.isFinite(value) ? value.toFixed(2) : '0.00');
+
+      const detallesOrden = detallesOrdenResp.data || [];
+      const detallesRecepcion = detallesRecepcionResp.data || [];
+      const movimientos = movimientosResp.data || [];
+
+      const totalDetallesOrden = detallesOrden.length;
+      const totalDetallesRecepcion = detallesRecepcion.length;
+
+      const unidadesOrden = detallesOrden.reduce((acc, det) => acc + Number(det.cantidad ?? 0), 0);
+      const unidadesRecepcion = detallesRecepcion.reduce((acc, det) => acc + Number(det.cantidad_aceptada ?? 0), 0);
+      const movimientosCantidad = movimientos.reduce((acc, mov) => acc + Number(mov.cantidad ?? 0), 0);
+      const lotesAsignados = detallesRecepcion.filter(det => det.id_lote !== null && det.id_lote !== undefined).length;
+      const presentacionesPendientes = detallesOrden.filter(det => det.id_presentacion === null).length;
+
+      const estadoOC = ordenResp.data?.estado ?? 'desconocido';
+      const fechaAprobacion = ordenResp.data?.fecha_aprobacion ?? null;
+
+      const bitacoraResp = await supabase
+        .from('bitacora_inventario')
+        .select('id_bitacora_inventario, fecha_accion, descripcion')
+        .ilike('descripcion', `%Recepcion #${idRecepcion}%`)
+        .order('fecha_accion', { ascending: false })
+        .limit(3);
+
+      if (bitacoraResp.error) {
+        console.warn(`[Backend] No se pudo consultar la bitacora de inventario para la recepcion ${idRecepcion}:`, bitacoraResp.error.message);
+      }
+
+      const totalBitacora = bitacoraResp.data?.length ?? 0;
+      const ultimaBitacora = bitacoraResp.data && bitacoraResp.data.length > 0 ? bitacoraResp.data[0] : null;
+
+      console.log(`[Backend][Recepcion ${idRecepcion}] OC #${idOrden} estado: ${estadoOC}${fechaAprobacion ? `, fecha_aprobacion: ${fechaAprobacion}` : ''}.`);
+      console.log(`[Backend][Recepcion ${idRecepcion}] Detalles OC: ${totalDetallesOrden} (${formatCantidad(unidadesOrden)} uds). Detalles recepcionados: ${totalDetallesRecepcion} (${formatCantidad(unidadesRecepcion)} uds, ${lotesAsignados} lotes asignados).`);
+      console.log(`[Backend][Recepcion ${idRecepcion}] Movimientos entrada_compra generados: ${movimientos.length} (${formatCantidad(movimientosCantidad)} uds). Bitacora vinculada: ${totalBitacora} registros${ultimaBitacora ? `, ultimo: ${ultimaBitacora.descripcion}` : ''}.`);
+
+      if (totalDetallesOrden !== totalDetallesRecepcion) {
+        console.warn(`[Backend][Recepcion ${idRecepcion}] Advertencia: faltan sincronizar ${Math.max(totalDetallesOrden - totalDetallesRecepcion, 0)} detalles de la orden. Presentaciones sin asignar en la OC: ${presentacionesPendientes}.`);
+      }
+    } catch (error) {
+      console.warn(`[Backend] No se pudo generar el resumen para la recepcion ${idRecepcion}:`, error);
+    }
+  }
+
+    /**
+     * Crea automáticamente los detalles de recepción a partir de los detalles de la OC.
+     * Retorna la cantidad de detalles insertados.
+     */
+    private async crearDetallesRecepcionAutomaticos(idOrden: number, idRecepcion: number): Promise<number> {
+      try {
+        const { data: detallesOrden, error: detallesError } = await supabase
+          .from('detalle_orden_compra')
+          .select('id_detalle, cantidad, id_presentacion')
+          .eq('id_orden', idOrden);
+
+        if (detallesError) {
+          console.error(`[Backend] Error obteniendo detalles de OC ${idOrden}:`, detallesError.message);
+          return 0;
+        }
+
+        if (!detallesOrden || detallesOrden.length === 0) {
+          console.warn(`[Backend] OC ${idOrden} sin detalles. No se crearán detalles de recepción automáticos.`);
+          return 0;
+        }
+
+        const { data: detallesExistentes, error: existentesError } = await supabase
+          .from('detalle_recepcion_mercaderia')
+          .select('id_detalle_orden')
+          .eq('id_recepcion', idRecepcion);
+
+        if (existentesError) {
+          console.error(`[Backend] Error verificando detalles existentes para recepción ${idRecepcion}:`, existentesError.message);
+          return 0;
+        }
+
+        const existentesSet = new Set((detallesExistentes || []).map(det => det.id_detalle_orden));
+
+        const detallesAInsertar = detallesOrden
+          .filter(det => det.cantidad > 0 && !existentesSet.has(det.id_detalle))
+          .map(det => ({
+            id_recepcion: idRecepcion,
+            id_detalle_orden: det.id_detalle,
+            cantidad_recibida: det.cantidad,
+            cantidad_aceptada: det.cantidad,
+            id_presentacion: det.id_presentacion ?? null,
+          }));
+
+        const detallesSinPresentacion = detallesOrden.filter(det => det.cantidad > 0 && det.id_presentacion === null);
+        if (detallesSinPresentacion.length > 0) {
+          console.warn(`[Backend] OC ${idOrden} con ${detallesSinPresentacion.length} detalle(s) sin presentacion asignada. Se insertara la recepcion con id_presentacion NULL y el trigger la ajustara.`);
+        }
+
+        if (detallesAInsertar.length === 0) {
+          console.log(`[Backend] Recepción ${idRecepcion} ya tenía detalles sincronizados. No se insertaron nuevos registros.`);
+          return 0;
+        }
+
+        const { data: detallesInsertados, error: insertError } = await supabase
+          .from('detalle_recepcion_mercaderia')
+          .insert(detallesAInsertar)
+          .select('id_detalle');
+
+        if (insertError) {
+          console.error(`[Backend] Error insertando detalles automáticos para recepción ${idRecepcion}:`, insertError.message);
+          throw new Error(`Error al crear detalles de recepción automáticos: ${insertError.message}`);
+        }
+
+        console.log(`[Backend] Detalles automáticos creados para recepción ${idRecepcion}:`, detallesAInsertar.length);
+        return detallesInsertados?.length ?? detallesAInsertar.length;
+      } catch (error) {
+        console.error('[Backend] Error inesperado en crearDetallesRecepcionAutomaticos:', error);
+        return 0;
+      }
+    }
+
+    /**
+     * Verifica si todos los detalles de la OC fueron recibidos y, de ser así, cierra la orden.
+     */
+    private async intentarCerrarOrdenCompra(idOrden: number, idRecepcion: number): Promise<void> {
+      const { count: totalDetallesOC, error: countOCError } = await supabase
+        .from('detalle_orden_compra')
+        .select('*', { count: 'exact', head: true })
+        .eq('id_orden', idOrden);
+
+      const { count: totalDetallesRecepcion, error: countRecepcionError } = await supabase
+        .from('detalle_recepcion_mercaderia')
+        .select('*', { count: 'exact', head: true })
+        .eq('id_recepcion', idRecepcion);
+
+      if (countOCError) {
+        console.warn('[Backend] Error contando detalles de OC:', countOCError.message);
+        throw new Error(`Error al contar detalles de la orden: ${countOCError.message}`);
+      }
+
+      if (countRecepcionError) {
+        console.warn('[Backend] Error contando detalles de recepción:', countRecepcionError.message);
+        throw new Error(`Error al contar detalles de recepción: ${countRecepcionError.message}`);
+      }
+
+      console.log('[Backend] Conteo sincronización OC', idOrden, '-> detalles OC:', totalDetallesOC, 'detalle recepción:', totalDetallesRecepcion);
+
+      if (totalDetallesOC !== null && totalDetallesRecepcion !== null && totalDetallesOC === totalDetallesRecepcion) {
+        if (totalDetallesRecepcion === 0) {
+          const errorMsg = `❌ VALIDACIÓN FALLIDA: No se puede cambiar OC #${idOrden} a 'recibida' sin detalles de recepción.`;
+          console.error('[Backend]', errorMsg);
+          throw new Error(errorMsg);
+        }
+
+        const { data: currentOC, error: fetchError } = await supabase
+          .from('orden_compra')
+          .select('estado, aprobado_por, fecha_aprobacion')
+          .eq('id_orden', idOrden)
+          .single();
+
+        if (fetchError) {
+          console.warn(`[Backend] No se pudo obtener estado de OC ${idOrden}:`, fetchError.message);
+          throw new Error(`Error al obtener el estado actual de la orden: ${fetchError.message}`);
+        }
+
+        if (currentOC.estado !== 'recibida') {
+          console.log('[Backend] Cambiando OC', idOrden, 'a estado recibida');
+
+          const { data: recepcionInfo, error: recepcionError } = await supabase
+            .from('recepcion_mercaderia')
+            .select('id_perfil')
+            .eq('id_recepcion', idRecepcion)
+            .single();
+
+          if (recepcionError) {
+            console.warn(`[Backend] No se pudo obtener el perfil asociado a la recepcion ${idRecepcion}:`, recepcionError.message);
+          }
+
+          const updatePayload: { estado: 'recibida'; fecha_aprobacion: string; aprobado_por?: number } = {
+            estado: 'recibida',
+            fecha_aprobacion: new Date().toISOString()
+          };
+
+          const perfilRecepcion = recepcionInfo?.id_perfil ?? null;
+          if (perfilRecepcion) {
+            updatePayload.aprobado_por = perfilRecepcion;
+          } else if (currentOC.aprobado_por) {
+            updatePayload.aprobado_por = currentOC.aprobado_por;
+          }
+
+          const { error: updateError } = await supabase
+            .from('orden_compra')
+            .update(updatePayload)
+            .eq('id_orden', idOrden);
+
+          if (updateError) {
+            console.error(`[Backend] No se pudo cambiar el estado de la OC ${idOrden}:`, updateError.message);
+            throw new Error(`No se pudo cambiar el estado de la OC a 'recibida': ${updateError.message}`);
+          }
+
+          console.log('[Backend] ✅ OC actualizada a recibida - Trigger debe ejecutarse ahora');
+        } else {
+          console.log('[Backend] OC', idOrden, 'ya estaba en estado recibida');
+        }
+      } else {
+        console.log('[Backend] Aún faltan detalles por recibir para OC', idOrden);
+      }
+    }
   // ================== CATEGORÍAS DE INSUMOS ==================
 
   async getCategoriasInsumo(): Promise<CategoriaInsumo[]> {
@@ -1082,7 +1329,9 @@ export class InventarioService {
     fecha_recepcion: string;
     id_perfil: number;
     numero_factura?: string;
-  }): Promise<{ id_recepcion: number }> {
+  }): Promise<{ id_recepcion: number; detalles_creados: number }> {
+    console.log('[Backend] Creando recepción de mercadería:', recepcionData);
+    
     const { data, error } = await supabase
       .from('recepcion_mercaderia')
       .insert({
@@ -1095,7 +1344,22 @@ export class InventarioService {
       .single();
 
     if (error) throw new Error(`Error creando recepción: ${error.message}`);
-    return data;
+    
+    console.log('[Backend] Recepción creada exitosamente:', data);
+
+    let detallesCreados = 0;
+    try {
+      detallesCreados = await this.crearDetallesRecepcionAutomaticos(recepcionData.id_orden, data.id_recepcion);
+      if (detallesCreados > 0) {
+        await this.intentarCerrarOrdenCompra(recepcionData.id_orden, data.id_recepcion);
+      }
+    } catch (syncError) {
+      console.error('[Backend] Error sincronizando detalles de recepción automáticos:', syncError);
+    }
+
+    await this.registrarResumenRecepcion(recepcionData.id_orden, data.id_recepcion);
+
+    return { id_recepcion: data.id_recepcion, detalles_creados: detallesCreados };
   }
 
   async createDetalleRecepcionMercaderia(detalleData: {
@@ -1105,6 +1369,8 @@ export class InventarioService {
     cantidad_aceptada: number;
     id_presentacion: number;
   }): Promise<{ id_detalle: number }> {
+    console.log('[Backend] Creando detalle de recepción:', detalleData);
+    
     const { data, error } = await supabase
       .from('detalle_recepcion_mercaderia')
       .insert({
@@ -1118,7 +1384,56 @@ export class InventarioService {
       .single();
 
     if (error) throw new Error(`Error creando detalle recepción: ${error.message}`);
+
+    console.log('[Backend] Detalle de recepción creado:', data);
+
+    // Después de crear el detalle, verificar si todos los detalles de la OC tienen recepción
+    // Si sí, cambiar el estado de la OC a 'recibida' para activar el trigger
+    const { data: recepcionData, error: recepcionError } = await supabase
+      .from('recepcion_mercaderia')
+      .select('id_orden')
+      .eq('id_recepcion', detalleData.id_recepcion)
+      .single();
+
+    if (recepcionError) {
+      console.warn(`[Backend] Advertencia: No se pudo obtener la OC para la recepción ${detalleData.id_recepcion}:`, recepcionError.message);
+    } else {
+      const id_orden = recepcionData.id_orden;
+      console.log('[Backend] Verificando si completar OC:', id_orden);
+
+      try {
+        await this.intentarCerrarOrdenCompra(id_orden, detalleData.id_recepcion);
+      } catch (syncError) {
+        console.error('[Backend] Error al intentar cerrar la OC tras crear detalle de recepción:', syncError);
+        throw syncError instanceof Error ? syncError : new Error(String(syncError));
+      }
+
+      await this.registrarResumenRecepcion(id_orden, detalleData.id_recepcion);
+    }
+
     return data;
+  }
+
+  async deleteRecepcionMercaderia(id: number): Promise<void> {
+    // Primero eliminar los detalles
+    const { error: deleteDetailsError } = await supabase
+      .from('detalle_recepcion_mercaderia')
+      .delete()
+      .eq('id_recepcion', id);
+
+    if (deleteDetailsError) {
+      throw new Error(`Error eliminando detalles de recepción: ${deleteDetailsError.message}`);
+    }
+
+    // Luego eliminar la recepción
+    const { error } = await supabase
+      .from('recepcion_mercaderia')
+      .delete()
+      .eq('id_recepcion', id);
+
+    if (error) {
+      throw new Error(`Error eliminando recepción: ${error.message}`);
+    }
   }
 }
 

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from "framer-motion";
 import { PiEyeBold, PiTrashBold, PiSpinnerBold, PiFloppyDiskBold, PiPlusBold, PiPackageBold, PiPencilSimpleBold, PiWarningBold } from "react-icons/pi";
 import { message } from 'antd';
-import { fetchProveedores, fetchOrdenesCompra, createOrdenCompra, createDetalleOrdenCompra, updateOrdenCompra, deleteOrdenCompra, createRecepcionMercaderia, createDetalleRecepcionMercaderia, getRecepcionesMercaderia, getOrdenCompraById } from "../../../../api/inventarioService";
+import { fetchProveedores, fetchOrdenesCompra, createOrdenCompra, createDetalleOrdenCompra, updateOrdenCompra, deleteOrdenCompra, createRecepcionMercaderia, getRecepcionesMercaderia, getOrdenCompraById } from "../../../../api/inventarioService";
 import { getProfile } from '../../../../api/authService';
 
 /* =============== Tipos API =============== */
@@ -629,10 +629,26 @@ export default function IngresoCompra(): JSX.Element {
 
   const confirmDeleteProvider = useCallback(() => {
     if (!deleteProviderModal.provider) return;
-    setProveedores((prev) => prev.filter(x => x.id_proveedor !== deleteProviderModal.provider!.id_proveedor));
-    setAllProveedores((prev) => prev.filter(x => x.id_proveedor !== deleteProviderModal.provider!.id_proveedor));
-    message.success(`Proveedor "${deleteProviderModal.provider.nombre}" eliminado correctamente.`);
-    setDeleteProviderModal({ open: false, provider: null });
+    (async () => {
+      try {
+        const resp = await fetch(`/api/proveedores/${deleteProviderModal.provider!.id_proveedor}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+        });
+        if (!resp.ok) {
+          const txt = await resp.text();
+          throw new Error(txt || 'Error eliminando proveedor');
+        }
+        setProveedores((prev) => prev.filter(x => x.id_proveedor !== deleteProviderModal.provider!.id_proveedor));
+        setAllProveedores((prev) => prev.filter(x => x.id_proveedor !== deleteProviderModal.provider!.id_proveedor));
+        message.success(`Proveedor "${deleteProviderModal.provider!.nombre}" eliminado correctamente.`);
+        setDeleteProviderModal({ open: false, provider: null });
+      } catch (error) {
+        console.error('Error eliminando proveedor:', error);
+        const msg = error instanceof Error ? error.message : 'Error desconocido';
+        message.error(`No se pudo eliminar el proveedor: ${msg}`);
+      }
+    })();
   }, [deleteProviderModal.provider]);
 
   /* ---- Acciones Órdenes ---- */
@@ -652,10 +668,24 @@ export default function IngresoCompra(): JSX.Element {
       setRows((prev) => prev.filter(x => x.id_orden !== deleteOrderModal.order!.id_orden));
       message.success(`Orden "${deleteOrderModal.order.numero_orden || deleteOrderModal.order.id_orden}" eliminada correctamente.`);
       setDeleteOrderModal({ open: false, order: null });
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error eliminando orden:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
-      message.error(`Error al eliminar la orden: ${errorMessage}`);
+      
+      // Manejar el error específico de recepciones asociadas
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosError = error as { response?: { data?: { detail?: string; message?: string } } };
+        if (axiosError.response?.data?.detail) {
+          message.error(
+            `No se puede eliminar la orden porque tiene recepciones de mercadería asociadas. ${axiosError.response.data.detail}`
+          );
+        } else {
+          const errorMessage = axiosError.response?.data?.message || 'Error desconocido';
+          message.error(`Error al eliminar la orden: ${errorMessage}`);
+        }
+      } else {
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        message.error(`Error al eliminar la orden: ${errorMessage}`);
+      }
     }
   }, [deleteOrderModal.order]);
 
@@ -1375,7 +1405,7 @@ function PurchaseOrderForm({
       setTipoPago(detail.tipo_pago || 'credito');
       setEstado(detail.estado || 'pendiente');
       setMotivoGeneracion(detail.motivo_generacion || '');
-      setNota(detail.nota || '');
+      setNota(detail.motivo_generacion || '');
     } else {
       setItems([{ id: crypto.randomUUID(), descripcion: "", qty: 1, precio: 0 }]);
       setNota("");
@@ -1446,13 +1476,18 @@ function PurchaseOrderForm({
         console.log('Procesando OC:', detail.id_orden, 'Estado actual:', detail.estado, 'Nuevo estado:', estado);
         
         // Si se cambió a 'recibida', crear recepción si no existe
+        let recepcionCreada = false;
         if (estado === 'recibida' && detail.estado !== 'recibida') {
           console.log('Cambiando OC a recibida, estado anterior:', detail.estado);
           try {
             const recepciones = await getRecepcionesMercaderia();
             const existingRecepcion = recepciones.data?.find((r: Recepcion) => r.id_orden === Number(detail.id_orden));
             if (!existingRecepcion) {
+              console.log('Obteniendo datos de la orden:', detail.id_orden);
               const ordenData = await getOrdenCompraById(Number(detail.id_orden));
+              console.log('Datos de orden obtenidos:', ordenData);
+              console.log('Detalles de orden:', ordenData?.detalle_orden_compra);
+              
               const userProfile = await getProfile();
               const recepcionData = {
                 id_orden: Number(detail.id_orden),
@@ -1461,51 +1496,45 @@ function PurchaseOrderForm({
                 numero_factura: nota || undefined,
               };
               const recepcionResult = await createRecepcionMercaderia(recepcionData);
-              console.log('Recepción creada:', recepcionResult);
-              // Crear detalles de recepción
-              for (const detalle of ordenData.detalle_orden_compra || []) {
-                await createDetalleRecepcionMercaderia({
-                  id_recepcion: recepcionResult.id_recepcion,
-                  id_detalle_orden: detalle.id_detalle,
-                  cantidad_recibida: detalle.cantidad,
-                  cantidad_aceptada: detalle.cantidad,
-                  id_presentacion: detalle.id_presentacion,
-                });
-              }
-              console.log('Detalles de recepción creados para OC:', detail.id_orden);
+              const recepcionPayload = (recepcionResult as { data?: unknown })?.data ?? recepcionResult;
+              const detallesAuto = (recepcionPayload as { detalles_creados?: number })?.detalles_creados ?? 0;
+              console.log('Recepción creada:', recepcionPayload);
+              console.log('Detalles automáticos agregados:', detallesAuto);
+              recepcionCreada = true;
+            } else {
+              console.log('Recepción ya existe para OC:', detail.id_orden);
             }
           } catch (error) {
-            console.warn('Error creando recepción automática:', error);
+            console.error('Error creando recepción automática:', error);
+            // Mostrar error al usuario pero no fallar la operación
+            message.error('Error creando recepción automática, pero la orden fue actualizada');
           }
         }
         
         // Editar orden existente (solo campos editables)
-        ordenResult = await updateOrdenCompra(detail.id_orden, ordenPayload);
-        console.log('OC actualizada a estado:', estado, 'Resultado:', ordenResult);
+        // Si se creó recepción, no cambiar el estado porque el backend lo hará automáticamente
+        const payloadParaUpdate: Partial<typeof ordenPayload> = { ...ordenPayload };
+        if (recepcionCreada) {
+          delete payloadParaUpdate.estado;
+        }
+        ordenResult = await updateOrdenCompra(detail.id_orden, payloadParaUpdate);
+        console.log('OC actualizada, estado:', recepcionCreada ? 'se cambió automáticamente por backend' : estado, 'Resultado:', ordenResult);
         
         if (ordenResult.id_orden && Array.isArray(items)) {
-          // Eliminar detalles existentes antes de crear nuevos
-          try {
-            await fetch(`${import.meta.env.VITE_API_URL}/ordenes-compra/${detail.id_orden}/detalles`, {
-              method: 'DELETE',
-              headers: { 
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-                'Content-Type': 'application/json'
-              },
-            });
-          } catch (error) {
-            console.warn('Error eliminando detalles existentes:', error);
-          }
-          
-          // Crear nuevos detalles
+          console.log('[Frontend] Actualizando detalles de OC:', detail.id_orden);
+
           for (const item of items) {
-            await createDetalleOrdenCompra({
-              id_orden: Number(ordenResult.id_orden),
-              id_insumo: item.id_insumo!,
-              cantidad: item.qty,
-              precio_unitario: item.precio,
-              id_presentacion: item.id_presentacion!,
-            });
+            try {
+              await createDetalleOrdenCompra({
+                id_orden: Number(ordenResult.id_orden),
+                id_insumo: item.id_insumo!,
+                cantidad: item.qty,
+                precio_unitario: item.precio,
+                id_presentacion: item.id_presentacion!,
+              });
+            } catch (error) {
+              console.error('[Frontend] Error actualizando detalle:', error);
+            }
           }
         }
         setRows(prev => prev.map(r => r.id_orden === detail.id_orden ? {
@@ -1523,17 +1552,15 @@ function PurchaseOrderForm({
       } else {
         // Crear nueva orden
         ordenResult = await createOrdenCompra(ordenPayload);
-        const detallesCreados: { id_detalle: number; item: Item }[] = [];
         if (ordenResult.id_orden && Array.isArray(items)) {
           for (const item of items) {
-            const detalle = await createDetalleOrdenCompra({
+            await createDetalleOrdenCompra({
               id_orden: Number(ordenResult.id_orden),
               id_insumo: item.id_insumo!,
               cantidad: item.qty,
               precio_unitario: item.precio,
               id_presentacion: item.id_presentacion!,
             });
-            detallesCreados.push({ ...detalle, item });
           }
         }
 
@@ -1547,17 +1574,9 @@ function PurchaseOrderForm({
             numero_factura: nota || undefined,
           };
           const recepcionResult = await createRecepcionMercaderia(recepcionData);
-          
-          // Crear detalles de recepción
-          for (const detalle of detallesCreados) {
-            await createDetalleRecepcionMercaderia({
-              id_recepcion: recepcionResult.id_recepcion,
-              id_detalle_orden: detalle.id_detalle,
-              cantidad_recibida: detalle.item.qty,
-              cantidad_aceptada: detalle.item.qty,
-              id_presentacion: detalle.item.id_presentacion!,
-            });
-          }
+          const recepcionPayload = (recepcionResult as { data?: unknown })?.data ?? recepcionResult;
+          const detallesAuto = (recepcionPayload as { detalles_creados?: number })?.detalles_creados ?? 0;
+          console.log('Recepción automática creada. Detalles agregados:', detallesAuto);
         }
 
         setRows(prev => [

@@ -924,7 +924,10 @@ DECLARE
     v_detalle RECORD;
     v_cantidad_base DECIMAL(10,2);
     v_costo_unitario DECIMAL(10,2);
+    v_costo_total DECIMAL(12,2);
     v_id_lote INTEGER;
+    v_cantidad_anterior DECIMAL(10,2);
+    v_cantidad_nueva DECIMAL(10,2);
 BEGIN
     -- Solo procesar cuando la OC pasa a 'recibida'
     IF NEW.estado = 'recibida' AND (OLD.estado IS NULL OR OLD.estado != 'recibida') THEN
@@ -935,6 +938,7 @@ BEGIN
                 dr.cantidad_recibida,
                 dr.id_detalle_orden,
                 dr.id_lote,
+                COALESCE(dr.id_presentacion, doc.id_presentacion) AS id_presentacion,
                 doc.id_insumo,
                 doc.precio_unitario,
                 ip.unidades_por_presentacion,
@@ -953,34 +957,47 @@ BEGIN
             -- Convertir cantidad a unidad base
             v_cantidad_base := v_detalle.cantidad_recibida * v_detalle.unidades_por_presentacion;
             v_costo_unitario := COALESCE(v_detalle.precio_unitario, v_detalle.costo_compra_unitario) / v_detalle.unidades_por_presentacion;
+            v_costo_total := v_cantidad_base * v_costo_unitario;
 
-            -- Buscar lote existente para el insumo con cantidad_actual > 0
-            SELECT id_lote INTO v_id_lote
-            FROM lote_insumo
-            WHERE id_insumo = v_detalle.id_insumo
-            AND cantidad_actual > 0
-            ORDER BY fecha_vencimiento DESC -- Usar el lote con vencimiento más lejano
-            LIMIT 1;
-
-            IF v_id_lote IS NOT NULL THEN
-                -- Actualizar lote existente agregando la cantidad
-                UPDATE lote_insumo
-                SET cantidad_actual = cantidad_actual + v_cantidad_base,
-                    costo_unitario = v_costo_unitario -- Actualizar costo si es necesario
+            -- Determinar el lote a usar
+            IF v_detalle.id_lote IS NOT NULL THEN
+                v_id_lote := v_detalle.id_lote;
+                SELECT cantidad_actual INTO v_cantidad_anterior
+                FROM lote_insumo
                 WHERE id_lote = v_id_lote;
             ELSE
-                -- Crear nuevo lote si no hay existente
+                SELECT id_lote, cantidad_actual INTO v_id_lote, v_cantidad_anterior
+                FROM lote_insumo
+                WHERE id_insumo = v_detalle.id_insumo
+                ORDER BY fecha_vencimiento DESC
+                LIMIT 1;
+            END IF;
+
+            IF v_id_lote IS NOT NULL THEN
+                UPDATE lote_insumo
+                SET cantidad_actual = cantidad_actual + v_cantidad_base,
+                    costo_unitario = v_costo_unitario
+                WHERE id_lote = v_id_lote
+                RETURNING cantidad_actual INTO v_cantidad_nueva;
+            ELSE
                 INSERT INTO lote_insumo (
                     id_insumo, fecha_vencimiento, cantidad_inicial, cantidad_actual, costo_unitario, ubicacion
                 ) VALUES (
                     v_detalle.id_insumo, CURRENT_DATE + INTERVAL '1 year', v_cantidad_base, v_cantidad_base, v_costo_unitario, 'almacen'
-                ) RETURNING id_lote INTO v_id_lote;
+                ) RETURNING id_lote, cantidad_actual INTO v_id_lote, v_cantidad_nueva;
+                v_cantidad_anterior := 0;
             END IF;
 
-            -- Actualizar detalle_recepcion_mercaderia con el id_lote
+            -- Actualizar detalle_recepcion_mercaderia con el id_lote y la presentación derivada
             UPDATE detalle_recepcion_mercaderia
-            SET id_lote = v_id_lote
+            SET id_lote = v_id_lote,
+                id_presentacion = COALESCE(id_presentacion, v_detalle.id_presentacion)
             WHERE id_detalle = v_detalle.id_detalle;
+
+            -- Sincronizar la cantidad recibida en el detalle de OC
+            UPDATE detalle_orden_compra
+            SET cantidad_recibida = COALESCE(cantidad_recibida, 0) + v_detalle.cantidad_recibida
+            WHERE id_detalle = v_detalle.id_detalle_orden;
 
             -- Insertar movimiento de entrada con id_lote
             INSERT INTO movimiento_inventario (
@@ -991,7 +1008,8 @@ BEGIN
                 id_perfil,
                 id_referencia,
                 descripcion,
-                costo_unitario_momento
+                costo_unitario_momento,
+                id_presentacion
             ) VALUES (
                 v_detalle.id_insumo,
                 v_id_lote,
@@ -1000,8 +1018,38 @@ BEGIN
                 v_detalle.id_perfil,
                 v_detalle.id_recepcion,
                 'Recepción de mercadería #' || v_detalle.id_recepcion || ' - ' || v_detalle.nombre_insumo,
-                v_costo_unitario
+                v_costo_unitario,
+                v_detalle.id_presentacion
             );
+
+            -- Registrar bitácora de inventario
+            INSERT INTO bitacora_inventario (
+                id_insumo,
+                accion,
+                campo_modificado,
+                valor_anterior,
+                valor_nuevo,
+                id_perfil,
+                descripcion
+            ) VALUES (
+                v_detalle.id_insumo,
+                'actualizacion',
+                'cantidad_actual',
+                COALESCE(v_cantidad_anterior, 0)::text,
+                COALESCE(v_cantidad_nueva, v_cantidad_anterior)::text,
+                v_detalle.id_perfil,
+                 FORMAT('Recepcion #%s (OC #%s) - %+s unidades base. Presentacion ID %s. Costo unitario %s. Total %s',
+                    v_detalle.id_recepcion,
+                    NEW.id_orden,
+                    v_cantidad_base,
+                    v_detalle.id_presentacion,
+                    v_costo_unitario,
+                    v_costo_total)
+            );
+
+            -- Registrar logs en el servidor de BD
+            RAISE NOTICE 'OC % - Recepción % - Insumo % - Cantidad base % - Lote %',
+                NEW.id_orden, v_detalle.id_recepcion, v_detalle.id_insumo, v_cantidad_base, v_id_lote;
         END LOOP;
 
         -- Recalcular costo promedio para todos los insumos afectados

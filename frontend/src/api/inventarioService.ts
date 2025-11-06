@@ -93,8 +93,9 @@ export const createOrdenCompra = async (ordenData: {
   id_proveedor: number;
   estado?: string;
   tipo_orden?: string;
-  motivo_generacion?: string;
-  fecha_entrega_estimada?: string;
+  tipo_pago?: string;
+  motivo_generacion?: string | null;
+  fecha_entrega_estimada?: string | null;
   total?: number;
 }) => {
   const response = await api.post("/ordenes-compra", ordenData);
@@ -106,8 +107,9 @@ export const updateOrdenCompra = async (id_orden: string | number, ordenData: Pa
   id_proveedor: number;
   estado: string;
   tipo_orden: string;
-  motivo_generacion?: string;
-  fecha_entrega_estimada: string;
+  tipo_pago: string;
+  motivo_generacion?: string | null;
+  fecha_entrega_estimada: string | null;
   total: number;
 }>) => {
   const response = await api.put(`/ordenes-compra/${id_orden}`, ordenData);

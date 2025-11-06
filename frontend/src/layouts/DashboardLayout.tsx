@@ -213,6 +213,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
         const notifs: NotificationItem[] = [];
         const alrts: NotificationItem[] = [];
         alertasData.forEach((alert: AlertData) => {
+          const isInventoryWarning = alert.module?.toLowerCase() === 'inventario' && alert.type === 'warning';
           const item: NotificationItem = {
             id: alert.id || '',
             message: alert.message,
@@ -224,13 +225,19 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
               else if (alert.module === 'Configuración') navigate('/configuracion');
             }
           };
+          if (isInventoryWarning) {
+            notifs.push(item);
+            return;
+          }
+
           if (alert.type === 'error' || alert.type === 'warning') {
             alrts.push(item);
           } else {
             notifs.push(item);
           }
         });
-        setNotifications(notifs);
+        const uniqueNotifications = Array.from(new Map(notifs.map((n) => [n.id, n])).values());
+        setNotifications(uniqueNotifications);
         setAlerts(alrts);
       } catch (error) {
         console.error('Error loading alerts:', error);

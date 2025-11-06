@@ -400,6 +400,31 @@ export class InventarioController {
     }
   }
 
+  async updateRecepcionFactura(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const id = parseInt(req.params.id);
+      if (Number.isNaN(id)) {
+        res.status(400).json({
+          success: false,
+          message: 'ID de recepción inválido',
+        });
+        return;
+      }
+
+      const { numeroFactura } = req.body as { numeroFactura?: string | null };
+      const updated = await inventarioService.updateRecepcionFactura(id, numeroFactura?.trim() || null);
+
+      res.json({
+        success: true,
+        data: updated,
+        message: 'Número de factura actualizado correctamente',
+      });
+    } catch (error) {
+      console.error('[BACKEND] Error en updateRecepcionFactura:', error);
+      next(error);
+    }
+  }
+
   async createDetalleRecepcionMercaderia(req: AuthRequest, res: Response, next: NextFunction) {
     console.log('[BACKEND] createDetalleRecepcionMercaderia llamado con:', req.body);
     try {
@@ -412,6 +437,28 @@ export class InventarioController {
       });
     } catch (error) {
       console.error('[BACKEND] Error en createDetalleRecepcionMercaderia:', error);
+      next(error);
+    }
+  }
+
+  async deleteRecepcionMercaderia(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        res.status(400).json({
+          success: false,
+          message: 'ID inválido',
+        });
+        return;
+      }
+      
+      await inventarioService.deleteRecepcionMercaderia(id);
+      res.json({
+        success: true,
+        message: 'Recepción eliminada exitosamente',
+      });
+    } catch (error) {
+      console.error('[BACKEND] Error en deleteRecepcionMercaderia:', error);
       next(error);
     }
   }

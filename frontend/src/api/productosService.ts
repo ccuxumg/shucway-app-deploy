@@ -29,6 +29,7 @@ export interface Producto {
 export interface ProductoVariante {
   id_variante: number;
   id_producto: number;
+  id_insumo?: number;  // Insumo asociado a esta variante (opcional)
   nombre_variante: string;
   precio_variante: number;
   costo_variante?: number;
@@ -49,6 +50,8 @@ export interface ProductoConReceta extends Producto {
 }
 
 export const productosService = {
+  // ================== CATEGORÍAS ==================
+
   // Obtener todas las categorías
   async getCategorias(): Promise<CategoriaProducto[]> {
     try {
@@ -59,6 +62,8 @@ export const productosService = {
       throw error;
     }
   },
+
+  // ================== PRODUCTOS ==================
 
   // Obtener todos los productos
   async getProductos(activos?: boolean): Promise<Producto[]> {
@@ -94,6 +99,48 @@ export const productosService = {
     }
   },
 
+  // Crear producto
+  async createProducto(producto: Omit<Producto, 'id_producto' | 'fecha_creacion'>, variantes?: Omit<ProductoVariante, 'id_variante' | 'id_producto'>[], receta?: Omit<RecetaDetalle, 'id_receta' | 'id_producto'>[]): Promise<ProductoConReceta> {
+    try {
+      const response = await apiClient.post('/productos', {
+        ...producto,
+        variantes,
+        receta
+      });
+      return response.data.data;
+    } catch (error) {
+      console.error('Error creando producto:', error);
+      throw error;
+    }
+  },
+
+  // Actualizar producto
+  async updateProducto(id: number, producto: Partial<Omit<Producto, 'id_producto' | 'fecha_creacion'>>, variantes?: Omit<ProductoVariante, 'id_variante' | 'id_producto'>[], receta?: Omit<RecetaDetalle, 'id_receta' | 'id_producto'>[]): Promise<ProductoConReceta> {
+    try {
+      const response = await apiClient.put(`/productos/${id}`, {
+        ...producto,
+        variantes,
+        receta
+      });
+      return response.data.data;
+    } catch (error) {
+      console.error('Error actualizando producto:', error);
+      throw error;
+    }
+  },
+
+  // Eliminar producto
+  async deleteProducto(id: number): Promise<void> {
+    try {
+      await apiClient.delete(`/productos/${id}`);
+    } catch (error) {
+      console.error('Error eliminando producto:', error);
+      throw error;
+    }
+  },
+
+  // ================== VARIANTES ==================
+
   // Obtener variantes de un producto
   async getVariantesByProducto(idProducto: number): Promise<ProductoVariante[]> {
     try {
@@ -101,6 +148,27 @@ export const productosService = {
       return response.data.data;
     } catch (error) {
       console.error('Error obteniendo variantes:', error);
+      throw error;
+    }
+  },
+
+  // Crear variante
+  async createVariante(variante: Omit<ProductoVariante, 'id_variante'>): Promise<ProductoVariante> {
+    try {
+      const response = await apiClient.post(`/productos/variantes`, variante);
+      return response.data.data;
+    } catch (error) {
+      console.error('Error creando variante:', error);
+      throw error;
+    }
+  },
+
+  // Eliminar variante
+  async deleteVariante(id: number): Promise<void> {
+    try {
+      await apiClient.delete(`/productos/variantes/${id}`);
+    } catch (error) {
+      console.error('Error eliminando variante:', error);
       throw error;
     }
   },

@@ -4,9 +4,11 @@
  * - ESLint/TS OK (sin any, sin hooks condicionales)
  * =============================================== */
 import React, { useMemo, useState, useEffect, useCallback } from "react";
+import { message } from 'antd';
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { getInsumos } from '@/api/inventarioService';
+import { productosService, type Producto as ProductoAPI, type CategoriaProducto as CategoriaProductoAPI, type ProductoConReceta } from '@/api/productosService';
 import {
   PiEyeBold,
   PiPencilSimpleBold,
@@ -57,7 +59,16 @@ type Producto = {
   costo_total_producto: number | null;
 };
 
-type FormProducto = Omit<Producto, "id"> & { id?: string };
+type VarianteForm = {
+  id_variante?: number;
+  nombre_variante: string;
+  precio_variante: number;
+  costo_variante?: number;
+  estado?: 'activo' | 'desactivado';
+  id_insumo?: number;
+};
+
+type FormProducto = Omit<Producto, "id"> & { id?: string; variantes?: VarianteForm[] };
 
 type RecetaLinea = {
   id_receta_detalle?: number;
@@ -116,76 +127,118 @@ function IconBtn({
 }
 
 /* ============================================================
- * ===== SEED =====
- * ============================================================ */
-const BASE: Omit<Producto, "imagen_url" | "id" | "costo_total_producto">[] = [
-  { nombre: "Shuco de Asada", descripcion: "Shuco con carne asada", categoria: "Shucos", id_categoria: 1, precio_venta: 15, activo: true },
-  { nombre: "Shuco de Chorizo", descripcion: "Shuco con chorizo", categoria: "Shucos", id_categoria: 1, precio_venta: 12, activo: true },
-  { nombre: "Shuco de Salami", descripcion: "Shuco con salami", categoria: "Shucos", id_categoria: 1, precio_venta: 12, activo: true },
-  { nombre: "Pollo Burger", descripcion: "Hamburguesa de pollo", categoria: "Hamburguesas", id_categoria: 2, precio_venta: 15, activo: true },
-  { nombre: "Cheese Burger", descripcion: "Hamburguesa con queso", categoria: "Hamburguesas", id_categoria: 2, precio_venta: 15, activo: true },
-  { nombre: "Gringa Adobada", descripcion: "Gringa de carne adobada", categoria: "Gringas", id_categoria: 3, precio_venta: 20, activo: true },
-  { nombre: "Gringa Asada", descripcion: "Gringa de carne asada", categoria: "Gringas", id_categoria: 3, precio_venta: 20, activo: true },
-  { nombre: "Pierna de Pollo", descripcion: "Pierna de pollo frita", categoria: "Pollo", id_categoria: 4, precio_venta: 9, activo: true },
-  { nombre: "Coca Cola", descripcion: "Coca Cola fría", categoria: "Bebidas", id_categoria: 5, precio_venta: 6, activo: true },
-  { nombre: "Pepsi Cola", descripcion: "Pepsi Cola fría", categoria: "Bebidas", id_categoria: 5, precio_venta: 5, activo: true },
-  { nombre: "French Fries", descripcion: "Papas fritas", categoria: "Papas", id_categoria: 6, precio_venta: 15, activo: true },
-];
-
-const SEED: Producto[] = BASE.map((p, i) => ({
-  ...p,
-  id: `p${i + 1}`,
-  costo_total_producto: p.precio_venta * 0.45,
-  imagen_url: `/productos/${slugify(p.nombre)}.png`,
-}));
-
-const CATEGORIAS_SEED: CategoriaProducto[] = [
-  { id_categoria: 1, nombre: "Shucos", tipo_categoria: "perpetuo" },
-  { id_categoria: 2, nombre: "Hamburguesas", tipo_categoria: "perpetuo" },
-  { id_categoria: 3, nombre: "Gringas", tipo_categoria: "perpetuo" },
-  { id_categoria: 4, nombre: "Pollo", tipo_categoria: "perpetuo" },
-  { id_categoria: 5, nombre: "Bebidas", tipo_categoria: "perpetuo" },
-  { id_categoria: 6, nombre: "Papas", tipo_categoria: "perpetuo" },
-];
-
-const INSUMOS_SEED: Insumo[] = [
-  { id_insumo: 1, nombre: "Pan para Shuco", costo_promedio: 1.5, unidad_medida_compra: "u" },
-  { id_insumo: 2, nombre: "Carne Asada (libra)", costo_promedio: 35, unidad_medida_compra: "lb" },
-  { id_insumo: 3, nombre: "Chorizo", costo_promedio: 4, unidad_medida_compra: "u" },
-  { id_insumo: 4, nombre: "Torta de Hamburguesa", costo_promedio: 6, unidad_medida_compra: "u" },
-  { id_insumo: 5, nombre: "Queso (libra)", costo_promedio: 22, unidad_medida_compra: "lb" },
-  { id_insumo: 6, nombre: "Coca Cola (lata)", costo_promedio: 3, unidad_medida_compra: "u" },
-  { id_insumo: 7, nombre: "Papas (libra)", costo_promedio: 5, unidad_medida_compra: "lb" },
-];
-
-/* ============================================================
  * COMPONENTE PRINCIPAL
  * ============================================================ */
-export default function Productos() {
+
+// Convertir API Producto a formato interno del componente
+const mapProductoDB = (
+  p: ProductoAPI | ProductoConReceta,
+  categoriaLookup?: Record<number, CategoriaProductoAPI>
+): Producto => {
+  const categoria = p.id_categoria ? categoriaLookup?.[p.id_categoria] : undefined;
+
+  return {
+    id: String(p.id_producto),
+    nombre: p.nombre_producto,
+    descripcion: p.descripcion ?? '',
+    id_categoria: p.id_categoria ?? 0,
+    categoria: categoria?.nombre_categoria ?? 'Sin categoría',
+    precio_venta: p.precio_venta,
+    activo: p.estado === 'activo',
+    imagen_url: p.imagen_url ?? '',
+    costo_total_producto: p.costo_producto ?? null,
+  };
+};
+
+export default function ProductosPage() {
   const navigate = useNavigate();
-  const [rows, setRows] = useState<Producto[]>(SEED);
-  const [categorias] = useState<CategoriaProducto[]>(CATEGORIAS_SEED);
-  const [loading] = useState(false);
+  const [rows, setRows] = useState<Producto[]>([]);
+  const [categorias, setCategorias] = useState<CategoriaProducto[]>([]);
   const [insumos, setInsumos] = useState<Insumo[]>([]);
-  const [recetas, setRecetas] = useState<Record<string, RecetaLinea[]>>({
-    p1: [
-      { id_producto: "p1", id_insumo: 1, cantidad_insumo: 1, unidad_medida: "u", es_obligatorio: true, insumo: { nombre: "Pan para Shuco", costo_promedio: 1.5 } },
-      { id_producto: "p1", id_insumo: 2, cantidad_insumo: 0.25, unidad_medida: "lb", es_obligatorio: true, insumo: { nombre: "Carne Asada (libra)", costo_promedio: 35 } },
-    ],
-  });
+  const [recetas, setRecetas] = useState<Record<string, RecetaLinea[]>>({});
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [productosResponse, categoriasResponse, insumosResponse] = await Promise.all([
+        productosService.getProductos(),
+        productosService.getCategorias(),
+        getInsumos()
+      ]);
+
+      if (!Array.isArray(productosResponse)) {
+        throw new Error('Formato de respuesta de productos inválido');
+      }
+
+      if (!Array.isArray(categoriasResponse)) {
+        throw new Error('Formato de respuesta de categorías inválido');
+      }
+
+      const categoriasLookup = categoriasResponse.reduce<Record<number, CategoriaProductoAPI>>((acc, categoria) => {
+        acc[categoria.id_categoria] = categoria;
+        return acc;
+      }, {});
+
+      const categoriasMapeadas = categoriasResponse.map<CategoriaProducto>((c) => ({
+        id_categoria: c.id_categoria,
+        nombre: c.nombre_categoria,
+        tipo_categoria: (c.estado === 'activo' ? 'perpetuo' : 'operativo'),
+      }));
+      setCategorias(categoriasMapeadas);
+
+      const productosMapeados = productosResponse
+        .filter((p) => p && typeof p === 'object')
+        .map((p) => mapProductoDB(p, categoriasLookup));
+      setRows(productosMapeados);
+
+      const insumosPayload = Array.isArray((insumosResponse as { data?: unknown })?.data)
+        ? (insumosResponse as { data: InsumoRaw[] }).data
+        : Array.isArray(insumosResponse)
+          ? (insumosResponse as InsumoRaw[])
+          : [];
+
+      const insumosOperativos = insumosPayload
+        .filter((i) => i.tipo_insumo === 'operativo')
+        .map((i) => ({
+          id_insumo: i.id_insumo,
+          nombre: i.nombre_insumo,
+          costo_promedio: i.costo_promedio,
+          unidad_medida_compra: i.unidad_base,
+          id_categoria: i.id_categoria,
+          stock_actual: i.stock_actual
+        }));
+      setInsumos(insumosOperativos);
+      setRecetas({});
+    } catch (error) {
+      console.error('Error cargando datos de productos:', error);
+      message.error('Error cargando datos. Por favor intente de nuevo.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
 
   // filtros
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("Todas");
-  const [estado, setEstado] = useState<"todos" | "activo" | "inactivo">("todos");
+  const [estado, setEstado] = useState<"todos" | "activo" | "desactivado">("todos");
 
   // modales
-  const [showView, setShowView] = useState<Producto | null>(null);
+  const [showView, setShowView] = useState<{ producto: Producto; receta: RecetaLinea[] } | null>(null);
   const [modalProducto, setModalProducto] = useState<
     | null
     | {
         mode: "create" | "edit";
         data: FormProducto;
+        recetaCargada?: RecetaLinea[];  // Receta precargada para evitar race conditions
       }
   >(null);
 
@@ -198,8 +251,10 @@ export default function Productos() {
     [categorias]
   );
 
-  const filtered = useMemo(() => {
+  // Obtener datos filtrados y paginados
+  const filteredData = useMemo(() => {
     let data = [...rows];
+
     if (cat !== "Todas") data = data.filter((r) => r.categoria === cat);
     if (estado !== "todos") data = data.filter((r) => r.activo === (estado === "activo"));
     if (q.trim()) {
@@ -211,8 +266,24 @@ export default function Productos() {
           r.categoria.toLowerCase().includes(s)
       );
     }
+
     return data;
   }, [rows, q, cat, estado]);
+
+  useEffect(() => {
+    const pages = Math.max(1, Math.ceil(filteredData.length / Math.max(perPage, 1)));
+    setTotal(filteredData.length);
+    setTotalPages(pages);
+    if (page > pages) {
+      setPage(pages);
+    }
+  }, [filteredData.length, perPage, page]);
+
+  const paginated = useMemo(() => {
+    const start = (page - 1) * perPage;
+    const end = start + perPage;
+    return filteredData.slice(start, end);
+  }, [filteredData, page, perPage]);
 
   const openCreate = () => {
     const nuevo: FormProducto = {
@@ -224,105 +295,166 @@ export default function Productos() {
       activo: true,
       imagen_url: "",
       costo_total_producto: null,
+      variantes: [],
     };
+
     setModalProducto({ mode: "create", data: nuevo });
   };
 
-  const openEdit = (p: Producto) => setModalProducto({ mode: "edit", data: { ...p } });
+  // Carga diferida de recetas para evitar llamadas múltiples
+  const ensureRecetaLoaded = useCallback(
+    async (productId: string) => {
+      console.log('🔍 ensureRecetaLoaded llamado para producto:', productId);
+      
+      if (recetas[productId]) {
+        console.log('✅ Receta ya en cache:', recetas[productId]);
+        return recetas[productId];
+      }
+
+      try {
+        console.log('📡 Cargando receta desde API...');
+        const recetaData = await productosService.getProductoConReceta(Number(productId));
+        console.log('📦 Datos recibidos de API:', recetaData);
+        
+        const recetaFormateada: RecetaLinea[] = (recetaData?.receta || []).map((detalle) => {
+          const insumoEncontrado = insumos.find((i) => i.id_insumo === detalle.id_insumo);
+          return {
+            id_receta_detalle: detalle.id_receta,
+            id_producto: productId,
+            id_insumo: detalle.id_insumo,
+            cantidad_insumo: detalle.cantidad_requerida,
+            unidad_medida: detalle.unidad_base,
+            es_obligatorio: true,
+            insumo: insumoEncontrado
+              ? { nombre: insumoEncontrado.nombre, costo_promedio: insumoEncontrado.costo_promedio }
+              : undefined,
+          };
+        });
+
+        console.log('✅ Receta formateada:', recetaFormateada);
+        setRecetas((prev) => ({ ...prev, [productId]: recetaFormateada }));
+        return recetaFormateada;
+      } catch (error) {
+        console.error(`❌ Error cargando receta para producto ${productId}:`, error);
+        return [];
+      }
+    },
+    [insumos, recetas]
+  );
+
+  const openEdit = useCallback(
+    async (producto: Producto) => {
+      const recetaCargada = await ensureRecetaLoaded(producto.id);
+
+      const { id, ...resto } = producto;
+      const editable: FormProducto = {
+        ...resto,
+        id,
+        variantes: [],
+      };
+
+      setModalProducto({ mode: "edit", data: editable, recetaCargada });
+    },
+    [ensureRecetaLoaded]
+  );
 
   // ======= GUARDA (con receta inline) =======
-  const onSaveProducto = (payload: {
+  const onSaveProducto = async (payload: {
     mode: "create" | "edit";
     producto: FormProducto;
     link: "none" | "single" | "complex";
     singleInsumo?: Insumo;
     recipeLines?: RecetaLinea[];
+    variantes?: VarianteForm[];
   }) => {
-    const categoriaNombre =
-      categorias.find((c) => c.id_categoria === payload.producto.id_categoria)?.nombre || "N/A";
+    try {
+      setLoading(true);
 
-    if (payload.mode === "create") {
-      const finalId = `p-${Date.now()}`;
-
-      const prod: Producto = {
-        ...payload.producto,
-        id: finalId,
-        categoria: categoriaNombre,
-        imagen_url:
-          payload.producto.imagen_url || `/productos/${slugify(payload.producto.nombre)}.png`,
-        costo_total_producto: payload.producto.costo_total_producto ?? null,
-      };
-
-      if (payload.link === "single" && payload.singleInsumo) {
-        const ins = payload.singleInsumo;
-        prod.costo_total_producto = ins.costo_promedio * 1;
-        setRecetas((prev) => ({
-          ...prev,
-          [finalId]: [
-            {
-              id_producto: finalId,
-              id_insumo: ins.id_insumo,
-              cantidad_insumo: 1,
-              unidad_medida: ins.unidad_medida_compra || "u",
-              es_obligatorio: true,
-              insumo: { nombre: ins.nombre, costo_promedio: ins.costo_promedio },
-            },
-          ],
+      const variantesNormalizadas = (payload.variantes ?? [])
+        .filter((variant) => variant.nombre_variante && variant.nombre_variante.trim())
+        .map((variant) => ({
+          id_variante: variant.id_variante,
+          nombre_variante: variant.nombre_variante.trim(),
+          precio_variante: Number(variant.precio_variante || 0),
+          costo_variante: variant.costo_variante != null ? Number(variant.costo_variante) : undefined,
+          estado: variant.estado ?? 'activo',
+          id_insumo: variant.id_insumo,
         }));
-      } else if (payload.link === "complex" && payload.recipeLines && payload.recipeLines.length) {
-        const mapped = payload.recipeLines.map((l) => ({ ...l, id_producto: finalId }));
-        const costo = mapped.reduce((acc, l) => {
-          const costoLinea =
-            (l.insumo?.costo_promedio ??
-              INSUMOS_SEED.find((i) => i.id_insumo === l.id_insumo)?.costo_promedio ??
-              0) * (l.cantidad_insumo || 0);
-          return acc + costoLinea;
-        }, 0);
-        prod.costo_total_producto = +costo.toFixed(2);
-        setRecetas((prev) => ({ ...prev, [finalId]: mapped }));
+
+      if (variantesNormalizadas.some((variant) => variant.precio_variante < 0)) {
+        message.error('El precio de una variante no puede ser negativo');
+        return;
       }
 
-      setRows((prev) => [prod, ...prev]);
-    } else {
-      // EDIT
-      setRows((prev) =>
-        prev.map((r) =>
-          r.id === payload.producto.id
-            ? {
-                ...(payload.producto as Producto),
-                categoria: categoriaNombre,
-                imagen_url:
-                  payload.producto.imagen_url ||
-                  `/productos/${slugify(payload.producto.nombre)}.png`,
-              }
-            : r
-        )
-      );
-
-      if (payload.link === "single" && payload.singleInsumo && payload.producto.id) {
-        const idProd = payload.producto.id;
-        const ins = payload.singleInsumo;
-        setRecetas((prev) => ({
-          ...prev,
-          [idProd]: [
-            {
-              id_producto: idProd,
-              id_insumo: ins.id_insumo,
-              cantidad_insumo: 1,
-              unidad_medida: ins.unidad_medida_compra || "u",
-              es_obligatorio: true,
-              insumo: { nombre: ins.nombre, costo_promedio: ins.costo_promedio },
-            },
-          ],
-        }));
-      } else if (payload.link === "complex" && payload.recipeLines && payload.producto.id) {
-        const idProd = payload.producto.id;
-        const mapped = payload.recipeLines.map((l) => ({ ...l, id_producto: idProd }));
-        setRecetas((prev) => ({ ...prev, [idProd]: mapped }));
+      if (variantesNormalizadas.some((variant) => (variant.costo_variante ?? 0) < 0)) {
+        message.error('El costo de una variante no puede ser negativo');
+        return;
       }
+
+      let recetaPayload: { id_insumo: number; cantidad_requerida: number; unidad_base: string }[] | undefined;
+      if (payload.link === 'single') {
+        if (!payload.singleInsumo) {
+          message.error('Selecciona un insumo');
+          return;
+        }
+        recetaPayload = [{
+          id_insumo: payload.singleInsumo.id_insumo,
+          cantidad_requerida: 1,
+          unidad_base: payload.singleInsumo.unidad_medida_compra || 'u',
+        }];
+      } else if (payload.link === 'complex') {
+        if (!payload.recipeLines || payload.recipeLines.length === 0) {
+          message.error('Agrega al menos un insumo a la receta');
+          return;
+        }
+        recetaPayload = payload.recipeLines.map((linea) => ({
+          id_insumo: linea.id_insumo,
+          cantidad_requerida: linea.cantidad_insumo,
+          unidad_base: linea.unidad_medida,
+        }));
+      }
+
+      if (payload.mode === 'create') {
+        const newProducto = {
+          nombre_producto: payload.producto.nombre,
+          descripcion: payload.producto.descripcion,
+          precio_venta: payload.producto.precio_venta,
+          costo_producto: payload.producto.costo_total_producto || 0,
+          id_categoria: payload.producto.id_categoria,
+          estado: (payload.producto.activo ? 'activo' : 'desactivado') as 'activo' | 'desactivado',
+          imagen_url: payload.producto.imagen_url || `/productos/${slugify(payload.producto.nombre)}.png`,
+        };
+
+        await productosService.createProducto(newProducto, variantesNormalizadas, recetaPayload);
+        message.success('Producto creado correctamente');
+      } else {
+        if (!payload.producto.id) {
+          message.error('No se encontró el identificador del producto');
+          return;
+        }
+
+        const updateData = {
+          nombre_producto: payload.producto.nombre,
+          descripcion: payload.producto.descripcion,
+          precio_venta: payload.producto.precio_venta,
+          costo_producto: payload.producto.costo_total_producto || 0,
+          id_categoria: payload.producto.id_categoria,
+          estado: (payload.producto.activo ? 'activo' : 'desactivado') as 'activo' | 'desactivado',
+          imagen_url: payload.producto.imagen_url || `/productos/${slugify(payload.producto.nombre)}.png`,
+        };
+
+        await productosService.updateProducto(Number(payload.producto.id), updateData, variantesNormalizadas, recetaPayload);
+        message.success('Producto actualizado correctamente');
+      }
+
+      await loadData();
+      setModalProducto(null);
+    } catch (error) {
+      console.error('Error guardando producto:', error);
+      message.error('Error guardando producto. Por favor intente de nuevo.');
+    } finally {
+      setLoading(false);
     }
-
-    setModalProducto(null);
   };
 
   const onDelete = (id: string) => {
@@ -332,8 +464,13 @@ export default function Productos() {
     }
   };
 
-  const confirmDelete = () => {
-    if (deleteConfirm) {
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
+    try {
+      setLoading(true);
+      await productosService.deleteProducto(parseInt(deleteConfirm.productId));
+      
+      // Actualizar estado local
       setRows((prev) => prev.filter((r) => r.id !== deleteConfirm.productId));
       setRecetas((prev) => {
         const n = { ...prev };
@@ -341,6 +478,14 @@ export default function Productos() {
         return n;
       });
       setDeleteConfirm(null);
+      
+      message.success('Producto eliminado correctamente');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('Error eliminando producto:', err);
+      message.error(`Error eliminando producto: ${msg}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -350,41 +495,13 @@ export default function Productos() {
     );
   };
 
-  // cargar insumos desde API usando inventarioService para obtener solo operativos
-  useEffect(() => {
-    const loadInsumos = async () => {
-      try {
-        const insumosData = await getInsumos();
-        // Usar solo los insumos operativos
-        const operativos = (insumosData.data as InsumoRaw[])
-          .filter((item) => item.tipo_insumo === 'operativo')
-          .map((item) => ({
-            id_insumo: item.id_insumo,
-            nombre: item.nombre_insumo,
-            costo_promedio: item.costo_promedio,
-            unidad_medida_compra: item.unidad_base,
-            id_categoria: item.id_categoria,
-            stock_actual: item.stock_actual,
-          }));
-
-        console.log('Insumos operativos cargados:', operativos);
-        if (operativos.length === 0) {
-          console.log('No hay insumos operativos, usando datos seed');
-          setInsumos(INSUMOS_SEED);
-        } else {
-          setInsumos(operativos);
-        }
-      } catch (error) {
-        console.warn('Error obteniendo insumos operativos:', error);
-        // fallback a datos seed si falla la API
-        console.log('Usando datos seed como fallback');
-        setInsumos(INSUMOS_SEED);
-      }
-    };
-
-    loadInsumos();
-  }, []);
-
+  const handleView = useCallback(
+    async (producto: Producto) => {
+      const receta = await ensureRecetaLoaded(producto.id);
+      setShowView({ producto, receta });
+    },
+    [ensureRecetaLoaded]
+  );
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="w-full max-w-[1200px] mx-auto">
@@ -438,7 +555,7 @@ export default function Productos() {
             <div className="flex items-center gap-2">
               <span className="text-base text-gray-700 font-medium">Estado:</span>
               <div className="flex gap-2">
-                {(["todos", "activo", "inactivo"] as const).map((e) => (
+                {(["todos", "activo", "desactivado"] as const).map((e) => (
                   <button
                     key={e}
                     onClick={() => setEstado(e)}
@@ -496,13 +613,16 @@ export default function Productos() {
               <tbody className="text-gray-900 leading-7">
                 {loading && (
                   <tr>
-                    <td colSpan={6} className="p-8 text-center">
-                      Simulando carga...
+                    <td colSpan={6} className="p-8 text-center text-gray-500">
+                      <div className="flex items-center justify-center gap-3">
+                        <PiSpinnerBold className="w-5 h-5 animate-spin" />
+                        Cargando productos...
+                      </div>
                     </td>
                   </tr>
                 )}
                 {!loading &&
-                  filtered.map((r) => {
+                  paginated.map((r) => {
                     const fallback = `/productos/${slugify(r.nombre)}.png`;
                     return (
                       <tr key={r.id} className="border-b last:border-0 hover:bg-gray-50">
@@ -534,15 +654,15 @@ export default function Productos() {
                                 : "bg-gray-200 text-gray-700"
                             }`}
                           >
-                            {r.activo ? "activo" : "inactivo"}
+                            {r.activo ? "activo" : "desactivado"}
                           </span>
                         </td>
                         <td className="px-5 py-3.5">
                           <div className="flex items-center gap-1.5 justify-end">
-                            <IconBtn title="Ver" onClick={() => setShowView(r)}>
+                            <IconBtn title="Ver" onClick={() => void handleView(r)}>
                               <PiEyeBold className="h-5 w-5" />
                             </IconBtn>
-                            <IconBtn title="Editar" onClick={() => openEdit(r)}>
+                            <IconBtn title="Editar" onClick={() => void openEdit(r)}>
                               <PiPencilSimpleBold className="h-5 w-5" />
                             </IconBtn>
                             <IconBtn title="Eliminar" onClick={() => onDelete(r.id)}>
@@ -554,7 +674,7 @@ export default function Productos() {
                     );
                   })}
 
-                {!loading && filtered.length === 0 && (
+                {!loading && filteredData.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-6 py-10 text-center text-gray-500">
                       Sin resultados con los filtros actuales
@@ -565,8 +685,54 @@ export default function Productos() {
             </table>
           </div>
 
-          <div className="px-5 py-4 text-base text-gray-700">
-            Mostrando <span className="font-semibold">{filtered.length}</span> productos
+          {/* Footer tabla con paginación */}
+          <div className="px-4 py-3 text-sm text-gray-600 flex flex-wrap items-center gap-3 justify-between border-t">
+            <div>
+              Mostrando <span className="font-semibold">{((page - 1) * perPage) + 1} - {Math.min(page * perPage, total)}</span> de <span className="font-semibold">{total}</span> productos
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-gray-500 text-xs" htmlFor="perPage">Por página</label>
+              <select
+                id="perPage"
+                value={perPage}
+                onChange={(e) => {
+                  setPerPage(Number(e.target.value));
+                  setPage(1); // Reset to first page when changing items per page
+                }}
+                className="h-9 rounded border border-gray-200 bg-white px-2 text-sm"
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+              <div className="flex items-center gap-1 ml-2">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="h-9 px-3 rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="opacity-75">
+                    <path d="M15 18l-6-6 6-6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Anterior
+                </button>
+                <span className="px-3 py-1.5 rounded bg-gray-100 text-sm font-medium">
+                  Página {page} de {totalPages}
+                </span>
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="h-9 px-3 rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                >
+                  Siguiente
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="opacity-75">
+                    <path d="M9 6l6 6-6 6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -591,7 +757,7 @@ export default function Productos() {
               >
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-lg font-bold text-gray-800">
-                    {showView.nombre}
+                    {showView.producto.nombre}
                   </h3>
                   <button
                     className="p-2 rounded-lg hover:bg-gray-100"
@@ -603,10 +769,10 @@ export default function Productos() {
 
                 <img
                   src={
-                    showView.imagen_url ||
-                    `/productos/${slugify(showView.nombre)}.png`
+                    showView.producto.imagen_url ||
+                    `/productos/${slugify(showView.producto.nombre)}.png`
                   }
-                  alt={showView.nombre}
+                  alt={showView.producto.nombre}
                   className="w-full h-48 object-cover rounded-lg mb-4 bg-emerald-50"
                   onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
                     (e.currentTarget as HTMLImageElement).src = "/img/icon.png";
@@ -614,13 +780,13 @@ export default function Productos() {
                 />
 
                 <div className="space-y-3 text-base">
-                  <Row label="Categoría" value={showView.categoria} />
-                  <Row label="Precio de venta" value={currency(showView.precio_venta)} />
+                  <Row label="Categoría" value={showView.producto.categoria} />
+                  <Row label="Precio de venta" value={currency(showView.producto.precio_venta)} />
                   <Row
                     label="Costo"
                     value={
-                      showView.costo_total_producto != null
-                        ? currency(showView.costo_total_producto)
+                      showView.producto.costo_total_producto != null
+                        ? currency(showView.producto.costo_total_producto)
                         : "—"
                     }
                   />
@@ -628,15 +794,15 @@ export default function Productos() {
                     <div className="text-sm font-semibold text-gray-600 mb-1">
                       Descripción
                     </div>
-                    <p className="text-gray-800">{showView.descripcion || "—"}</p>
+                    <p className="text-gray-800">{showView.producto.descripcion || "—"}</p>
                   </div>
                   <div className="mt-3 rounded-lg border p-3 bg-gray-50">
                     <div className="text-sm font-semibold text-gray-600 mb-1">
                       Receta asociada
                     </div>
-                    {recetas[showView.id]?.length ? (
+                    {showView.receta?.length ? (
                       <ul className="list-disc pl-5 text-gray-700">
-                        {recetas[showView.id].map((it, i) => (
+                        {showView.receta.map((it, i) => (
                           <li key={`${it.id_insumo}-${i}`}>
                             {it.insumo?.nombre || "Insumo desconocido"} — {it.cantidad_insumo} {it.unidad_medida}
                             {it.es_obligatorio ? " (obligatorio)" : ""}
@@ -766,7 +932,7 @@ function ProductoModal({
   onSave,
   insumos,
 }: {
-  modal: { mode: "create" | "edit"; data: FormProducto } | null;
+  modal: { mode: "create" | "edit"; data: FormProducto; recetaCargada?: RecetaLinea[] } | null;
   categorias: CategoriaProducto[];
   onClose: () => void;
   onSave: (p: {
@@ -788,8 +954,50 @@ function ProductoModal({
   const [insumoQuery, setInsumoQuery] = useState("");
   const [insumoResults, setInsumoResults] = useState<Insumo[]>([]);
 
+  const [variants, setVariants] = useState<VarianteForm[]>(modal?.data?.variantes ?? []);
+
+  const insumosOperativos = useMemo(() => (Array.isArray(insumos) ? insumos : []), [insumos]);
+
+  // Lista filtrada para "Bebida en lata" (heurística: nombre contiene 'lata', unidad contiene 'lata' o id_categoria === 5)
+  const bebidasEnLata = useMemo(() => {
+    return (insumosOperativos || []).filter((i) => {
+      const name = (i.nombre || "").toLowerCase();
+      const unidad = (i.unidad_medida_compra || "").toLowerCase();
+      return (
+        name.includes("lata") ||
+        unidad.includes("lata") ||
+        i.id_categoria === 5
+      );
+    });
+  }, [insumosOperativos]);
+
   // complex (receta inline)
   const [recipeLines, setRecipeLines] = useState<RecetaLinea[]>([]);
+
+  const addVariant = () => {
+    setVariants((prev) => [
+      ...prev,
+      {
+        nombre_variante: "",
+        precio_variante: 0,
+        costo_variante: 0,
+        estado: 'activo',
+        id_insumo: undefined,
+      },
+    ]);
+  };
+
+  const updateVariant = <K extends keyof VarianteForm>(index: number, field: K, value: VarianteForm[K]) => {
+    setVariants((prev) => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], [field]: value };
+      return copy;
+    });
+  };
+
+  const removeVariant = (index: number) => {
+    setVariants((prev) => prev.filter((_, idx) => idx !== index));
+  };
 
   // imagen
   const [uploading, setUploading] = useState(false);
@@ -834,13 +1042,90 @@ function ProductoModal({
 
   // inicializa cuando recibe el modal
   useEffect(() => {
-    if (modal) {
-      setForm(modal.data);
-      setLink("single"); // default
+    if (!modal) return;
+
+    setForm(modal.data);
+    setInsumoQuery("");
+    setVariants(modal.data?.variantes ?? []);
+
+    // Default reset
+    setSingleInsumo(null);
+    setRecipeLines([]);
+
+    // Si estamos en modo edición, usar la receta precargada
+    if (modal.mode === "edit" && modal.recetaCargada && modal.recetaCargada.length > 0) {
+      const existing = modal.recetaCargada;
+      console.log('🔍 Receta cargada:', existing);
+      
+      // Detectar si es "single" (1 insumo con cantidad 1) o "complex"
+      if (existing.length === 1 && existing[0].cantidad_insumo === 1) {
+        // Es "single": cargar el insumo en singleInsumo
+        console.log('✅ Detectado como SINGLE');
+        setLink("single");
+        const insumoEncontrado = insumos.find((i) => i.id_insumo === existing[0].id_insumo);
+        if (insumoEncontrado) {
+          console.log('✅ Insumo encontrado:', insumoEncontrado);
+          setSingleInsumo(insumoEncontrado);
+        } else {
+          console.warn('⚠️ Insumo NO encontrado, id_insumo:', existing[0].id_insumo);
+        }
+        setRecipeLines([]);
+      } else {
+        // Es "complex": cargar todas las líneas
+        console.log('✅ Detectado como COMPLEX');
+        setLink("complex");
+        setSingleInsumo(null);
+        const mapped = existing.map((l) => ({
+          ...l,
+          insumo:
+            l.insumo ||
+            (insumos.find((i) => i.id_insumo === l.id_insumo)
+              ? {
+                  nombre: insumos.find((i) => i.id_insumo === l.id_insumo)!.nombre,
+                  costo_promedio: insumos.find((i) => i.id_insumo === l.id_insumo)!.costo_promedio,
+                }
+              : { nombre: "", costo_promedio: 0 }),
+        } as RecetaLinea));
+        console.log('✅ Líneas de receta mapeadas:', mapped);
+        setRecipeLines(mapped);
+      }
+    } else {
+      console.log('ℹ️ No hay receta o modo crear');
+      // No hay receta o modo crear: dejar en single por defecto
+      setLink("single");
       setSingleInsumo(null);
-      setInsumoQuery("");
-      setRecipeLines([]); // limpia receta inline
+      setRecipeLines([]);
     }
+  }, [modal, insumos]);
+
+  useEffect(() => {
+    if (!modal || modal.mode !== "edit" || !modal.data.id) {
+      return;
+    }
+
+    let active = true;
+    (async () => {
+      try {
+        const data = await productosService.getVariantesByProducto(Number(modal.data.id));
+        if (!active) return;
+        setVariants(
+          data.map((variant) => ({
+            id_variante: variant.id_variante,
+            nombre_variante: variant.nombre_variante,
+            precio_variante: variant.precio_variante,
+            costo_variante: variant.costo_variante ?? undefined,
+            estado: variant.estado ?? 'activo',
+            id_insumo: variant.id_insumo ?? undefined,  // Cargar id_insumo desde backend
+          }))
+        );
+      } catch (error) {
+        console.error(`Error obteniendo variantes para el producto ${modal.data.id}:`, error);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
   }, [modal]);
 
   // recalcula costo mostrado según vínculo
@@ -886,9 +1171,43 @@ function ProductoModal({
   const title = modal.mode === "create" ? "Crear Nuevo Producto" : "Editar Producto";
 
   const save = () => {
-    if (!form.nombre.trim()) return alert("El nombre es obligatorio");
-    if (!form.id_categoria) return alert("Selecciona una categoría");
-    if (!(form.precio_venta >= 0)) return alert("Precio inválido");
+    if (!form.nombre.trim()) return message.error("El nombre es obligatorio");
+    if (!form.id_categoria) return message.error("Selecciona una categoría");
+    if (!(form.precio_venta >= 0)) return message.error("Precio inválido");
+
+    // asegurar descripción por defecto si no está provista
+    const productoToSave: FormProducto = {
+      ...(form as FormProducto),
+      descripcion: form.descripcion && form.descripcion.trim() ? form.descripcion : `Descripción genérica de ${form.nombre}`,
+      costo_total_producto: +costoCalculado.toFixed(2),
+    };
+
+    if (variants.some((variant) => !variant.nombre_variante.trim())) {
+      return message.error("Completa el nombre de todas las variantes");
+    }
+
+    const variantesNormalizadas = variants
+      .filter((variant) => variant.nombre_variante && variant.nombre_variante.trim())
+      .map((variant) => ({
+        id_variante: variant.id_variante,
+        nombre_variante: variant.nombre_variante.trim(),
+        precio_variante: Number(variant.precio_variante || 0),
+        costo_variante: variant.costo_variante != null ? Number(variant.costo_variante) : undefined,
+        estado: variant.estado ?? 'activo',
+        id_insumo: variant.id_insumo,
+      }));
+
+    if (variantesNormalizadas.some((variant) => variant.precio_variante < 0)) {
+      return message.error("El precio de una variante no puede ser negativo");
+    }
+
+    if (variantesNormalizadas.some((variant) => (variant.costo_variante ?? 0) < 0)) {
+      return message.error("El costo de una variante no puede ser negativo");
+    }
+
+    if (variantesNormalizadas.length > 0) {
+      productoToSave.variantes = variantesNormalizadas;
+    }
 
     // como ahora solo hay dos opciones, el link que mandamos es el actual
     const payload: {
@@ -897,20 +1216,19 @@ function ProductoModal({
       link: "single" | "complex";
       singleInsumo?: Insumo;
       recipeLines?: RecetaLinea[];
+      variantes?: VarianteForm[];
     } = {
       mode: modal.mode,
-      producto: {
-        ...form,
-        costo_total_producto: +costoCalculado.toFixed(2),
-      },
+      producto: productoToSave,
       link,
+      variantes: variantesNormalizadas.length > 0 ? variantesNormalizadas : undefined,
     };
 
     if (link === "single") {
-      if (!singleInsumo) return alert("Selecciona un insumo");
+      if (!singleInsumo) return message.error("Selecciona un insumo");
       payload.singleInsumo = singleInsumo;
     } else {
-      if (!recipeLines.length) return alert("Agrega al menos un insumo a la receta");
+      if (!recipeLines.length) return message.error("Agrega al menos un insumo a la receta");
       payload.recipeLines = recipeLines;
     }
 
@@ -921,6 +1239,7 @@ function ProductoModal({
       link: "none" | "single" | "complex";
       singleInsumo?: Insumo;
       recipeLines?: RecetaLinea[];
+      variantes?: VarianteForm[];
     });
   };
 
@@ -970,7 +1289,16 @@ function ProductoModal({
                       <label className="block text-xs font-semibold text-gray-600 mb-1">Categoría *</label>
                       <select
                         value={form.id_categoria}
-                        onChange={(e) => setForm((f) => ({ ...(f as FormProducto), id_categoria: Number(e.target.value) }))}
+                        onChange={(e) => {
+                          const newCategoriaId = Number(e.target.value);
+                          setForm((f) => ({ ...(f as FormProducto), id_categoria: newCategoriaId }));
+                          // Si la nueva categoría es "Bebida", forzar "Insumo sin receta"
+                          const categoriaNombre = categorias.find((c) => c.id_categoria === newCategoriaId)?.nombre;
+                          if (categoriaNombre === "Bebida" && link === "complex") {
+                            setLink("single");
+                            message.info("Las bebidas solo pueden ser Insumo sin receta. Se cambió automáticamente.");
+                          }
+                        }}
                         className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
                       >
                         {categorias.map((c) => (
@@ -992,6 +1320,18 @@ function ProductoModal({
                       />
                     </div>
 
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Estado</label>
+                      <select
+                        value={form.activo === false ? 'desactivado' : 'activo'}
+                        onChange={(e) => setForm((f) => ({ ...(f as FormProducto), activo: e.target.value === 'activo' }))}
+                        className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                      >
+                        <option value="activo">Activo</option>
+                        <option value="desactivado">Desactivado</option>
+                      </select>
+                    </div>
+
                     {/* Vínculo con inventario (Receta) */}
                     <div className="sm:col-span-2">
                       <div className="text-sm font-bold text-gray-800 mb-3">Vínculo con Inventario (Receta)</div>
@@ -1002,8 +1342,26 @@ function ProductoModal({
                           <input type="radio" name="link" value="single" checked={link === "single"} onChange={() => setLink("single")} />
                           Insumo sin receta (Ej: soda)
                         </label>
-                        <label className="flex items-center gap-2 text-sm p-2 rounded-lg hover:bg-gray-50">
-                          <input type="radio" name="link" value="complex" checked={link === "complex"} onChange={() => setLink("complex")} />
+                        <label className={`flex items-center gap-2 text-sm p-2 rounded-lg ${
+                          categorias.find((c) => c.id_categoria === form.id_categoria)?.nombre === "Bebida"
+                            ? "opacity-50 cursor-not-allowed"
+                            : "hover:bg-gray-50"
+                        }`}>
+                          <input
+                            type="radio"
+                            name="link"
+                            value="complex"
+                            checked={link === "complex"}
+                            onChange={() => {
+                              const categoriaNombre = categorias.find((c) => c.id_categoria === form.id_categoria)?.nombre;
+                              if (categoriaNombre === "Bebida") {
+                                message.warning("Las bebidas solo pueden ser Insumo sin receta");
+                                return;
+                              }
+                              setLink("complex");
+                            }}
+                            disabled={categorias.find((c) => c.id_categoria === form.id_categoria)?.nombre === "Bebida"}
+                          />
                           Insumo con receta (Ej: Shuco de Asada)
                         </label>
                       </div>
@@ -1019,32 +1377,57 @@ function ProductoModal({
                             </div>
                           ) : (
                             <div>
-                              <input
-                                type="text"
-                                value={insumoQuery}
-                                onChange={(e) => { setInsumoQuery(e.target.value); searchInsumos(e.target.value); }}
-                                placeholder="Buscar insumo (ej: Coca Cola)"
-                                className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                              />
-                              {insumoResults.length > 0 && (
-                                <ul className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-40 overflow-y-auto">
-                                  {insumoResults.map((ins) => (
-                                    <li
-                                      key={ins.id_insumo}
-                                      onClick={() => {
-                                        setSingleInsumo(ins);
-                                        setInsumoQuery("");
-                                        setInsumoResults([]);
-                                      }}
-                                      className="p-3 text-sm hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0"
-                                    >
-                                      <div className="font-medium text-gray-800">{ins.nombre}</div>
-                                      <div className="text-xs text-gray-600 mt-1">
-                                        Cantidad actual: {ins.stock_actual || 0} | Precio unitario: {currency(ins.costo_promedio)} | Unidad base: {ins.unidad_medida_compra || 'N/A'}
-                                      </div>
-                                    </li>
-                                  ))}
-                                </ul>
+                              {/* Mostrar listado específico de "Bebida en lata" si hay coincidencias, sino fallback al buscador */}
+                              {bebidasEnLata.length > 0 ? (
+                                <div>
+                                  <label className="sr-only">Seleccionar bebida en lata</label>
+                                  <select
+                                    className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm bg-white"
+                                    onChange={(e) => {
+                                      const id = Number(e.target.value);
+                                      const ins = bebidasEnLata.find(x => x.id_insumo === id) || null;
+                                      setSingleInsumo(ins);
+                                    }}
+                                    defaultValue=""
+                                  >
+                                    <option value="" disabled>Selecciona una bebida en lata…</option>
+                                    {bebidasEnLata.map((ins) => (
+                                      <option key={ins.id_insumo} value={ins.id_insumo}>
+                                        {ins.nombre} — {currency(ins.costo_promedio)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              ) : (
+                                <div>
+                                  <input
+                                    type="text"
+                                    value={insumoQuery}
+                                    onChange={(e) => { setInsumoQuery(e.target.value); searchInsumos(e.target.value); }}
+                                    placeholder="Buscar insumo (ej: Coca Cola)"
+                                    className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                                  />
+                                  {insumoResults.length > 0 && (
+                                    <ul className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                                      {insumoResults.map((ins) => (
+                                        <li
+                                          key={ins.id_insumo}
+                                          onClick={() => {
+                                            setSingleInsumo(ins);
+                                            setInsumoQuery("");
+                                            setInsumoResults([]);
+                                          }}
+                                          className="p-3 text-sm hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                        >
+                                          <div className="font-medium text-gray-800">{ins.nombre}</div>
+                                          <div className="text-xs text-gray-600 mt-1">
+                                            Cantidad actual: {ins.stock_actual || 0} | Precio unitario: {currency(ins.costo_promedio)} | Unidad base: {ins.unidad_medida_compra || 'N/A'}
+                                          </div>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
                               )}
                             </div>
                           )}
@@ -1087,6 +1470,90 @@ function ProductoModal({
                       />
                     </div>
                   </div>
+                </section>
+
+                {/* Variantes del Producto */}
+                <section className="bg-white rounded-xl border border-gray-200/70 shadow-sm p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <div className="text-sm font-bold text-gray-800">Variantes del Producto</div>
+                      <p className="text-xs text-gray-500">Configura presentaciones adicionales con insumos y precios específicos.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addVariant}
+                      className="h-9 rounded-lg border px-3 text-sm font-semibold hover:bg-gray-50 flex items-center gap-1"
+                    >
+                      <PiPlusBold /> Añadir Variante
+                    </button>
+                  </div>
+
+                  {variants.length === 0 ? (
+                    <p className="text-sm text-gray-500">No hay variantes registradas para este producto.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {variants.map((variant, index) => (
+                        <div
+                          key={variant.id_variante ? `${variant.id_variante}-${index}` : `n-${index}`}
+                          className="flex gap-2 items-center p-2 rounded-lg border"
+                        >
+                          <input
+                            value={variant.nombre_variante}
+                            onChange={(e) => updateVariant(index, 'nombre_variante', e.target.value)}
+                            className="flex-1 h-9 rounded-md border border-gray-200 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                            placeholder="Nombre de la variante"
+                          />
+                          <select
+                            value={variant.id_insumo ?? ""}
+                            onChange={(e) => {
+                              const value = e.target.value ? Number(e.target.value) : undefined;
+                              updateVariant(index, 'id_insumo', value as VarianteForm['id_insumo']);
+                            }}
+                            className="flex-1 h-9 rounded-md border px-2 text-sm"
+                          >
+                            <option value="">Selecciona insumo…</option>
+                            {insumosOperativos.map((insumo) => (
+                              <option key={insumo.id_insumo} value={insumo.id_insumo}>
+                                {insumo.nombre} ({currency(insumo.costo_promedio)})
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            value={variant.precio_variante ?? 0}
+                            onChange={(e) => updateVariant(index, 'precio_variante', Number(e.target.value || 0))}
+                            className="w-20 h-9 rounded-md border border-gray-200 px-2 text-sm text-right"
+                            placeholder="Precio"
+                          />
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            value={variant.costo_variante ?? 0}
+                            onChange={(e) => updateVariant(index, 'costo_variante', Number(e.target.value || 0))}
+                            className="w-20 h-9 rounded-md border border-gray-200 px-2 text-sm text-right"
+                            placeholder="Costo"
+                          />
+                          <select
+                            value={variant.estado ?? 'activo'}
+                            onChange={(e) => updateVariant(index, 'estado', e.target.value as 'activo' | 'desactivado')}
+                            className="w-28 h-9 rounded-md border border-gray-200 px-2 text-sm"
+                          >
+                            <option value="activo">Activo</option>
+                            <option value="desactivado">Desactivado</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => removeVariant(index)}
+                            className="p-1.5 rounded text-red-600 hover:bg-red-50"
+                            title="Eliminar"
+                          >
+                            <PiTrashBold className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </section>
 
                 {/* Información Adicional */}
@@ -1209,28 +1676,35 @@ function InlineRecipeEditor({
     console.log('Intentando agregar línea, insumosOperativos:', insumosOperativos);
     if (!insumosOperativos || insumosOperativos.length === 0) {
       console.error('No hay insumos operativos disponibles:', insumosOperativos);
-      alert(`No hay insumos disponibles para crear la receta. Verifica que los insumos estén cargados y que haya categorías de insumo configuradas.`);
+      message.error('No hay insumos disponibles para crear la receta. Verifica que los insumos estén cargados y que haya categorías de insumo configuradas.');
       return;
     }
-
-    // Agregar una línea vacía que el usuario podrá configurar
+    // Agregar una línea vacía SIN seleccionar un insumo por defecto.
+    // El select mostrará un placeholder "Selecciona tu insumo" y el usuario deberá elegir.
     setLines((prev) => [
       ...prev,
       {
         id_producto: "",
-        id_insumo: insumosOperativos[0]?.id_insumo || 0,
+        id_insumo: 0, // 0 indica 'sin seleccionar'
         cantidad_insumo: 1,
-        unidad_medida: insumosOperativos[0]?.unidad_medida_compra || "u",
+        unidad_medida: "",
         es_obligatorio: true,
-        insumo: insumosOperativos[0] ? {
-          nombre: insumosOperativos[0].nombre,
-          costo_promedio: insumosOperativos[0].costo_promedio
-        } : undefined
+        insumo: { nombre: "", costo_promedio: 0 }
       },
     ]);
   };
 
   const updateLinea = <K extends keyof RecetaLinea>(index: number, field: K, value: RecetaLinea[K]) => {
+    if (field === "id_insumo") {
+      // Validar que el insumo no esté duplicado
+      const newInsumoId = Number(value);
+      const existingLine = lines.find((l, i) => i !== index && l.id_insumo === newInsumoId);
+      if (existingLine) {
+        message.error('Este insumo ya está en la receta. Por favor selecciona un insumo diferente.');
+        return;
+      }
+    }
+
     setLines((prev) => {
       const copy = [...prev];
       const linea = { ...copy[index], [field]: value } as RecetaLinea;
@@ -1239,6 +1713,10 @@ function InlineRecipeEditor({
         if (i) {
           linea.unidad_medida = i.unidad_medida_compra || "u";
           linea.insumo = { nombre: i.nombre, costo_promedio: i.costo_promedio };
+        } else {
+          // Si se selecciona el placeholder (value 0 / ""), limpiar datos relacionados
+          linea.unidad_medida = "";
+          linea.insumo = { nombre: "", costo_promedio: 0 };
         }
       }
       copy[index] = linea;
@@ -1280,10 +1758,11 @@ function InlineRecipeEditor({
           {lines.map((l, index) => (
             <div key={`${l.id_insumo}-${index}`} className="flex gap-2 items-center p-2 rounded-lg border">
               <select
-                value={l.id_insumo}
-                onChange={(e) => updateLinea(index, "id_insumo", Number(e.target.value))}
-                className="flex-1 h-9 rounded-md border border-gray-200 px-2 text-sm"
+                value={l.id_insumo || ""}
+                onChange={(e) => updateLinea(index, "id_insumo", Number(e.target.value || 0))}
+                className={`flex-1 h-9 rounded-md border px-2 text-sm ${l.id_insumo === 0 ? 'text-gray-500' : 'text-gray-800'}`}
               >
+                <option value="" disabled>Selecciona tu insumo…</option>
                 {insumosOperativos.map((ins: Insumo) => (
                   <option key={ins.id_insumo} value={ins.id_insumo}>
                     {ins.nombre} ({currency(ins.costo_promedio)})
@@ -1352,22 +1831,51 @@ function RecetarioModal({
 
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [currentReceta, setCurrentReceta] = useState<RecetaLinea[]>([]);
-  const [allInsumos] = useState<Insumo[]>(Array.isArray(insumos) ? insumos : []);
+  const allInsumos = useMemo(() => (Array.isArray(insumos) ? insumos : []), [insumos]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showCreateRecipe, setShowCreateRecipe] = useState(false);
 
-  const loadReceta = useCallback((productId: string) => {
+  const loadReceta = useCallback(async (productId: string) => {
     setLoading(true);
     setSelectedProductId(productId);
-    const recetaExistente = recetas[productId] || [];
-    setCurrentReceta(recetaExistente);
+
+    let recetaExistente = recetas[productId];
+
+    if (!recetaExistente || recetaExistente.length === 0) {
+      try {
+        const data = await productosService.getProductoConReceta(Number(productId));
+        const mapped = (data?.receta ?? []).map((detalle) => {
+          const insumo = allInsumos.find((i) => i.id_insumo === detalle.id_insumo);
+          return {
+            id_producto: String(productId),
+            id_insumo: detalle.id_insumo,
+            cantidad_insumo: detalle.cantidad_requerida,
+            unidad_medida: detalle.unidad_base,
+            es_obligatorio: true,
+            insumo: insumo
+              ? { nombre: insumo.nombre, costo_promedio: insumo.costo_promedio }
+              : undefined,
+          } as RecetaLinea;
+        });
+
+        if (mapped.length > 0) {
+          setRecetas((prev) => ({ ...prev, [productId]: mapped }));
+          recetaExistente = mapped;
+        }
+      } catch (error) {
+        console.error(`Error cargando receta para producto ${productId}:`, error);
+        message.error('No se pudo cargar la receta del producto seleccionado.');
+      }
+    }
+
+    setCurrentReceta(recetaExistente ?? []);
     setLoading(false);
-  }, [recetas]);
+  }, [recetas, setRecetas, allInsumos]);
 
   useEffect(() => {
     if (open && initialProductId) {
-      loadReceta(initialProductId);
+      void loadReceta(initialProductId);
     }
     if (!open) {
       setSelectedProductId(null);
@@ -1375,21 +1883,32 @@ function RecetarioModal({
     }
   }, [open, initialProductId, loadReceta]);
 
+  const selectedProducto = useMemo(
+    () => productos.find((p) => p.id === selectedProductId),
+    [productos, selectedProductId]
+  );
+  const esProductoBebida = selectedProducto?.categoria?.toLowerCase() === 'bebida';
+
   const addLinea = () => {
     const primerInsumo = allInsumos[0];
-    if (!primerInsumo) return alert("No hay insumos cargados");
-    if (!selectedProductId) return alert("Error: No hay producto seleccionado");
+    if (!primerInsumo) return message.error('No hay insumos cargados');
+    if (!selectedProductId) return message.error('Error: No hay producto seleccionado');
 
-    setCurrentReceta(prev => [
+    if (esProductoBebida && currentReceta.length >= 1) {
+      message.warning('Las bebidas solo pueden tener un insumo en su receta.');
+      return;
+    }
+
+    setCurrentReceta((prev) => [
       ...prev,
       {
         id_producto: selectedProductId,
         id_insumo: primerInsumo.id_insumo,
         cantidad_insumo: 1,
-        unidad_medida: primerInsumo.unidad_medida_compra || "u",
+        unidad_medida: primerInsumo.unidad_medida_compra || 'u',
         es_obligatorio: true,
-        insumo: { nombre: primerInsumo.nombre, costo_promedio: primerInsumo.costo_promedio }
-      } as RecetaLinea
+        insumo: { nombre: primerInsumo.nombre, costo_promedio: primerInsumo.costo_promedio },
+      } as RecetaLinea,
     ]);
   };
 
@@ -1426,7 +1945,7 @@ function RecetarioModal({
   }, [currentReceta, allInsumos]);
 
   const onSaveReceta = async () => {
-    if (!selectedProductId) return alert("No hay un producto seleccionado.");
+    if (!selectedProductId) return message.error("No hay un producto seleccionado.");
     setSaving(true);
     await new Promise(res => setTimeout(res, 500));
     setRecetas(prev => ({ ...prev, [selectedProductId]: currentReceta }));
@@ -1434,8 +1953,6 @@ function RecetarioModal({
     setSaving(false);
     onClose();
   };
-
-  const selectedProducto = productos.find(p => p.id === selectedProductId);
 
   return (
     <AnimatePresence>
@@ -1451,7 +1968,7 @@ function RecetarioModal({
             initial={{ scale: 0.98, y: 8, opacity: 0 }}
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.98, y: 8, opacity: 0 }}
-            className="relative w-full max-w-4xl h-[80vh] bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col"
+            className="relative w-full max-w-6xl h-[82vh] bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col"
           >
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b">
@@ -1475,13 +1992,13 @@ function RecetarioModal({
             {/* Contenido */}
             <div className="flex-1 flex overflow-hidden">
               {/* Lista productos */}
-              <div className="w-1/3 border-r bg-gray-50 overflow-y-auto">
+              <div className="w-2/5 border-r bg-gray-50 overflow-y-auto">
                 <div className="p-3">
                   <h4 className="text-sm font-semibold mb-2">Productos con Receta</h4>
                   {productos.map(p => (
                     <button
                       key={p.id}
-                      onClick={() => loadReceta(p.id)}
+                      onClick={() => void loadReceta(p.id)}
                       className={`w-full text-left p-2 rounded-lg text-sm ${
                         selectedProductId === p.id
                           ? "bg-emerald-100 text-emerald-700 font-medium"
@@ -1495,7 +2012,7 @@ function RecetarioModal({
               </div>
 
               {/* Form receta */}
-              <div className="w-2/3 flex-1 flex flex-col">
+              <div className="w-3/5 flex flex-col">
                 {selectedProductId ? (
                   <>
                     <div className="p-4 border-b">
@@ -1552,10 +2069,21 @@ function RecetarioModal({
 
                       <button
                         onClick={addLinea}
-                        className="h-10 w-full rounded-lg border border-dashed border-gray-300 text-sm font-semibold text-gray-600 hover:bg-gray-100 flex items-center justify-center gap-1"
+                        disabled={allInsumos.length === 0 || (esProductoBebida && currentReceta.length >= 1)}
+                        className={`h-10 w-full rounded-lg border border-dashed text-sm font-semibold flex items-center justify-center gap-1 transition-colors ${
+                          allInsumos.length === 0 || (esProductoBebida && currentReceta.length >= 1)
+                            ? 'border-gray-200 text-gray-400 cursor-not-allowed bg-gray-100'
+                            : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                        }`}
                       >
                         <PiPlusBold /> Añadir Insumo
                       </button>
+
+                      {esProductoBebida && (
+                        <p className="text-xs text-amber-600 text-center">
+                          Las bebidas solo admiten un insumo en la receta.
+                        </p>
+                      )}
                     </div>
 
                     <div className="mt-4 p-4 border-t flex justify-end gap-2">

@@ -24,6 +24,7 @@ export interface Producto {
 export interface ProductoVariante {
   id_variante: number;
   id_producto: number;
+  id_insumo?: number;  // Insumo asociado a esta variante (opcional)
   nombre_variante: string;
   precio_variante: number;
   costo_variante?: number;
@@ -59,7 +60,10 @@ export interface CreateProductoDTO {
   precio_venta: number;
   costo_producto?: number;
   id_categoria?: number;
+  estado?: 'activo' | 'desactivado';
   imagen_url?: string;
+  variantes?: Array<Omit<CreateVarianteDTO, 'id_producto'>>;
+  receta?: Array<Omit<CreateRecetaDTO, 'id_producto'>>;
 }
 
 export interface UpdateProductoDTO {
@@ -70,13 +74,17 @@ export interface UpdateProductoDTO {
   id_categoria?: number;
   estado?: 'activo' | 'desactivado';
   imagen_url?: string;
+  variantes?: Array<Omit<CreateVarianteDTO, 'id_producto'>>;
+  receta?: Array<Omit<CreateRecetaDTO, 'id_producto'>>;
 }
 
 export interface CreateVarianteDTO {
   id_producto: number;
+  id_insumo?: number;  // Insumo asociado a la variante (opcional)
   nombre_variante: string;
   precio_variante: number;
   costo_variante?: number;
+  estado?: 'activo' | 'desactivado';
 }
 
 export interface CreateRecetaDTO {

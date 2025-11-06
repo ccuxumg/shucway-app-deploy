@@ -400,6 +400,31 @@ export class InventarioController {
     }
   }
 
+  async updateRecepcionFactura(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const id = parseInt(req.params.id);
+      if (Number.isNaN(id)) {
+        res.status(400).json({
+          success: false,
+          message: 'ID de recepción inválido',
+        });
+        return;
+      }
+
+      const { numeroFactura } = req.body as { numeroFactura?: string | null };
+      const updated = await inventarioService.updateRecepcionFactura(id, numeroFactura?.trim() || null);
+
+      res.json({
+        success: true,
+        data: updated,
+        message: 'Número de factura actualizado correctamente',
+      });
+    } catch (error) {
+      console.error('[BACKEND] Error en updateRecepcionFactura:', error);
+      next(error);
+    }
+  }
+
   async createDetalleRecepcionMercaderia(req: AuthRequest, res: Response, next: NextFunction) {
     console.log('[BACKEND] createDetalleRecepcionMercaderia llamado con:', req.body);
     try {

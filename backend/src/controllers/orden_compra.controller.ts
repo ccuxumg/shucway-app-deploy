@@ -1,5 +1,80 @@
 import { Request, Response } from 'express';
 import supabase from '../config/database';
+import { inventarioService } from '../services/inventario.service';
+
+type RecepcionRow = { id_recepcion: number };
+
+const cleanRecepcionesForOrder = async (orderId: number): Promise<void> => {
+  const { data: recepciones, error: recepcionesError } = await supabase
+    .from('recepcion_mercaderia')
+    .select('id_recepcion')
+    .eq('id_orden', orderId);
+
+  if (recepcionesError) {
+    throw new Error(`Error al consultar recepciones para la orden ${orderId}: ${recepcionesError.message}`);
+  }
+
+  const recepcionIds = (recepciones ?? [])
+    .map((row) => Number((row as RecepcionRow).id_recepcion))
+    .filter((id) => Number.isFinite(id) && id > 0);
+
+  if (recepcionIds.length === 0) {
+    return;
+  }
+
+  // Intentar eliminar cada recepción usando el servicio (para respetar la lógica existente)
+  for (const recepcionId of recepcionIds) {
+    try {
+      await inventarioService.deleteRecepcionMercaderia(recepcionId);
+      console.log(`[Backend] Recepción ${recepcionId} eliminada durante limpieza de OC ${orderId}.`);
+    } catch (error) {
+      console.warn(`[Backend] No se pudo eliminar recepción ${recepcionId} con servicio. Intentando limpieza directa.`, error);
+    }
+  }
+
+  // Limpieza directa por si aún quedan registros asociados (idempotente)
+  const { error: movimientosError } = await supabase
+    .from('movimiento_inventario')
+    .delete()
+    .in('id_referencia', recepcionIds);
+
+  if (movimientosError) {
+    throw new Error(`No se pudieron eliminar movimientos residuales: ${movimientosError.message}`);
+  }
+
+  const orFilters = recepcionIds
+    .map((id) => `descripcion.ilike.%Recepcion #${id}%`)
+    .join(',');
+
+  if (orFilters.length > 0) {
+    const { error: bitacoraError } = await supabase
+      .from('bitacora_inventario')
+      .delete()
+      .or(orFilters);
+
+    if (bitacoraError) {
+      console.warn(`Advertencia limpiando bitácora de inventario para recepciones ${recepcionIds.join(', ')}: ${bitacoraError.message}`);
+    }
+  }
+
+  const { error: detallesError } = await supabase
+    .from('detalle_recepcion_mercaderia')
+    .delete()
+    .in('id_recepcion', recepcionIds);
+
+  if (detallesError) {
+    throw new Error(`No se pudieron eliminar detalles de recepción residuales: ${detallesError.message}`);
+  }
+
+  const { error: recepcionesDeleteError } = await supabase
+    .from('recepcion_mercaderia')
+    .delete()
+    .in('id_recepcion', recepcionIds);
+
+  if (recepcionesDeleteError) {
+    throw new Error(`No se pudieron eliminar las recepciones asociadas a la orden: ${recepcionesDeleteError.message}`);
+  }
+};
 
 export const getOrdenesCompra = async (_req: Request, res: Response) => {
   try {
@@ -84,30 +159,25 @@ export const updateOrdenCompra = async (req: Request, res: Response) => {
 export const deleteOrdenCompra = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    
-    // Primero: comprobar si existen recepciones (cabeceras) asociadas a la orden
-    const { data: recepciones, error: recepcionesError } = await supabase
-      .from('recepcion_mercaderia')
-      .select('id_recepcion')
-      .eq('id_orden', id);
+    const orderId = Number(id);
 
-    if (recepcionesError) {
-      console.error('Error al verificar recepciones:', recepcionesError);
-      return res.status(500).json({ message: 'Error interno del servidor' });
+    if (!Number.isFinite(orderId) || orderId <= 0) {
+      return res.status(400).json({ message: 'Identificador de orden no válido.' });
     }
 
-    if (recepciones && recepciones.length > 0) {
-      return res.status(400).json({ 
-        message: 'No se puede eliminar la orden de compra porque tiene recepciones de mercadería asociadas',
-        detail: `La orden tiene ${recepciones.length} recepción(es) asociada(s)`
-      });
+    // Limpiar recepciones y sus dependencias antes de eliminar la orden
+    try {
+      await cleanRecepcionesForOrder(orderId);
+    } catch (error) {
+      console.error('Error al limpiar recepciones asociadas a la orden:', error);
+      return res.status(500).json({ message: 'No se pudieron eliminar las recepciones asociadas a la orden.' });
     }
 
     // Segundo: comprobar si existen detalles de recepción que referencien los detalles de la orden
     const { data: detallesOC, error: detallesOCError } = await supabase
       .from('detalle_orden_compra')
       .select('id_detalle')
-      .eq('id_orden', id);
+      .eq('id_orden', orderId);
 
     if (detallesOCError) {
       console.error('Error al consultar detalles de orden:', detallesOCError);
@@ -130,10 +200,15 @@ export const deleteOrdenCompra = async (req: Request, res: Response) => {
       }
 
       if (detallesRecepcion && detallesRecepcion.length > 0) {
-        return res.status(400).json({
-          message: 'No se puede eliminar la orden de compra porque existen detalles de recepción que referencian sus líneas',
-          detail: `Hay ${detallesRecepcion.length} detalle(s) de recepción que impiden la eliminación`
-        });
+        const { error: deleteDetallesRecepcionError } = await supabase
+          .from('detalle_recepcion_mercaderia')
+          .delete()
+          .in('id_detalle_orden', detalleIds);
+
+        if (deleteDetallesRecepcionError) {
+          console.error('Error al eliminar detalles de recepción residuales:', deleteDetallesRecepcionError);
+          return res.status(500).json({ message: 'No se pudieron limpiar los detalles de recepción asociados.' });
+        }
       }
     }
 
@@ -141,17 +216,25 @@ export const deleteOrdenCompra = async (req: Request, res: Response) => {
     const { error: delDetallesError } = await supabase
       .from('detalle_orden_compra')
       .delete()
-      .eq('id_orden', id);
+      .eq('id_orden', orderId);
 
     if (delDetallesError) {
       console.error('Error al eliminar detalles de orden de compra:', delDetallesError);
       return res.status(500).json({ message: 'Error interno eliminando detalles' });
     }
 
+    // Garantizar que no queden recepciones residuales antes de eliminar la orden
+    try {
+      await cleanRecepcionesForOrder(orderId);
+    } catch (error) {
+      console.error('Error al limpiar recepciones residuales antes de eliminar la orden:', error);
+      return res.status(500).json({ message: 'No se pudieron eliminar las recepciones asociadas a la orden.' });
+    }
+
     const { error: delOrdenError } = await supabase
       .from('orden_compra')
       .delete()
-      .eq('id_orden', id);
+      .eq('id_orden', orderId);
 
     if (delOrdenError) {
       console.error('Error al eliminar orden de compra:', delOrdenError);
@@ -171,9 +254,9 @@ export const getDetallesOrdenCompra = async (req: Request, res: Response) => {
     const { data, error } = await supabase
       .from('detalle_orden_compra')
       .select(`
-        *,
-        insumo:insumo(nombre_insumo),
-        insumo_presentacion:insumo_presentacion(descripcion_presentacion)
+  *,
+  insumo:insumo(nombre_insumo, unidad_base),
+  insumo_presentacion:insumo_presentacion(descripcion_presentacion, unidades_por_presentacion, unidad_compra)
       `)
       .eq('id_orden', id)
       .order('id_detalle', { ascending: true });

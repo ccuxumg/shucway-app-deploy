@@ -1,4 +1,4 @@
-import { supabase } from './src/config/database.js';
+import { supabase } from './config/database.js';
 
 async function runQuery() {
   try {
@@ -24,9 +24,11 @@ async function runQuery() {
     console.log('Detalles de recepción para id_recepcion=6:', detallesRec);
 
     // Verificar triggers en orden_compra
-    const { data: triggersOC, error: trigOCError } = await supabase.rpc('sql', {
+    const { data: triggersOC, error: triggersError } = await supabase.rpc('sql', {
       query: "SELECT trigger_name, event_manipulation, action_statement FROM information_schema.triggers WHERE event_object_table = 'orden_compra';"
     });
+
+    if (triggersError) throw triggersError;
 
     console.log('Triggers en orden_compra:', triggersOC);
 

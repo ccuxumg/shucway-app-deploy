@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { PiPackageBold, PiEyeBold, PiTrashBold } from "react-icons/pi";
+import { PiPackageBold, PiEyeBold, PiTrashBold, PiPencilBold } from "react-icons/pi";
 import { useNavigate } from 'react-router-dom';
 import { api } from "../../../../api/apiClient";
 import { message } from "antd";
@@ -58,6 +58,9 @@ export default function RecepcionMercaderia() {
   const [viewModal, setViewModal] = useState(false);
   const [selectedRecepcion, setSelectedRecepcion] = useState<RecepcionMercaderia | null>(null);
   const [deleteModal, setDeleteModal] = useState<{ open: boolean; recepcion: RecepcionMercaderia | null }>({ open: false, recepcion: null });
+  const [editModal, setEditModal] = useState(false);
+  const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [savingInvoice, setSavingInvoice] = useState(false);
 
   useEffect(() => {
     loadRecepciones();
@@ -117,6 +120,43 @@ export default function RecepcionMercaderia() {
   const handleView = (recepcion: RecepcionMercaderia) => {
     setSelectedRecepcion(recepcion);
     setViewModal(true);
+  };
+
+  const handleEdit = (recepcion: RecepcionMercaderia) => {
+    setSelectedRecepcion(recepcion);
+    setInvoiceNumber(recepcion.numero_factura || '');
+    setEditModal(true);
+  };
+
+  const handleUpdateInvoice = async () => {
+    if (!selectedRecepcion) {
+      return;
+    }
+
+    try {
+      setSavingInvoice(true);
+      const trimmedValue = invoiceNumber.trim();
+      await api.patch(`/inventario/recepciones-mercaderia/${selectedRecepcion.id_recepcion}/factura`, {
+        numeroFactura: trimmedValue || null,
+      });
+
+      message.success('Número de factura actualizado correctamente');
+    await loadRecepciones();
+    setEditModal(false);
+    setSelectedRecepcion(null);
+    setInvoiceNumber('');
+    } catch (err: unknown) {
+      let errorMessage = 'Error desconocido';
+      if (err && typeof err === 'object' && 'response' in err) {
+        const axiosError = err as { response?: { data?: { message?: string; detail?: string; error?: string } } };
+        errorMessage = axiosError.response?.data?.message || axiosError.response?.data?.detail || axiosError.response?.data?.error || errorMessage;
+      } else if (err instanceof Error) {
+        errorMessage = err.message;
+      }
+      message.error(`No se pudo actualizar la factura: ${errorMessage}`);
+    } finally {
+      setSavingInvoice(false);
+    }
   };
 
   return (
@@ -222,6 +262,13 @@ export default function RecepcionMercaderia() {
                             title="Ver detalles"
                           >
                             <PiEyeBold className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={() => handleEdit(recepcion)}
+                            className="p-2 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg transition-colors duration-200"
+                            title="Editar factura"
+                          >
+                            <PiPencilBold className="w-5 h-5" />
                           </button>
                           <button
                             onClick={() => setDeleteModal({ open: true, recepcion })}
@@ -354,6 +401,92 @@ export default function RecepcionMercaderia() {
 
                 <div className="flex justify-end">
                   <button onClick={() => { setViewModal(false); setSelectedRecepcion(null); }} className="h-9 px-4 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">Cerrar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editModal && selectedRecepcion && (
+        <div className="fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => {
+              setEditModal(false);
+              setSelectedRecepcion(null);
+              setInvoiceNumber('');
+            }}
+          />
+          <div className="relative flex items-center justify-center min-h-screen p-4">
+            <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
+              <div className="flex items-center justify-between px-4 h-14 border-b">
+                <div className="flex items-center gap-3">
+                  <PiPencilBold className="text-emerald-600 w-5 h-5" />
+                  <h3 className="text-base font-semibold text-gray-800">Editar número de factura</h3>
+                </div>
+                <button
+                  className="p-2 rounded-lg hover:bg-gray-100"
+                  onClick={() => {
+                    setEditModal(false);
+                    setSelectedRecepcion(null);
+                    setInvoiceNumber('');
+                  }}
+                  aria-label="Cerrar"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-6 space-y-5 text-sm">
+                <div className="grid grid-cols-1 gap-4 bg-gray-50 p-4 rounded-lg">
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 mb-1">ID de Recepción</p>
+                    <p className="text-base font-semibold text-gray-900">#{selectedRecepcion.id_recepcion}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 mb-1">Número de Orden</p>
+                    <p className="text-base font-semibold text-gray-900">{selectedRecepcion.numero_orden || selectedRecepcion.orden_compra?.numero_orden || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 mb-1">Proveedor</p>
+                    <p className="text-base font-semibold text-gray-900">{selectedRecepcion.orden_compra?.proveedor?.nombre || '-'}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="numeroFacturaInput" className="block text-xs font-semibold text-gray-600 mb-1">Número de factura</label>
+                  <input
+                    id="numeroFacturaInput"
+                    type="text"
+                    value={invoiceNumber}
+                    onChange={(e) => setInvoiceNumber(e.target.value)}
+                    className="w-full h-11 rounded-lg border border-gray-300 px-3 text-base focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                    placeholder="Ingrese el número de factura"
+                    maxLength={50}
+                  />
+                </div>
+
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={() => {
+                      setEditModal(false);
+                      setSelectedRecepcion(null);
+                      setInvoiceNumber('');
+                    }}
+                    className="h-10 px-4 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
+                    type="button"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleUpdateInvoice}
+                    className="h-10 px-4 rounded-md bg-emerald-600 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                    disabled={savingInvoice}
+                    type="button"
+                  >
+                    {savingInvoice ? 'Guardando…' : 'Guardar cambios'}
+                  </button>
                 </div>
               </div>
             </div>

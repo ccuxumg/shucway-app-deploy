@@ -1424,7 +1424,10 @@ function PurchaseOrderForm({
       message.error("La fecha de entrega estimada debe ser posterior a la fecha de la orden.");
       return;
     }
-    if (items.length === 0 || items.every((it) => !(it.descripcion || "").trim() && !it.id_insumo)) return alert("Agrega al menos un ítem válido.");
+    if (items.length === 0 || items.every((it) => !(it.descripcion || "").trim() && !it.id_insumo)) {
+      message.error("Agrega al menos un ítem válido.");
+      return;
+    }
 
     setSaving(true);
     try {

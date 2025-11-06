@@ -49,6 +49,24 @@ type Fila = {
 // Tipo para la respuesta de la API de catálogo
 // Eliminado tipo no usado CatalogoInsumoAPI
 
+interface ApiResponseBody {
+  message?: string;
+  error?: string;
+  raw?: string;
+  data?: unknown;
+  [key: string]: unknown;
+}
+
+const parseResponseBody = (text: string): ApiResponseBody => {
+  if (!text) return {};
+  try {
+    return JSON.parse(text) as ApiResponseBody;
+  } catch (error) {
+    console.warn('Failed to parse response:', error);
+    return { raw: text };
+  }
+};
+
 /** Datos (serán cargados desde la BD) */
 
 
@@ -365,6 +383,8 @@ export default function Catalogo() {
     descripcion_presentacion: "",
   };
   const [form, setForm] = useState<Fila>(blankForm);
+  // Errores por campo para mostrar mensajes inline en el formulario
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
 
   // Debounce búsqueda
@@ -504,16 +524,19 @@ export default function Catalogo() {
     setError(null);
     try {
       const idToDelete = Number(deleteModal.row.id);
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/dashboard/table-data/insumo/${idToDelete}`, {
+      // Usar endpoint coherente con el CRUD de inventario
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/inventario/insumos/${idToDelete}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
         },
       });
+      const text = await res.text().catch(() => '');
+      const body = parseResponseBody(text);
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.message || `HTTP ${res.status}`);
+        console.error('Error deleting insumo:', res.status, body);
+        throw new Error(body?.message || body?.error || `HTTP ${res.status}`);
       }
       // recargar catálogo
       await fetchInsumosFromTable();
@@ -538,8 +561,30 @@ export default function Catalogo() {
 
   const submitForm = (e: React.FormEvent) => {
     e.preventDefault();
-  if (!form.nombre.trim()) return alert("El nombre es obligatorio");
-  if (categoriasBD.length > 0 && (form.categoriaId == null || form.categoriaId === undefined)) return alert("Seleccione una categoría");
+    e.stopPropagation(); // Prevenir cualquier propagación del evento
+    
+    // Limpiar errores anteriores
+    setFieldErrors({});
+    
+    // Validación manual: construir errores por campo y mostrarlos inline
+    const errors: Record<string, string> = {};
+    if (!form.nombre.trim()) {
+      errors.nombre = 'El nombre es obligatorio. Por favor completa el campo.';
+    }
+    if (categoriasBD.length > 0 && (form.categoriaId == null || form.categoriaId === undefined)) {
+      errors.categoriaId = 'Selecciona una categoría antes de continuar.';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      // poner foco en el primer campo con error
+      const first = Object.keys(errors)[0];
+      setTimeout(() => {
+        const el = document.getElementById(first);
+        if (el) (el as HTMLElement).focus();
+      }, 50);
+      return;
+    }
 
     // Mapear campos del formulario a la estructura esperada por CreateInsumoDTO
     const payload: Record<string, unknown> = {
@@ -562,7 +607,9 @@ export default function Catalogo() {
       try {
         if (editingId) {
           // actualizar via backend
-          const res = await fetch(`${import.meta.env.VITE_API_URL}/inventario/insumos/${editingId}`, {
+          const idNum = Number(editingId);
+          console.log('Updating insumo id:', idNum, 'payload:', payload);
+          const res = await fetch(`${import.meta.env.VITE_API_URL}/inventario/insumos/${idNum}`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
@@ -570,10 +617,13 @@ export default function Catalogo() {
             },
             body: JSON.stringify(payload),
           });
+          const text = await res.text().catch(() => '');
+          const body = parseResponseBody(text);
           if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            throw new Error(body?.message || `HTTP ${res.status}`);
+            console.error('Error updating insumo:', res.status, body);
+            throw new Error(body?.message || body?.error || `HTTP ${res.status}`);
           }
+          console.log('Update response:', body);
         } else {
           // crear via backend - usar endpoint específico de inventario
           console.log('Creando insumo con payload:', payload);
@@ -585,17 +635,31 @@ export default function Catalogo() {
             },
             body: JSON.stringify(payload),
           });
+          const text = await res.text().catch(() => '');
+          const body = parseResponseBody(text);
           if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            throw new Error(body?.message || `HTTP ${res.status}`);
+            console.error('Error creating insumo:', res.status, body);
+            throw new Error(body?.message || body?.error || `HTTP ${res.status}`);
           }
-          const body = await res.json().catch(() => ({}));
-          console.log('Respuesta de creación:', body);
+          console.log('Create response:', body);
           const created = body?.data;
-          if (created) {
-            // buscar posibles campos id comunes
-            const newId = created.id_insumo ?? created.id ?? created.insertId ?? created[Object.keys(created)[0]];
-            if (newId != null) setForm((f) => ({ ...f, id: String(newId) }));
+          if (created && typeof created === 'object' && !Array.isArray(created)) {
+            const record = created as Record<string, unknown>;
+            const candidateKeys = ['id_insumo', 'id', 'insertId'];
+            let newId: unknown;
+            for (const key of candidateKeys) {
+              if (key in record) {
+                newId = record[key];
+                if (newId != null) break;
+              }
+            }
+            if (newId == null) {
+              const firstKey = Object.keys(record)[0];
+              newId = firstKey ? record[firstKey] : undefined;
+            }
+            if (typeof newId === 'number' || typeof newId === 'string') {
+              setForm((f) => ({ ...f, id: String(newId) }));
+            }
           }
         }
         // recargar listado desde el backend para reflejar cambios
@@ -631,8 +695,12 @@ export default function Catalogo() {
         tipo = "Perpetuo";
       }
       setForm((f) => ({ ...f, [key]: value, tipo }));
+      // Limpiar error de ese campo si existía
+      setFieldErrors((prev) => { const copy = { ...prev }; delete copy[String(key)]; return copy; });
     } else {
       setForm((f) => ({ ...f, [key]: value }));
+      // Limpiar error de ese campo si existía
+      setFieldErrors((prev) => { const copy = { ...prev }; delete copy[String(key)]; return copy; });
     }
   }, [categoriasBD]);
 
@@ -818,7 +886,7 @@ export default function Catalogo() {
         {/* Footer tabla */}
         <div className="px-4 py-3 text-sm text-gray-600 flex flex-wrap items-center gap-3 justify-between">
           <div>
-            Mostrando <span className="font-semibold">{pageData.length}</span> de <span className="font-semibold">{total}</span> insumos
+            Mostrando <span className="font-semibold">{((page - 1) * perPage) + 1} - {Math.min(page * perPage, total)}</span> de <span className="font-semibold">{total}</span> insumos
           </div>
           <div className="flex items-center gap-2">
             <label className="text-gray-500 text-xs" htmlFor="perPage">Por página</label>
@@ -828,12 +896,36 @@ export default function Catalogo() {
               onChange={(e) => setPerPage(Number(e.target.value))}
               className="h-9 rounded border border-gray-200 bg-white px-2 text-sm"
             >
-              {[5, 10, 20, 50].map((n) => <option key={n} value={n}>{n}</option>)}
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
             </select>
             <div className="flex items-center gap-1 ml-2">
-              <button className="h-9 px-3 rounded border text-sm disabled:opacity-50" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>Anterior</button>
-              <span className="px-2 text-gray-500">{page} / {totalPages}</span>
-              <button className="h-9 px-3 rounded border text-sm disabled:opacity-50" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Siguiente</button>
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="h-9 px-3 rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="opacity-75">
+                  <path d="M15 18l-6-6 6-6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Anterior
+              </button>
+              <span className="px-3 py-1.5 rounded bg-gray-100 text-sm font-medium">
+                Página {page} de {totalPages}
+              </span>
+              <button
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="h-9 px-3 rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+              >
+                Siguiente
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="opacity-75">
+                  <path d="M9 6l6 6-6 6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
             </div>
           </div>
         </div>
@@ -862,23 +954,50 @@ export default function Catalogo() {
 
             <div className="h-[calc(100vh-56px)] grid grid-cols-1 lg:grid-cols-[1fr_360px]">
               {/* Formulario */}
-              <form id="insumo-form" onSubmit={submitForm} className="overflow-y-auto p-5 md:p-6 lg:p-7 space-y-5">
+              <form 
+                id="insumo-form" 
+                onSubmit={submitForm} 
+                noValidate 
+                autoComplete="off"
+                className="overflow-y-auto p-5 md:p-6 lg:p-7 space-y-5"
+              >
                 {/* Información Básica */}
                 <section className="bg-white rounded-xl border border-gray-200/70 shadow-sm p-4 md:p-5">
                   <div className="text-sm font-bold text-gray-800 mb-4">Información Básica</div>
                   <div className="grid gap-4">
                     <div>
                       <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="nombre">Nombre del Insumo *</label>
-                      <input id="nombre" value={form.nombre} onChange={(e) => setFormField("nombre", e.target.value)} placeholder="Ej: Carne de Res Premium" className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300" required />
+                      <input 
+                        id="nombre" 
+                        value={form.nombre} 
+                        onChange={(e) => setFormField("nombre", e.target.value)} 
+                        placeholder="Ej: Carne de Res Premium" 
+                        className={`w-full h-11 rounded-lg border px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300 ${
+                          fieldErrors.nombre ? 'border-red-500 focus:ring-red-300' : 'border-gray-200'
+                        }`}
+                        aria-invalid={fieldErrors.nombre ? "true" : "false"}
+                        aria-describedby={fieldErrors.nombre ? "nombre-error" : undefined}
+                      />
+                      {fieldErrors.nombre && (
+                        <p id="nombre-error" className="mt-1 text-sm text-red-600">
+                          {fieldErrors.nombre}
+                        </p>
+                      )}
+                      {fieldErrors.nombre && (
+                        <div className="mt-1 text-sm text-rose-700">{fieldErrors.nombre}</div>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="categoriaSel">Categoría *</label>
-                        <select id="categoriaSel" value={form.categoriaId ?? ""} onChange={(e) => setFormField("categoriaId", e.target.value === "" ? undefined : Number(e.target.value))} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300" required>
+                        <select id="categoriaSel" value={form.categoriaId ?? ""} onChange={(e) => setFormField("categoriaId", e.target.value === "" ? undefined : Number(e.target.value))} className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300">
                           <option value="">Seleccione categoría</option>
                           {categoriasBD.length > 0 ? categoriasBD.map((c) => <option key={c.id_categoria} value={c.id_categoria}>{c.nombre}</option>) : <option disabled>No hay categorías disponibles</option>}
                         </select>
+                        {fieldErrors.categoriaId && (
+                          <div className="mt-1 text-sm text-rose-700">{fieldErrors.categoriaId}</div>
+                        )}
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="unidad">Unidad Base</label>
@@ -967,7 +1086,7 @@ export default function Catalogo() {
                             const { data, error } = await supabase.storage.from('producto-img').upload(fileName, blob, { upsert: true, contentType: file.type });
                             if (error) {
                               console.error('Error subiendo imagen insumo:', error);
-                              alert('Error subiendo imagen: ' + error.message);
+                              message.error('Error subiendo imagen: ' + (error?.message || String(error)));
                               return;
                             }
                             const uploadedPath = data?.path || fileName;

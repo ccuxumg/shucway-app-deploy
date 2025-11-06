@@ -46,6 +46,7 @@ export interface UpdateUsuarioDTO {
   estado?: string;
   password?: string; // contraseña en texto plano; será enviada al backend para hashear
   email?: string;
+  username?: string;
 }
 
 export interface UsuariosFilters {
@@ -210,6 +211,44 @@ export const getEstadisticas = async (): Promise<Estadisticas> => {
     return response.data.data;
   } catch (error) {
     console.error('Error al obtener estadísticas:', error);
+    throw error;
+  }
+};
+
+/**
+ * Verificar si un email ya existe
+ */
+export const checkEmailExists = async (email: string, excludeId?: number): Promise<boolean> => {
+  try {
+    const token = localStorage.getItem('token');
+    const params = new URLSearchParams({ email });
+    if (excludeId) params.append('excludeId', excludeId.toString());
+
+    const response = await api.get(`/usuarios/check-email?${params}`, {
+      headers: { Authorization: token ? `Bearer ${token}` : '' }
+    });
+    return response.data.exists;
+  } catch (error) {
+    console.error('Error al verificar email:', error);
+    throw error;
+  }
+};
+
+/**
+ * Verificar si un username ya existe
+ */
+export const checkUsernameExists = async (username: string, excludeId?: number): Promise<boolean> => {
+  try {
+    const token = localStorage.getItem('token');
+    const params = new URLSearchParams({ username });
+    if (excludeId) params.append('excludeId', excludeId.toString());
+
+    const response = await api.get(`/usuarios/check-username?${params}`, {
+      headers: { Authorization: token ? `Bearer ${token}` : '' }
+    });
+    return response.data.exists;
+  } catch (error) {
+    console.error('Error al verificar username:', error);
     throw error;
   }
 };

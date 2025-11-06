@@ -55,6 +55,7 @@ export interface UpdateUsuarioDTO {
   segundo_apellido?: string;
   estado?: 'activo' | 'inactivo' | 'suspendido' | 'eliminado';
   password?: string; // contraseña en texto plano; será hasheada por el servicio
+  username?: string;
 }
 
 export interface Rol {
@@ -215,6 +216,23 @@ export class UsuariosService {
       throw new Error('Ya existe un usuario con este email');
     }
 
+    // Validar que el username no exista
+    const { data: existingUsername, error: usernameCheckError } = await supabase
+      .from('perfil_usuario')
+      .select('id_perfil')
+      .eq('username', dto.username)
+      .single();
+
+    if (usernameCheckError && usernameCheckError.code !== 'PGRST116') {
+      logger.error(`[CREATE USUARIO SERVICE] Error al verificar username existente: ${usernameCheckError.message}`);
+      throw new Error(`Error al verificar username: ${usernameCheckError.message}`);
+    }
+
+    if (existingUsername) {
+      logger.error(`[CREATE USUARIO SERVICE] Username ya existe: ${dto.username}`);
+      throw new Error('Ya existe un usuario con este username');
+    }
+
     // Obtener rol especificado
     const rolNombre = dto.rol.toLowerCase(); // Convertir a minúsculas para coincidir con BD
     const { data: rolData, error: rolError } = await supabase
@@ -280,11 +298,53 @@ export class UsuariosService {
    * Actualizar usuario
    */
   async updateUsuario(id: number, dto: UpdateUsuarioDTO): Promise<PerfilUsuario> {
+    const { logger } = await import('../utils/logger');
+
     // Filtrar campos que puedan causar problemas con triggers
     const safeDto: Record<string, unknown> = { ...dto };
     delete safeDto.active_token;
     delete safeDto.session_token;
     delete safeDto.token;
+
+    // Validar que el username no exista (si se está cambiando)
+    if (typeof safeDto.username === 'string' && safeDto.username.trim()) {
+      const { data: existingUsername, error: usernameCheckError } = await supabase
+        .from('perfil_usuario')
+        .select('id_perfil')
+        .eq('username', safeDto.username.trim())
+        .neq('id_perfil', id) // Excluir el propio usuario
+        .single();
+
+      if (usernameCheckError && usernameCheckError.code !== 'PGRST116') {
+        logger.error(`[UPDATE USUARIO SERVICE] Error al verificar username existente: ${usernameCheckError.message}`);
+        throw new Error(`Error al verificar username: ${usernameCheckError.message}`);
+      }
+
+      if (existingUsername) {
+        logger.error(`[UPDATE USUARIO SERVICE] Username ya existe: ${safeDto.username}`);
+        throw new Error('Ya existe un usuario con este username');
+      }
+    }
+
+    // Validar que el email no exista (si se está cambiando)
+    if (typeof safeDto.email === 'string' && safeDto.email.trim()) {
+      const { data: existingEmail, error: emailCheckError } = await supabase
+        .from('perfil_usuario')
+        .select('id_perfil')
+        .eq('email', safeDto.email.trim())
+        .neq('id_perfil', id) // Excluir el propio usuario
+        .single();
+
+      if (emailCheckError && emailCheckError.code !== 'PGRST116') {
+        logger.error(`[UPDATE USUARIO SERVICE] Error al verificar email existente: ${emailCheckError.message}`);
+        throw new Error(`Error al verificar email: ${emailCheckError.message}`);
+      }
+
+      if (existingEmail) {
+        logger.error(`[UPDATE USUARIO SERVICE] Email ya existe: ${safeDto.email}`);
+        throw new Error('Ya existe un usuario con este correo electrónico');
+      }
+    }
 
     // Si se provee 'password' en el DTO, generar hash y actualizar la columna password_hash.
     // Nota: Este paso requiere que el usuario esté autorizado para cambiar la contraseña;
@@ -414,8 +474,8 @@ export class UsuariosService {
     if (usuario.estado === 'activo') {
       // Si está activo, hacer soft delete (cambiar a inactivo)
       await this.cambiarEstado(id, 'inactivo');
-    } else if (usuario.estado === 'inactivo') {
-      // Si ya está inactivo, eliminar completamente
+    } else if (usuario.estado === 'inactivo' || usuario.estado === 'eliminado') {
+      // Si ya está inactivo o eliminado, eliminar completamente
       const { error } = await supabase
         .from('perfil_usuario')
         .delete()
@@ -757,5 +817,55 @@ export class UsuariosService {
     }
 
     return data;
+  }
+
+  /**
+   * Verificar si un email ya existe
+   */
+  async checkEmailExists(email: string, excludeId?: number): Promise<boolean> {
+    const { logger } = await import('../utils/logger');
+
+    let query = supabase
+      .from('perfil_usuario')
+      .select('id_perfil')
+      .eq('email', email);
+
+    if (excludeId) {
+      query = query.neq('id_perfil', excludeId);
+    }
+
+    const { data, error } = await query.single();
+
+    if (error && error.code !== 'PGRST116') {
+      logger.error(`[CHECK EMAIL SERVICE] Error al verificar email: ${error.message}`);
+      throw new Error(`Error al verificar email: ${error.message}`);
+    }
+
+    return !!data;
+  }
+
+  /**
+   * Verificar si un username ya existe
+   */
+  async checkUsernameExists(username: string, excludeId?: number): Promise<boolean> {
+    const { logger } = await import('../utils/logger');
+
+    let query = supabase
+      .from('perfil_usuario')
+      .select('id_perfil')
+      .eq('username', username);
+
+    if (excludeId) {
+      query = query.neq('id_perfil', excludeId);
+    }
+
+    const { data, error } = await query.single();
+
+    if (error && error.code !== 'PGRST116') {
+      logger.error(`[CHECK USERNAME SERVICE] Error al verificar username: ${error.message}`);
+      throw new Error(`Error al verificar username: ${error.message}`);
+    }
+
+    return !!data;
   }
 }

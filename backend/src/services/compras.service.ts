@@ -37,6 +37,7 @@ export class ComprasService {
     const { data, error } = await supabase
       .from('proveedor')
       .select('*')
+      .eq('estado', true)
       .order('nombre_empresa', { ascending: true });
 
     if (error) throw error;

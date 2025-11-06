@@ -532,7 +532,7 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
         );
 
         if (nombreExiste) {
-          alert('Ya existe una categoría con ese nombre');
+          addNotification({ type: 'warning', title: 'Categoría duplicada', message: 'Ya existe una categoría con ese nombre' });
           return;
         }
 
@@ -558,7 +558,7 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
       }
     } catch (error) {
       console.error('Error saving categoria:', error);
-      alert('Error al guardar la categoría');
+      addNotification({ type: 'error', title: 'Error', message: 'Error al guardar la categoría' });
     }
   };
 
@@ -743,7 +743,7 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
      Pago
      ============================================================ */
   const irAPago = () => {
-    if (!carrito.length) return alert('Agrega productos a la orden');
+    if (!carrito.length) return addNotification({ type: 'warning', title: 'Carrito vacío', message: 'Agrega productos a la orden' });
     setPagoError('');
     setCashInvalid(false);
     setTransfInvalid(false);
@@ -751,7 +751,7 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
   };
 
   const confirmarPago = async () => {
-    if (!carrito.length) return alert('Tu carrito está vacío.');
+    if (!carrito.length) return addNotification({ type: 'warning', title: 'Carrito vacío', message: 'Tu carrito está vacío.' });
 
     if (metodo === 'transferencia' && (!referencia.trim() || !banco.trim())) {
       setPagoError('Ingresa número de referencia y banco de origen.');
@@ -841,7 +841,7 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
       navigate('/ventas/ticketventa', { state: ticketData });
     } catch (error) {
       console.error('Error creando la venta:', error);
-      alert('Error al procesar la venta. Inténtalo de nuevo.');
+      addNotification({ type: 'error', title: 'Error', message: 'Error al procesar la venta. Inténtalo de nuevo.' });
     }
   };
 

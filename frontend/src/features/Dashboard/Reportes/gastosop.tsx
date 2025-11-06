@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import gastosOperativosService, { GastoOperativo, CategoriaGasto } from "../../../api/gastosOperativosService";
 
 export default function GastosOperativos() {
@@ -134,8 +134,8 @@ export default function GastosOperativos() {
     if (!searchTerm) return gastos;
     const q = searchTerm.toLowerCase();
     return gastos.filter((g) => {
-      const det = g.detalle.toLowerCase();
-      const nom = g.nombre_gasto.toLowerCase();
+      const det = (g.detalle || "").toLowerCase();
+      const nom = (g.nombre_gasto || "").toLowerCase();
       const cat = getCategoriaNombre(g).toLowerCase();
       const usr = getNombreUsuario(g).toLowerCase();
       const num = (g.numero_gasto || "").toLowerCase();
@@ -315,7 +315,7 @@ export default function GastosOperativos() {
               </div>
               <div>
                 <div className="text-sm text-gray-500">Creado</div>
-                <div className="font-medium">{new Date(selectedGasto.fecha_creacion).toLocaleString("es-GT")}</div>
+                <div className="font-medium">{selectedGasto.fecha_creacion ? new Date(selectedGasto.fecha_creacion).toLocaleString("es-GT") : "N/A"}</div>
               </div>
             </div>
 

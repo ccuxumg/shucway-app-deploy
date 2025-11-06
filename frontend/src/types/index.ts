@@ -43,7 +43,7 @@ export interface UsuarioFormData {
   direccion: string | null;
   fecha_nacimiento: Dayjs | null;
   avatar_url: string;
-  estado: 'activo' | 'inactivo' | 'eliminado';
+  estado: 'activo' | 'inactivo' | 'suspendido' | 'eliminado';
   username: string | null;
   rol: string;
 }

@@ -21,6 +21,17 @@ export const fetchProveedores = async () => {
   return response.data;
 };
 
+export const getStockActual = async (idInsumo?: number) => {
+  const params = idInsumo ? { idInsumo } : {};
+  const response = await api.get("/inventario/stock", { params });
+  return response.data;
+};
+
+export const getCategoriasInsumo = async () => {
+  const response = await api.get("/dashboard/table-data/categoria_insumo");
+  return response.data;
+};
+
 type ProveedorAPIData = {
   nombre_empresa: string;
   nombre_contacto?: string | null;
@@ -82,8 +93,9 @@ export const createOrdenCompra = async (ordenData: {
   id_proveedor: number;
   estado?: string;
   tipo_orden?: string;
-  motivo_generacion?: string;
-  fecha_entrega_estimada?: string;
+  tipo_pago?: string;
+  motivo_generacion?: string | null;
+  fecha_entrega_estimada?: string | null;
   total?: number;
 }) => {
   const response = await api.post("/ordenes-compra", ordenData);
@@ -95,8 +107,9 @@ export const updateOrdenCompra = async (id_orden: string | number, ordenData: Pa
   id_proveedor: number;
   estado: string;
   tipo_orden: string;
-  motivo_generacion: string;
-  fecha_entrega_estimada: string;
+  tipo_pago: string;
+  motivo_generacion?: string | null;
+  fecha_entrega_estimada: string | null;
   total: number;
 }>) => {
   const response = await api.put(`/ordenes-compra/${id_orden}`, ordenData);
@@ -142,4 +155,40 @@ export const saveInsumo = async (insumo: InsumoDataType) => {
     if (error) throw new Error(error.message);
     return data;
   }
+};
+
+export const createRecepcionMercaderia = async (recepcionData: {
+  id_orden: number;
+  fecha_recepcion: string;
+  id_perfil: number;
+  numero_factura?: string;
+}) => {
+  const response = await api.post('/inventario/recepcion-mercaderia', recepcionData);
+  return response.data;
+};
+
+export const createDetalleRecepcionMercaderia = async (detalleData: {
+  id_recepcion: number;
+  id_detalle_orden: number;
+  cantidad_recibida: number;
+  cantidad_aceptada: number;
+  id_presentacion: number;
+}) => {
+  const response = await api.post('/inventario/detalle-recepcion-mercaderia', detalleData);
+  return response.data;
+};
+
+export const getInsumos = async () => {
+  const response = await api.get("/inventario/insumos");
+  return response.data;
+};
+
+export const getRecepcionesMercaderia = async () => {
+  const response = await api.get('/inventario/recepciones-mercaderia');
+  return response.data;
+};
+
+export const getOrdenCompraById = async (id: number) => {
+  const response = await api.get(`/ordenes-compra/${id}`);
+  return response.data;
 };

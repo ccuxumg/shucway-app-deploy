@@ -84,31 +84,69 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const debounceRef = useRef<number | null>(null);
 
   useEffect(() => {
-    // Obtener el usuario del localStorage (guardado por el backend JWT)
+    // Obtener el usuario del localStorage y API (similar a Perfil.tsx)
     const fetchUser = async () => {
       try {
+        // Primero intentar obtener del localStorage
         const userStr = localStorage.getItem('user');
-        if (!userStr) {
+        let userData = null;
+
+        if (userStr) {
+          userData = JSON.parse(userStr);
+        }
+
+        // Intentar obtener perfil actualizado de la API (similar a Perfil.tsx)
+        try {
+          const { getProfile } = await import('../api/authService');
+          const profile = await getProfile();
+          userData = profile;
+
+          // Actualizar localStorage con la información más reciente
+          localStorage.setItem('user', JSON.stringify(profile));
+        } catch (apiError) {
+          console.warn('No se pudo obtener perfil de API, usando localStorage:', apiError);
+          // Si falla la API, usar lo que hay en localStorage
+        }
+
+        if (!userData) {
           setUserName(null);
           setAvatarUrl(null);
           return;
         }
 
-        const user = JSON.parse(userStr);
-        
-        // Construir el nombre completo del usuario
-        const fullName = `${user.primer_nombre || ''} ${user.primer_apellido || ''}`.trim();
-        const nameToUse = fullName || user.username || user.nombre || user.email?.split('@')[0] || 'Usuario';
-        
+        // Mostrar solo el primer nombre del usuario
+        const nameToUse = userData.primer_nombre || userData.username || userData.nombre || userData.email?.split('@')[0] || 'Usuario';
+
         setUserName(nameToUse);
-        setAvatarUrl(user.avatar_url || null);
+        setAvatarUrl(userData.avatar_url || null);
       } catch (error) {
         console.error('Error al cargar usuario:', error);
         setUserName('Usuario');
         setAvatarUrl(null);
       }
     };
+
     fetchUser();
+
+    // Listener para cambios en localStorage (útil para múltiples pestañas)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'user') {
+        fetchUser();
+      }
+    };
+
+    // Listener personalizado para actualizaciones del usuario en la misma aplicación
+    const handleUserUpdate = () => {
+      fetchUser();
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('userProfileUpdated', handleUserUpdate);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('userProfileUpdated', handleUserUpdate);
+    };
   }, []);
 
   const getInitials = (name?: string | null) => {
@@ -175,6 +213,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
         const notifs: NotificationItem[] = [];
         const alrts: NotificationItem[] = [];
         alertasData.forEach((alert: AlertData) => {
+          const isInventoryWarning = alert.module?.toLowerCase() === 'inventario' && alert.type === 'warning';
           const item: NotificationItem = {
             id: alert.id || '',
             message: alert.message,
@@ -186,13 +225,19 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
               else if (alert.module === 'Configuración') navigate('/configuracion');
             }
           };
+          if (isInventoryWarning) {
+            notifs.push(item);
+            return;
+          }
+
           if (alert.type === 'error' || alert.type === 'warning') {
             alrts.push(item);
           } else {
             notifs.push(item);
           }
         });
-        setNotifications(notifs);
+        const uniqueNotifications = Array.from(new Map(notifs.map((n) => [n.id, n])).values());
+        setNotifications(uniqueNotifications);
         setAlerts(alrts);
       } catch (error) {
         console.error('Error loading alerts:', error);
@@ -224,9 +269,11 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     { name: 'Producto (Ventas)', route: '/ventas/producto', section: 'Ventas' },
     { name: 'Cierre de Caja', route: '/ventas/cierre-caja', section: 'Ventas' },
     { name: 'Inventario', route: '/inventario', section: 'Operaciones' },
-    { name: 'Categorias', route: '/inventario/categorias', section: 'Operaciones' },
+    { name: 'Categorías', route: '/inventario/categorias', section: 'Operaciones' },
     { name: 'Recepción de Mercadería', route: '/inventario/recepcion-mercaderia', section: 'Operaciones' },
     { name: 'Proveedores', route: '/proveedores', section: 'Operaciones' },
+    { name: 'Órdenes de Compra', route: '/inventario?tab=ordenes', section: 'Operaciones' },
+    { name: 'Auditoría de Inventario', route: '/inventario?tab=auditoria', section: 'Operaciones' },
     { name: 'Reportes', route: '/reportes', section: 'Operaciones' },
     { name: 'Perfil', route: '/perfil', section: 'General' },
     { name: 'Soporte', route: '/soporte', section: 'General' },
@@ -361,7 +408,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     };
 
     return (
-      <div className="flex items-center justify-center w-full mt-4 auditoria-quick-widget">
+      <div className="flex items-center justify-center w-full mt-2 auditoria-quick-widget">
         {collapsed ? (
           // Vista colapsada: solo icono
           <button
@@ -382,21 +429,21 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           </button>
         ) : (
           // Vista expandida: card completa
-          <div className="w-full bg-gray-50 rounded-lg p-4 flex flex-col items-center shadow-md">
+          <div className="w-full bg-gray-50 rounded-lg p-2 flex flex-col items-center shadow-md border border-gray-200">
             <div className="text-xs uppercase font-semibold text-gray-500 mb-1">
               {auditoriaActiva ? 'Auditoría en Curso' : 'Auditoría'}
             </div>
-            <div className="text-lg font-semibold text-gray-700">
+            <div className="text-lg font-semibold text-gray-700 text-center">
               {formatDateSpanish(auditoriaFecha)}
             </div>
             {auditoriaActiva && (
-              <div className="text-sm text-gray-600 mt-1">{auditoriaLabel}</div>
+              <div className="text-sm text-gray-600 mt-1 text-center truncate w-full">{auditoriaLabel}</div>
             )}
-            <div className="mt-3 w-full">
+            <div className="mt-2 w-full">
               <button
                 onClick={handleClick}
                 data-navigate="/inventario?tab=auditoria"
-                className="w-full text-white px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2"
+                className="w-full text-white px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2 text-sm"
                 style={auditoriaActiva 
                   ? { background: 'linear-gradient(135deg, #001f3f 0%, #003d7a 100%)' }
                   : { background: 'linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%)' }
@@ -466,7 +513,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     // Always render card; button color/label depends on cajaOpen.
     return (
       <>
-        <div className="flex items-center justify-center w-full mt-4 caja-quick-widget">
+        <div className="flex items-center justify-center w-full mt-1 caja-quick-widget">
           {collapsed ? (
             // Vista colapsada: solo icono
             <button 
@@ -478,22 +525,22 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
             </button>
           ) : (
             // Vista expandida: card completa
-            <div className="w-full bg-gray-50 rounded-lg p-4 flex flex-col items-center shadow-md">
+            <div className="w-full bg-gray-50 rounded-lg p-2 flex flex-col items-center shadow-md border border-gray-200">
               <div className="text-xs uppercase font-semibold text-gray-500 mb-1">
                 {cajaOpen ? 'Caja Abierta' : 'Caja Cerrada'}
               </div>
-              <div className="text-lg font-semibold text-gray-700">{formatDateSpanish(startTs || Date.now())}</div>
+              <div className="text-lg font-semibold text-gray-700 text-center">{formatDateSpanish(startTs || Date.now())}</div>
               {cajaOpen && (
-                <div className="text-sm text-gray-600 mt-1">{formatCurrency(0)}</div>
+                <div className="text-sm text-gray-600 mt-1 text-center">{formatCurrency(0)}</div>
               )}
-              <div className="mt-3 w-full">
+              <div className="mt-2 w-full">
                 {!cajaOpen ? (
-                  <button onClick={openCaja} className="w-full bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2">
+                  <button onClick={openCaja} className="w-full bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2 text-sm">
                     <MdLockOpen size={16} />
                     Abrir Caja
                   </button>
                 ) : (
-                  <button onClick={() => setShowConfirm(true)} className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2">
+                  <button onClick={() => setShowConfirm(true)} className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2 text-sm">
                     <MdLockOpen size={16} />
                     Cerrar Caja
                   </button>
@@ -546,7 +593,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           x: mobileMenuOpen ? 0 : (typeof window !== 'undefined' && window.innerWidth < 768 ? -224 : 0)
         }}
         transition={{ type: 'spring', stiffness: 220, damping: 30 }}
-        className={`z-50 fixed left-0 top-0 h-screen bg-white shadow-lg flex flex-col items-center py-3 sm:py-4 md:py-6 overflow-y-auto md:relative`}
+        className={`z-50 fixed left-0 top-0 h-screen bg-white shadow-lg flex flex-col items-center py-3 sm:py-4 md:py-6 overflow-y-auto overflow-x-hidden md:relative`}
       >
         <div className={`flex items-center gap-3 px-2 sm:px-3 md:px-4 ${collapsed ? "justify-center" : "justify-center w-full"} mb-3 sm:mb-4 md:mb-6`}>
           <motion.button 
@@ -626,7 +673,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
 
         <div className="flex-1" />
         {/* Caja rápida: abrir / cerrar caja y contador */}
-        <div className="w-full px-3 mb-4">
+        <div className="w-full px-3 mb-1">
           {/* estado de la caja almacenado en localStorage: 'caja:start' = timestamp */}
           {/* Mostrar botón Abrir Caja cuando cerrada; contador + Cerrar cuando abierta */}
           {/* Usa navigate a la ruta de cierre de caja para integrarse con el módulo de ventas */}
@@ -636,10 +683,10 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           <AuditoriaQuick />
         </div>
 
-        <div className="w-full px-3 mb-4">
+        <div className="w-full px-3 mb-6">
           {/* sidebar: perfil eliminado según solicitud */}
 
-          <div className="mt-4 flex justify-center">
+          <div className="mt-6 flex justify-center">
               {collapsed ? (
               <Tippy content="Cerrar sesión" placement="right" animation="scale" delay={[80,0]} duration={[160,80]} hideOnClick={false} interactive={false} arrow={true}>
                 <button
@@ -881,8 +928,8 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           </div>
   </header>
 
-  <div className="flex-1 p-2 bg-transparent w-full overflow-y-auto min-h-0">
-          <div className="animate-fade-in w-full h-full">{children}</div>
+  <div className="flex-1 p-2 bg-transparent w-full overflow-hidden min-h-0">
+          <div className="animate-fade-in w-full h-full overflow-y-auto">{children}</div>
         </div>
       </main>
     </div>

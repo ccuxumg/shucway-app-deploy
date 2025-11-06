@@ -91,13 +91,26 @@ export const dashboardService = {
         .select('nombre_insumo, stock_actual, stock_minimo');
 
       if (!errorInsumos && insumos) {
-        const insumosBajos = insumos.filter((i: InsumoBajo) => i.stock_actual < i.stock_minimo);
+        const insumosBajos = insumos.filter((i: InsumoBajo) => {
+          const stockActual = Number(i.stock_actual ?? 0);
+          const stockMinimo = Number(i.stock_minimo ?? 0);
+          return stockActual <= stockMinimo;
+        });
+
         insumosBajos.forEach((i: InsumoBajo) => {
+          const stockActual = Number(i.stock_actual ?? 0);
+          const stockMinimo = Number(i.stock_minimo ?? 0);
+          const agotado = stockActual <= 0;
+          const diferencia = Math.max(stockMinimo - stockActual, 0);
+          const message = agotado
+            ? `Sin stock: '${i.nombre_insumo}' está agotado. Genera una nueva orden de compra.`
+            : `Stock crítico: '${i.nombre_insumo}' tiene ${stockActual} unidades (mínimo ${stockMinimo}). Faltan ${diferencia} para el mínimo.`;
+
           alertas.push({
             id: `insumo-${i.nombre_insumo}`,
-            message: `Límite alcanzado: insumo '${i.nombre_insumo}' bajo stock`,
+            message,
             module: 'Inventario',
-            type: 'warning',
+            type: agotado ? 'warning' : 'warning',
             timestamp: new Date().toISOString()
           });
         });

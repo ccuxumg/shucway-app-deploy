@@ -55,7 +55,6 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
   type SortKey = 'id' | 'estado' | 'nombreCompleto' | 'ultimoAcceso' | 'rol';
   const [sortBy, setSortBy] = useState<SortKey>('id');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [selectedRows, setSelectedRows] = useState<number[]>([]);
 
   // Hooks de permisos y acciones
   const permissions = usePermissions();
@@ -161,23 +160,6 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
     } else {
       setSortBy(key);
       setSortDir('asc');
-    }
-  };
-
-  // Funciones para selección de filas
-  const handleSelectAll = () => {
-    if (selectedRows.length === usuarios.length) {
-      setSelectedRows([]);
-    } else {
-      setSelectedRows(usuarios.map(u => u.id_perfil));
-    }
-  };
-
-  const handleRowSelect = (id: number) => {
-    if (selectedRows.includes(id)) {
-      setSelectedRows(selectedRows.filter(rowId => rowId !== id));
-    } else {
-      setSelectedRows([...selectedRows, id]);
     }
   };
 
@@ -552,14 +534,6 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
               <table className="users-table w-full border-collapse">
                 <thead>
                   <tr className="bg-gray-50 border-b">
-                    <th className="p-4 text-left">
-                      <input
-                        type="checkbox"
-                        checked={selectedRows.length === usuarios.length && usuarios.length > 0}
-                        onChange={handleSelectAll}
-                        className="rounded"
-                      />
-                    </th>
                     {columnsInfo?.filter(col => !col.hidden).map((col) => (
                       <Th
                         key={col.key}
@@ -593,14 +567,6 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
                       key={usuario.id_perfil}
                       className={index % 2 === 0 ? 'bg-[#e6f4f1]' : 'bg-white border-b hover:bg-gray-50'}
                     >
-                      <td className="p-4">
-                        <input
-                          type="checkbox"
-                          checked={selectedRows.includes(usuario.id_perfil)}
-                          onChange={() => handleRowSelect(usuario.id_perfil)}
-                          className="rounded"
-                        />
-                      </td>
                       {columnsInfo?.filter(col => !col.hidden).map((col) => {
                         const column = col as { dataIndex?: string; render?: (value: unknown, record: UsuarioDataType, index: number) => React.ReactNode };
                         const value = column.dataIndex ? usuario[column.dataIndex as keyof UsuarioDataType] : null;

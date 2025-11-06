@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from "framer-motion";
 import { PiEyeBold, PiTrashBold, PiSpinnerBold, PiFloppyDiskBold, PiPlusBold, PiPackageBold, PiPencilSimpleBold, PiWarningBold } from "react-icons/pi";
-import { message } from 'antd';
-import { fetchProveedores, fetchOrdenesCompra, createOrdenCompra, createDetalleOrdenCompra, updateOrdenCompra } from "../../../../api/inventarioService";
+import { message, notification } from 'antd';
+import { fetchProveedores, fetchOrdenesCompra, createOrdenCompra, createDetalleOrdenCompra, updateOrdenCompra, deleteOrdenCompra, createRecepcionMercaderia, getRecepcionesMercaderia, getOrdenCompraById } from "../../../../api/inventarioService";
 import { getProfile } from '../../../../api/authService';
 
 /* =============== Tipos API =============== */
@@ -22,13 +22,13 @@ type ProveedorAPI = {
 type OrdenCompraAPI = {
   id_orden: number;
   fecha_orden: string;
+  fecha_entrega_estimada?: string | null;
   id_proveedor: number;
   estado: string;
   tipo_orden?: string | null;
   motivo_generacion?: string | null;
   fecha_aprobacion?: string | null;
-  subtotal: number;
-  iva: number;
+  total: number;
   tipo_pago?: string | null;
 };
 type Proveedor = {
@@ -72,6 +72,15 @@ type DetalleOrdenCompra = {
   unidad_base?: string;
   unidades_por_presentacion?: number;
   cantidad_recibida?: number;
+  insumo?: {
+    nombre_insumo?: string;
+    unidad_base?: string;
+  };
+  insumo_presentacion?: {
+    descripcion_presentacion?: string;
+    unidades_por_presentacion?: number;
+    unidad_compra?: string;
+  };
 };
 
 type InsumoRow = {
@@ -146,6 +155,25 @@ export type Item = {
   }>;
 };
 
+type MovimientoSincronizacionResumen = {
+  movimientosAplicados: boolean;
+  movimientosGenerados: number;
+  cantidadBaseTotal: number;
+  lotesActualizados: number;
+  insumosActualizados: number;
+  seOmitioPorDuplicado: boolean;
+  mensajes: string[];
+};
+
+type RecepcionSincronizacionResumen = {
+  movimientos: MovimientoSincronizacionResumen;
+  ocCerrada: boolean;
+  ocEstadoFinal: string;
+  totalDetallesOrden: number | null;
+  totalDetallesRecepcion: number | null;
+  detallesPendientes: number;
+};
+
 type FormProveedor = {
   id_proveedor?: number;
   nombre: string;
@@ -164,7 +192,83 @@ const INPUT_CLS =
 
 const fmtQ = (n?: number | null) =>
   n == null ? "—" : new Intl.NumberFormat("es-GT", { style: "currency", currency: "GTQ" }).format(n);
-const fmtDate = (s?: string | null) => (s ? new Date(s + "T00:00:00").toLocaleDateString("es-GT") : "—");
+const fmtUnits = (n?: number | null) =>
+  n == null ? "0" : new Intl.NumberFormat("es-GT", { maximumFractionDigits: 2, minimumFractionDigits: 0 }).format(n);
+const fmtDate = (s?: string | null) => {
+  if (!s) return "—";
+  try {
+    const date = new Date(s);
+    return isNaN(date.getTime()) ? "—" : date.toLocaleDateString("es-GT");
+  } catch {
+    return "—";
+  }
+};
+const sortOrdersDesc = (orders: Orden[]) =>
+  [...orders].sort((a, b) => {
+    const timeA = a?.fecha ? new Date(a.fecha).getTime() : 0;
+    const timeB = b?.fecha ? new Date(b.fecha).getTime() : 0;
+    if (timeA === timeB) {
+      const idA = Number(a?.id_orden ?? 0);
+      const idB = Number(b?.id_orden ?? 0);
+      return idB - idA;
+    }
+    return timeB - timeA;
+  });
+
+const showRecepcionSyncNotification = ({
+  numeroOrden,
+  idRecepcion,
+  detallesCreados,
+  resumen,
+}: {
+  numeroOrden?: string | null;
+  idRecepcion?: number;
+  detallesCreados?: number;
+  resumen?: RecepcionSincronizacionResumen | null;
+}) => {
+  if (!resumen) return;
+
+  const lines: string[] = [];
+
+  if (typeof detallesCreados === 'number') {
+    lines.push(`Detalles generados automáticamente: ${detallesCreados}`);
+  }
+
+  if (resumen.totalDetallesOrden !== null && resumen.totalDetallesRecepcion !== null) {
+    const baseLine = `Recepciones vinculadas: ${resumen.totalDetallesRecepcion}/${resumen.totalDetallesOrden}`;
+    lines.push(resumen.detallesPendientes > 0 ? `${baseLine} (pendientes: ${resumen.detallesPendientes})` : baseLine);
+  }
+
+  if (resumen.movimientos.seOmitioPorDuplicado) {
+    lines.push('Los movimientos de inventario ya estaban aplicados.');
+  } else if (resumen.movimientos.movimientosAplicados) {
+    lines.push(`Movimientos generados: ${resumen.movimientos.movimientosGenerados} registro(s) (${fmtUnits(resumen.movimientos.cantidadBaseTotal)} uds base).`);
+  } else {
+    lines.push('No se generaron movimientos de inventario para esta recepción.');
+  }
+
+  lines.push(`Estado actual de la OC: ${resumen.ocEstadoFinal}${resumen.ocCerrada ? ' (cerrada)' : ''}.`);
+
+  resumen.movimientos.mensajes
+    .filter(msg => Boolean(msg) && !lines.includes(msg))
+    .forEach(msg => lines.push(msg));
+
+  notification.success({
+    message: `Recepción sincronizada${numeroOrden ? ` (${numeroOrden})` : ''}`,
+    description: (
+      <div className="space-y-1">
+        {typeof idRecepcion === 'number' ? (
+          <div className="font-semibold text-gray-800">Recepción #{idRecepcion}</div>
+        ) : null}
+        {lines.map((line, index) => (
+          <div key={`sync-line-${index}`} className="text-sm text-gray-700">{line}</div>
+        ))}
+      </div>
+    ),
+    placement: 'bottomRight',
+    duration: 6,
+  });
+};
 
 /* =========================================================================
  * DrawerRight (estilo Ventas)
@@ -220,12 +324,6 @@ function Pill({ tone, children }: { tone: "green" | "red"; children: React.React
       {children}
     </span>
   );
-}
-function OrderState({ estado }: { estado?: string | null }) {
-  const v = (estado || "").toLowerCase();
-  const label = v.includes("aprob") ? "Aprobada" : v.includes("recib") ? "Recibida" : v.includes("cancel") ? "Cancelada" : "Pendiente";
-  const tone: "green" | "red" = label === "Aprobada" || label === "Recibida" ? "green" : "red";
-  return <Pill tone={tone}>{label}</Pill>;
 }
 function ProviderState({ active }: { active?: boolean | null }) {
   return <Pill tone={active ? "green" : "red"}>{active ? "Activo" : "Inactivo"}</Pill>;
@@ -331,6 +429,58 @@ function TabButton({ active, onClick, label }: { active?: boolean; onClick?: () 
   );
 }
 
+/* =============== Función auxiliar para fecha de hoy =============== */
+const getTodayDate = (): string => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+/* =============== Componente para mostrar estado de orden =============== */
+function OrderState({ estado }: { estado: string | null | undefined }) {
+  const getEstadoStyles = (estado: string) => {
+    switch (estado?.toLowerCase()) {
+      case 'pendiente':
+        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'aprobada':
+      case 'aprobado':
+        return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'recibida':
+      case 'recibido':
+        return 'bg-green-100 text-green-800 border-green-200';
+      case 'cancelada':
+      case 'cancelado':
+      case 'rechazada':
+      case 'rechazado':
+        return 'bg-red-100 text-red-800 border-red-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
+  const getEstadoDisplay = (estado: string) => {
+    switch (estado?.toLowerCase()) {
+      case 'aprobada':
+      case 'aprobado':
+        return 'Aprobada';
+      case 'rechazada':
+      case 'rechazado':
+        return 'Rechazada';
+      default:
+        return estadoValue.charAt(0).toUpperCase() + estadoValue.slice(1);
+    }
+  };
+
+  const estadoValue = estado || 'pendiente';
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getEstadoStyles(estadoValue)}`}>
+      {getEstadoDisplay(estadoValue)}
+    </span>
+  );
+}
+
 /* =============== Componente Principal =============== */
 export default function IngresoCompra(): JSX.Element {
   const [rows, setRows] = useState<Orden[]>([]);
@@ -346,80 +496,85 @@ export default function IngresoCompra(): JSX.Element {
   // Modal de confirmación de eliminación de orden
   const [deleteOrderModal, setDeleteOrderModal] = useState<{ open: boolean; order: Orden | null }>({ open: false, order: null });
 
+  // Función para cargar datos
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [proveedoresData, ordenesData, insumosResult] = await Promise.all([
+        fetchProveedores(),
+        fetchOrdenesCompra(),
+        fetch(`${import.meta.env.VITE_API_URL}/inventario/insumos`, {
+          headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+        }).then(res => res.json()).catch(() => ({ data: [] })) // Fallback to empty array on error
+      ]);
+
+      let insumosData: unknown[] = [];
+      if (insumosResult && typeof insumosResult === 'object' && 'data' in insumosResult) {
+        insumosData = Array.isArray(insumosResult.data) ? insumosResult.data : [];
+      } else if (Array.isArray(insumosResult)) {
+        insumosData = insumosResult;
+      }
+
+      // Transformar insumos al formato esperado por el frontend
+      const transformedInsumos: InsumoRow[] = (insumosData as { id_insumo: number; nombre_insumo: string; costo_promedio: number; unidad_base: string; stock_minimo?: number; stock_maximo?: number; stock_actual?: number }[]).map((ins: { id_insumo: number; nombre_insumo: string; costo_promedio: number; unidad_base: string; stock_minimo?: number; stock_maximo?: number; stock_actual?: number }) => ({
+        id_insumo: ins.id_insumo,
+        nombre: ins.nombre_insumo,
+        costo_promedio: ins.costo_promedio,
+        unidad_medida_compra: ins.unidad_base, // Usar unidad_base como medida de compra por defecto
+        unidad_base: ins.unidad_base,
+        stock_minimo: ins.stock_minimo,
+        stock_maximo: ins.stock_maximo,
+        stock_actual: ins.stock_actual,
+      }));
+
+      // Transformar datos de proveedores para que coincidan con el tipo esperado
+      const proveedoresFormatted = proveedoresData.map((prov: ProveedorAPI) => ({
+        id_proveedor: prov.id_proveedor,
+        nombre: prov.nombre_empresa,
+        contacto: prov.nombre_contacto,
+        telefono: prov.telefono,
+        correo: prov.correo,
+        direccion: prov.direccion,
+        activo: prov.estado,
+        es_preferido: prov.es_preferido ?? false,
+        dias_entrega: null,
+        tiempo_entrega_promedio: null,
+        metodo_entrega: prov.metodo_entrega
+      }));
+
+      // Transformar datos de órdenes de compra
+      const ordenesFormatted = ordenesData.map((orden: OrdenCompraAPI) => {
+        const proveedorEncontrado = proveedoresFormatted.find((p: FormProveedor) => p.id_proveedor === orden.id_proveedor);
+        return {
+          id_orden: orden.id_orden.toString(),
+          numero_orden: `OC-${orden.id_orden}`,
+          fecha: orden.fecha_orden,
+          fecha_entrega_estimada: orden.fecha_entrega_estimada,
+          tipo_pago: orden.tipo_pago,
+          tipo_orden: orden.tipo_orden,
+          motivo_generacion: orden.motivo_generacion,
+          id_proveedor: orden.id_proveedor,
+          proveedor: proveedorEncontrado ? { nombre: proveedorEncontrado.nombre } : null,
+          total: orden.total, // Usar el total directamente de la base de datos
+          estado: orden.estado,
+          items_count: 0 // Calcular si es necesario
+        };
+      });
+
+  setProveedores(proveedoresFormatted);
+  setAllProveedores(proveedoresFormatted); // Para el dropdown de filtro
+  setRows(sortOrdersDesc(ordenesFormatted as Orden[]));
+      setInsumos(transformedInsumos);
+    } catch (err) {
+      console.error('Error cargando datos:', err);
+      setError('Error al cargar los datos. Intente nuevamente.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Cargar datos al montar el componente
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        const [proveedoresData, ordenesData, insumosResult] = await Promise.all([
-          fetchProveedores(),
-          fetchOrdenesCompra(),
-          fetch(`${import.meta.env.VITE_API_URL}/inventario/insumos`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
-          }).then(res => res.json()).catch(() => ({ data: [] })) // Fallback to empty array on error
-        ]);
-
-        let insumosData: unknown[] = [];
-        if (insumosResult && typeof insumosResult === 'object' && 'data' in insumosResult) {
-          insumosData = Array.isArray(insumosResult.data) ? insumosResult.data : [];
-        } else if (Array.isArray(insumosResult)) {
-          insumosData = insumosResult;
-        }
-
-        // Transformar insumos al formato esperado por el frontend
-        const transformedInsumos: InsumoRow[] = (insumosData as { id_insumo: number; nombre_insumo: string; costo_promedio: number; unidad_base: string; stock_minimo?: number; stock_maximo?: number; stock_actual?: number }[]).map((ins: { id_insumo: number; nombre_insumo: string; costo_promedio: number; unidad_base: string; stock_minimo?: number; stock_maximo?: number; stock_actual?: number }) => ({
-          id_insumo: ins.id_insumo,
-          nombre: ins.nombre_insumo,
-          costo_promedio: ins.costo_promedio,
-          unidad_medida_compra: ins.unidad_base, // Usar unidad_base como medida de compra por defecto
-          unidad_base: ins.unidad_base,
-          stock_minimo: ins.stock_minimo,
-          stock_maximo: ins.stock_maximo,
-          stock_actual: ins.stock_actual,
-        }));
-
-        // Transformar datos de proveedores para que coincidan con el tipo esperado
-        const proveedoresFormatted = proveedoresData.map((prov: ProveedorAPI) => ({
-          id_proveedor: prov.id_proveedor,
-          nombre: prov.nombre_empresa,
-          contacto: prov.nombre_contacto,
-          telefono: prov.telefono,
-          correo: prov.correo,
-          direccion: prov.direccion,
-          activo: prov.estado,
-          es_preferido: prov.es_preferido ?? false,
-          dias_entrega: null,
-          tiempo_entrega_promedio: null,
-          metodo_entrega: prov.metodo_entrega
-        }));
-
-        // Transformar datos de órdenes de compra
-        const ordenesFormatted = ordenesData.map((orden: OrdenCompraAPI) => {
-          const proveedorEncontrado = proveedoresFormatted.find((p: FormProveedor) => p.id_proveedor === orden.id_proveedor);
-          return {
-            id_orden: orden.id_orden.toString(),
-            numero_orden: `OC-${orden.id_orden}`,
-            fecha: orden.fecha_orden,
-            id_proveedor: orden.id_proveedor,
-            proveedor: proveedorEncontrado ? { nombre: proveedorEncontrado.nombre } : null,
-            total: orden.subtotal + orden.iva,
-            estado: orden.estado,
-            items_count: 0 // Calcular si es necesario
-          };
-        });
-
-        setProveedores(proveedoresFormatted);
-        setAllProveedores(proveedoresFormatted); // Para el dropdown de filtro
-        setRows(ordenesFormatted);
-        setInsumos(transformedInsumos);
-      } catch (err) {
-        console.error('Error cargando datos:', err);
-        setError('Error al cargar los datos. Intente nuevamente.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadData();
   }, []);
 
@@ -500,24 +655,31 @@ export default function IngresoCompra(): JSX.Element {
       if (status !== "Todas") {
         const estadoOrden = (r.estado || "pendiente").toLowerCase();
         const filtroEstado = status.toLowerCase();
-        if (filtroEstado === "pendiente" && (estadoOrden.includes("aprob") || estadoOrden.includes("recib") || estadoOrden.includes("cancel"))) return false;
-        if (filtroEstado !== "pendiente" && !estadoOrden.includes(filtroEstado)) return false;
+        if (filtroEstado === "pendiente" && (estadoOrden.includes("aprob") || estadoOrden.includes("recib") || estadoOrden.includes("rechaz"))) return false;
+        if (filtroEstado === "aprobada" && !estadoOrden.includes("aprob")) return false;
+        if (filtroEstado === "recibida" && !estadoOrden.includes("recib")) return false;
+        if (filtroEstado === "rechazada" && !estadoOrden.includes("rechaz")) return false;
       }
       if (selectedProveedorIdFilter !== "Todos" && String(r.id_proveedor ?? "") !== selectedProveedorIdFilter) return false;
       if (!ql) return true;
       const numOrden = `${r.numero_orden ?? ""}`.toLowerCase();
       const provNombre = `${r.proveedor?.nombre ?? ""}`.toLowerCase();
       return numOrden.includes(ql) || provNombre.includes(ql);
+    }).sort((a, b) => {
+      // Ordenar por fecha descendente (más reciente primero)
+      const fechaA = new Date(a.fecha || 0).getTime();
+      const fechaB = new Date(b.fecha || 0).getTime();
+      return fechaB - fechaA;
     });
   }, [rows, q, status, selectedProveedorIdFilter]);
 
   const counts = useMemo(() => {
-    const acc = { Pendiente: 0, Aprobada: 0, Recibida: 0, Cancelada: 0 } as Record<string, number>;
+    const acc = { Pendiente: 0, Aprobada: 0, Recibida: 0, Rechazada: 0 } as Record<string, number>;
     rows.forEach((r) => {
       const s = (r.estado || "").toLowerCase();
       if (s.includes("aprob")) acc.Aprobada++;
       else if (s.includes("recib")) acc.Recibida++;
-      else if (s.includes("cancel")) acc.Cancelada++;
+      else if (s.includes("rechaz")) acc.Rechazada++;
       else acc.Pendiente++;
     });
     return acc;
@@ -570,10 +732,26 @@ export default function IngresoCompra(): JSX.Element {
 
   const confirmDeleteProvider = useCallback(() => {
     if (!deleteProviderModal.provider) return;
-    setProveedores((prev) => prev.filter(x => x.id_proveedor !== deleteProviderModal.provider!.id_proveedor));
-    setAllProveedores((prev) => prev.filter(x => x.id_proveedor !== deleteProviderModal.provider!.id_proveedor));
-    message.success(`Proveedor "${deleteProviderModal.provider.nombre}" eliminado correctamente.`);
-    setDeleteProviderModal({ open: false, provider: null });
+    (async () => {
+      try {
+        const resp = await fetch(`/api/proveedores/${deleteProviderModal.provider!.id_proveedor}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+        });
+        if (!resp.ok) {
+          const txt = await resp.text();
+          throw new Error(txt || 'Error eliminando proveedor');
+        }
+        setProveedores((prev) => prev.filter(x => x.id_proveedor !== deleteProviderModal.provider!.id_proveedor));
+        setAllProveedores((prev) => prev.filter(x => x.id_proveedor !== deleteProviderModal.provider!.id_proveedor));
+        message.success(`Proveedor "${deleteProviderModal.provider!.nombre}" eliminado correctamente.`);
+        setDeleteProviderModal({ open: false, provider: null });
+      } catch (error) {
+        console.error('Error eliminando proveedor:', error);
+        const msg = error instanceof Error ? error.message : 'Error desconocido';
+        message.error(`No se pudo eliminar el proveedor: ${msg}`);
+      }
+    })();
   }, [deleteProviderModal.provider]);
 
   /* ---- Acciones Órdenes ---- */
@@ -582,10 +760,36 @@ export default function IngresoCompra(): JSX.Element {
     setDeleteOrderModal({ open: true, order: r });
   };
 
-  const confirmDeleteOrder = useCallback(() => {
+  const confirmDeleteOrder = useCallback(async () => {
     if (!deleteOrderModal.order) return;
-    setRows((prev) => prev.filter(x => x.id_orden !== deleteOrderModal.order!.id_orden));
-    setDeleteOrderModal({ open: false, order: null });
+    
+    try {
+      // Eliminar la orden del backend usando la función del servicio
+      await deleteOrdenCompra(deleteOrderModal.order.id_orden);
+
+      // Actualizar el estado local
+      setRows((prev) => prev.filter(x => x.id_orden !== deleteOrderModal.order!.id_orden));
+      message.success(`Orden "${deleteOrderModal.order.numero_orden || deleteOrderModal.order.id_orden}" eliminada correctamente.`);
+      setDeleteOrderModal({ open: false, order: null });
+    } catch (error: unknown) {
+      console.error('Error eliminando orden:', error);
+      
+      // Manejar el error específico de recepciones asociadas
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosError = error as { response?: { data?: { detail?: string; message?: string } } };
+        if (axiosError.response?.data?.detail) {
+          message.error(
+            `No se puede eliminar la orden porque tiene recepciones de mercadería asociadas. ${axiosError.response.data.detail}`
+          );
+        } else {
+          const errorMessage = axiosError.response?.data?.message || 'Error desconocido';
+          message.error(`Error al eliminar la orden: ${errorMessage}`);
+        }
+      } else {
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        message.error(`Error al eliminar la orden: ${errorMessage}`);
+      }
+    }
   }, [deleteOrderModal.order]);
 
   /* ---- Función para guardar proveedor ---- */
@@ -899,10 +1103,9 @@ export default function IngresoCompra(): JSX.Element {
             <div className="flex items-center gap-4 flex-wrap">
               <div className="flex items-center gap-2">
                 <span className="text-base font-medium text-gray-700 whitespace-nowrap">Estado:</span>
-                {["Todas", ...Object.keys(counts)].map((estadoKey) => {
+                {["Todas", "Pendiente", "Aprobada", "Recibida", "Rechazada"].map((estadoKey) => {
                   const count = estadoKey === "Todas" ? rows.length : counts[estadoKey] ?? 0;
                   const label = estadoKey === "Todas" ? `Todas (${count})` : `${estadoKey} (${count})`;
-                  if (estadoKey !== "Todas" && count === 0 && status !== estadoKey) return null;
                   return <TabButton key={estadoKey} active={status === estadoKey} onClick={() => setStatus(estadoKey)} label={label} />;
                 })}
               </div>
@@ -966,9 +1169,11 @@ export default function IngresoCompra(): JSX.Element {
                       <td className="px-5 py-4">
                         <div className="flex items-center justify-end gap-1.5">
                           <IconBtn title="Ver" onClick={() => openViewOrder(r)}><PiEyeBold /></IconBtn>
-                          <IconBtn title="Editar" onClick={() => openEditOrder(r)} style={{ color: '#7c3aed' }}>
-                            <PiPencilSimpleBold />
-                          </IconBtn>
+                          {r.estado !== 'recibida' && (
+                            <IconBtn title="Editar" onClick={() => openEditOrder(r)} style={{ color: '#7c3aed' }}>
+                              <PiPencilSimpleBold />
+                            </IconBtn>
+                          )}
                           <IconBtn title="Eliminar" onClick={() => deleteOrder(r)}><PiTrashBold className="text-rose-600" /></IconBtn>
                         </div>
                       </td>
@@ -1009,12 +1214,18 @@ export default function IngresoCompra(): JSX.Element {
             detail={detail}
             readOnly={readOnly}
             onClose={() => {
-              // Siempre navegar al catálogo cuando se cierra el drawer
-              navigate('/inventario?tab=catalogo');
+              // Mantenerse en la página de órdenes de compra
+              setDetail(null);
+              setReadOnly(false);
+              setOpenDrawer(false);
             }}
             setRows={setRows}
             proveedores={proveedores}
             insumos={insumos}
+            loadData={loadData}
+            setStatus={setStatus}
+            setQ={setQ}
+            setSelectedProveedorIdFilter={setSelectedProveedorIdFilter}
           />
         </div>
       </DrawerRight>
@@ -1219,7 +1430,7 @@ export default function IngresoCompra(): JSX.Element {
  * ===== Formulario de Orden de Compra =====
  * ====================================================================== */
 function PurchaseOrderForm({
-  detail, readOnly, onClose, setRows, proveedores, insumos
+  detail, readOnly, onClose, setRows, proveedores, insumos, loadData, setStatus, setQ, setSelectedProveedorIdFilter
 }: {
   detail: Orden | null;
   readOnly: boolean;
@@ -1227,6 +1438,10 @@ function PurchaseOrderForm({
   setRows: React.Dispatch<React.SetStateAction<Orden[]>>;
   proveedores: Proveedor[];
   insumos: InsumoRow[];
+  loadData: () => Promise<void>;
+  setStatus?: React.Dispatch<React.SetStateAction<string>>;
+  setQ?: React.Dispatch<React.SetStateAction<string>>;
+  setSelectedProveedorIdFilter?: React.Dispatch<React.SetStateAction<string>>;
 }) {
   const [selectedProveedorId, setSelectedProveedorId] = useState<string>(String(detail?.id_proveedor ?? ""));
   const [fecha, setFecha] = useState<string>(detail?.fecha ? String(detail.fecha).slice(0, 10) : (() => {
@@ -1249,16 +1464,20 @@ function PurchaseOrderForm({
       const loadOrder = async () => {
         try {
           const response = await fetch(`${import.meta.env.VITE_API_URL}/ordenes-compra/${detail.id_orden}/detalles`, {
-            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+            headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
           });
           if (response.ok) {
             const detalles = await response.json() as DetalleOrdenCompra[];
             const loadedItems = await Promise.all(detalles.map(async (d) => {
+              const descripcionPresentacion = d.insumo_presentacion?.descripcion_presentacion || '';
+              const unidadesPorPresentacion = d.insumo_presentacion?.unidades_por_presentacion ?? d.unidades_por_presentacion ?? 1;
+              const unidadBase = d.unidad_base || d.insumo?.unidad_base || '';
+
               // Obtener información completa del insumo incluyendo stock
               let stockInfo = {};
               try {
                 const insumoResponse = await fetch(`${import.meta.env.VITE_API_URL}/inventario/insumos/${d.id_insumo}`, {
-                  headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+                  headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
                 });
                 if (insumoResponse.ok) {
                   const insumoData = await insumoResponse.json();
@@ -1275,13 +1494,15 @@ function PurchaseOrderForm({
               return {
                 id: d.id_detalle.toString(),
                 id_insumo: d.id_insumo,
-                descripcion: d.descripcion_insumo || '',
+                descripcion: d.insumo?.nombre_insumo || d.descripcion_insumo || '',
                 qty: d.cantidad,
                 precio: d.precio_unitario,
                 id_presentacion: d.id_presentacion,
-                presentacion: d.presentacion || '',
-                unidad_base: d.unidad_base || '',
-                unidades_por_presentacion: d.unidades_por_presentacion || 1,
+                descripcion_presentacion: descripcionPresentacion,
+                presentacion: descripcionPresentacion,
+                unidad_compra: d.insumo_presentacion?.unidad_compra,
+                unidad_base: unidadBase,
+                unidades_por_presentacion: unidadesPorPresentacion,
                 cantidad_recibida: d.cantidad_recibida || 0,
                 ...stockInfo,
               };
@@ -1294,17 +1515,17 @@ function PurchaseOrderForm({
       };
       loadOrder();
       setSelectedProveedorId(String(detail.id_proveedor ?? ""));
-      setFecha(detail.fecha ? String(detail.fecha).slice(0, 10) : new Date().toISOString().slice(0, 10));
+      setFecha(detail.fecha ? String(detail.fecha).slice(0, 10) : getTodayDate());
       setFechaEntregaEstimada(detail.fecha_entrega_estimada ? String(detail.fecha_entrega_estimada).slice(0, 10) : '');
       setTipoPago(detail.tipo_pago || 'credito');
       setEstado(detail.estado || 'pendiente');
       setMotivoGeneracion(detail.motivo_generacion || '');
-      setNota(detail.nota || '');
+      setNota(detail.motivo_generacion || '');
     } else {
       setItems([{ id: crypto.randomUUID(), descripcion: "", qty: 1, precio: 0 }]);
       setNota("");
       setSelectedProveedorId("");
-      setFecha(new Date().toISOString().slice(0, 10));
+      setFecha(getTodayDate());
       setFechaEntregaEstimada('');
       setTipoPago('credito');
       setMotivoGeneracion('');
@@ -1332,88 +1553,248 @@ function PurchaseOrderForm({
 
   // (Eliminado require, ahora se usa import al inicio del archivo)
   const handleSave = async (aprobarAutomaticamente = false) => {
-    if (!selectedProveedorId) return message.error("Por favor, selecciona un proveedor.");
-    if (!fecha) return message.error("Por favor, ingresa una fecha.");
-    if (!fechaEntregaEstimada) return message.error("Por favor, ingresa una fecha de entrega estimada.");
-    if (new Date(fechaEntregaEstimada) <= new Date(fecha)) {
-      return message.error("La fecha de entrega estimada debe ser posterior a la fecha de la orden.");
+    if (!selectedProveedorId) {
+      message.error("Por favor, selecciona un proveedor.");
+      return;
     }
-    if (items.length === 0 || items.every((it) => !(it.descripcion || "").trim() && !it.id_insumo)) return message.error("Agrega al menos un ítem válido.");
+    if (!fecha) {
+      message.error("Por favor, ingresa una fecha.");
+      return;
+    }
+    if (!fechaEntregaEstimada) {
+      message.error("Por favor, ingresa una fecha de entrega estimada.");
+      return;
+    }
+    if (new Date(fechaEntregaEstimada) <= new Date(fecha)) {
+      message.error("La fecha de entrega estimada debe ser posterior a la fecha de la orden.");
+      return;
+    }
+    if (items.length === 0 || items.every((it) => !(it.descripcion || "").trim() && !it.id_insumo)) {
+      message.error("Agrega al menos un ítem válido.");
+      return;
+    }
 
     setSaving(true);
     try {
+      // Incluir hora actual en la fecha
+      const fechaConHora = aprobarAutomaticamente ? new Date().toISOString() : `${fecha}T${new Date().toTimeString().slice(0, 8)}`;
+      
       // Payload para orden_compra según modelo SQL
+      const trimmedMotivo = motivoGeneracion.trim();
+      const trimmedNota = nota.trim();
+      
+      // Determinar el estado correcto
+      const estadoFinal = aprobarAutomaticamente
+        ? "recibida"
+        : detail
+          ? estado
+          : "pendiente";
+      
       const ordenPayload = {
-        fecha_orden: fecha,
+        fecha_orden: fechaConHora,
         id_proveedor: Number(selectedProveedorId),
-        estado: aprobarAutomaticamente ? "recibida" : "pendiente",
+        estado: estadoFinal,
         tipo_orden: "manual",
-        motivo_generacion: motivoGeneracion || nota || undefined,
-        fecha_entrega_estimada: fechaEntregaEstimada,
+        tipo_pago: tipoPago,
+        motivo_generacion: trimmedMotivo || (trimmedNota ? trimmedNota : undefined),
+        fecha_entrega_estimada: fechaEntregaEstimada || null,
         total: total,
       };
       let ordenResult: Record<string, unknown>;
       if (detail && detail.id_orden) {
-        // Editar orden existente (solo campos editables)
-        ordenResult = await updateOrdenCompra(detail.id_orden, ordenPayload);
-        if (ordenResult.id_orden && Array.isArray(items)) {
-          for (const item of items) {
-            await createDetalleOrdenCompra({
-              id_orden: Number(ordenResult.id_orden),
-              id_insumo: item.id_insumo!,
-              cantidad: item.qty,
-              precio_unitario: item.precio,
-              id_presentacion: item.id_presentacion!,
-            });
+        console.log('Procesando OC:', detail.id_orden, 'Estado actual:', detail.estado, 'Nuevo estado:', estado);
+        
+  // Si se pidió aprobación automática o se cambió manualmente a recibida, crear recepción si no existe
+  const debeCrearRecepcion = aprobarAutomaticamente || (estado === 'recibida' && detail.estado !== 'recibida');
+        if (debeCrearRecepcion) {
+          console.log('Procesando recepción automática para OC', detail.id_orden, 'estado anterior:', detail.estado, 'bandera auto:', aprobarAutomaticamente);
+          try {
+            const recepciones = await getRecepcionesMercaderia();
+            const existingRecepcion = recepciones.data?.find((r: Recepcion) => r.id_orden === Number(detail.id_orden));
+            if (!existingRecepcion) {
+              console.log('Obteniendo datos de la orden:', detail.id_orden);
+              const ordenData = await getOrdenCompraById(Number(detail.id_orden));
+              console.log('Datos de orden obtenidos:', ordenData);
+              console.log('Detalles de orden:', ordenData?.detalle_orden_compra);
+              
+              const userProfile = await getProfile();
+              const recepcionData = {
+                id_orden: Number(detail.id_orden),
+                fecha_recepcion: new Date().toISOString().split('T')[0],
+                id_perfil: userProfile.id_perfil,
+              };
+              const recepcionResult = await createRecepcionMercaderia(recepcionData);
+              const recepcionPayload = (recepcionResult as { data?: unknown })?.data ?? recepcionResult;
+              const detallesAuto = (recepcionPayload as { detalles_creados?: number })?.detalles_creados ?? 0;
+              const idRecepcionCreada = (recepcionPayload as { id_recepcion?: number })?.id_recepcion;
+              const sincronizacion = (recepcionPayload as { sincronizacion?: RecepcionSincronizacionResumen | null })?.sincronizacion ?? null;
+              console.log('Recepción creada:', recepcionPayload);
+              console.log('Detalles automáticos agregados:', detallesAuto);
+              showRecepcionSyncNotification({
+                numeroOrden: detail?.numero_orden ?? (detail?.id_orden ? `OC-${detail.id_orden}` : undefined),
+                idRecepcion: typeof idRecepcionCreada === 'number' ? idRecepcionCreada : undefined,
+                detallesCreados: detallesAuto,
+                resumen: sincronizacion,
+              });
+            } else {
+              console.log('Recepción ya existe para OC:', detail.id_orden);
+            }
+          } catch (error) {
+            console.error('Error creando recepción automática:', error);
+            // Mostrar error al usuario pero no fallar la operación
+            message.error('Error creando recepción automática, pero la orden fue actualizada');
           }
         }
-        setRows(prev => prev.map(r => r.id_orden === detail.id_orden ? {
-          ...r,
-          id_proveedor: ordenResult.id_proveedor as number,
-          proveedor: proveedores.find(p => p.id_proveedor === ordenResult.id_proveedor) ? { nombre: proveedores.find(p => p.id_proveedor === ordenResult.id_proveedor)!.nombre } : undefined,
-        } : r));
-        message.success("Orden de compra actualizada correctamente");
+        if (aprobarAutomaticamente) {
+          setEstado('recibida');
+        }
+
+  // Editar orden existente (solo campos editables)
+  // Mantener consistencia con estado recibido cuando aplica
+        const payloadParaUpdate: Partial<typeof ordenPayload> = { ...ordenPayload };
+        ordenResult = await updateOrdenCompra(detail.id_orden, payloadParaUpdate);
+        console.log('OC actualizada tras guardar, estado final previsto:', aprobarAutomaticamente ? 'recibida' : estado, 'Resultado:', ordenResult);
+        
+        if (ordenResult.id_orden && Array.isArray(items)) {
+          console.log('[Frontend] Actualizando detalles de OC:', detail.id_orden);
+
+          for (const item of items) {
+            try {
+              await createDetalleOrdenCompra({
+                id_orden: Number(ordenResult.id_orden),
+                id_insumo: item.id_insumo!,
+                cantidad: item.qty,
+                precio_unitario: item.precio,
+                id_presentacion: item.id_presentacion!,
+              });
+            } catch (error) {
+              console.error('[Frontend] Error actualizando detalle:', error);
+            }
+          }
+        }
+        setRows(prev => {
+          const updated = prev.map(r => r.id_orden === detail.id_orden ? {
+            ...r,
+            id_proveedor: ordenResult.id_proveedor as number,
+            proveedor: proveedores.find(p => p.id_proveedor === ordenResult.id_proveedor) ? { nombre: proveedores.find(p => p.id_proveedor === ordenResult.id_proveedor)!.nombre } : undefined,
+            fecha: ordenResult.fecha_orden as string,
+            fecha_entrega_estimada: (ordenResult.fecha_entrega_estimada as string | null) ?? null,
+            total: (ordenResult.total as number) ?? r.total ?? 0,
+            estado: aprobarAutomaticamente ? 'recibida' : (ordenResult.estado as string),
+            motivo_generacion: (ordenResult.motivo_generacion as string | null) ?? null,
+            tipo_pago: (ordenResult.tipo_pago as string | null) ?? null,
+            tipo_orden: (ordenResult.tipo_orden as string | null) ?? r.tipo_orden ?? 'manual',
+          } : r);
+          return sortOrdersDesc(updated);
+        });
+        // Recargar datos para asegurar que todo esté actualizado
+        await loadData();
+        message.success(aprobarAutomaticamente
+          ? 'Orden de compra actualizada y marcada como recibida. Revisa la recepción generada.'
+          : 'Orden de compra actualizada correctamente');
       } else {
         // Crear nueva orden
         ordenResult = await createOrdenCompra(ordenPayload);
+        console.log('[Frontend] Nueva orden creada:', ordenResult);
+        let resumenSincronizacionAuto: RecepcionSincronizacionResumen | null = null;
+        
         if (ordenResult.id_orden && Array.isArray(items)) {
+          console.log('[Frontend] Creando detalles de la orden...');
+          const detallesCreados = [];
           for (const item of items) {
-            await createDetalleOrdenCompra({
-              id_orden: Number(ordenResult.id_orden),
-              id_insumo: item.id_insumo!,
-              cantidad: item.qty,
-              precio_unitario: item.precio,
-              id_presentacion: item.id_presentacion!,
-            });
+            try {
+              const detalleResult = await createDetalleOrdenCompra({
+                id_orden: Number(ordenResult.id_orden),
+                id_insumo: item.id_insumo!,
+                cantidad: item.qty,
+                precio_unitario: item.precio,
+                id_presentacion: item.id_presentacion!,
+              });
+              detallesCreados.push(detalleResult);
+              console.log('[Frontend] Detalle creado:', detalleResult);
+            } catch (error) {
+              console.error('[Frontend] Error creando detalle:', error);
+            }
           }
+          console.log(`[Frontend] ${detallesCreados.length} detalles creados exitosamente`);
+          
+          // Pequeña pausa para permitir que Supabase procese los inserts
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
 
-        // Si se aprueba automáticamente, actualizar el estado a "recibida" para activar los triggers
+        // Si se aprueba automáticamente, crear recepción automática
         if (aprobarAutomaticamente) {
-          await updateOrdenCompra(String(ordenResult.id_orden), { estado: "recibida" });
+          console.log('[Frontend] Aprobación automática activada - creando recepción de mercadería');
+          const userProfile = await getProfile();
+          const recepcionData = {
+            id_orden: Number(ordenResult.id_orden),
+            fecha_recepcion: new Date().toISOString().split('T')[0],
+            id_perfil: userProfile.id_perfil,
+          };
+          const recepcionResult = await createRecepcionMercaderia(recepcionData);
+          const recepcionPayload = (recepcionResult as { data?: unknown })?.data ?? recepcionResult;
+          const detallesAuto = (recepcionPayload as { detalles_creados?: number })?.detalles_creados ?? 0;
+          const idRecepcionAuto = (recepcionPayload as { id_recepcion?: number })?.id_recepcion;
+          const sincronizacion = (recepcionPayload as { sincronizacion?: RecepcionSincronizacionResumen | null })?.sincronizacion ?? null;
+          console.log('[Frontend] Recepción automática creada. Detalles agregados:', detallesAuto);
+          console.log('[Frontend] El backend cambiará automáticamente el estado de la OC a "recibida" y aplicará movimientos de inventario');
+
+          const numeroOrdenNotificacion = typeof ordenResult.numero_orden === 'string' && ordenResult.numero_orden.trim().length > 0
+            ? ordenResult.numero_orden
+            : ordenResult.id_orden != null
+              ? `OC-${ordenResult.id_orden}`
+              : undefined;
+
+          showRecepcionSyncNotification({
+            numeroOrden: numeroOrdenNotificacion,
+            idRecepcion: typeof idRecepcionAuto === 'number' ? idRecepcionAuto : undefined,
+            detallesCreados: detallesAuto,
+            resumen: sincronizacion,
+          });
+
+          resumenSincronizacionAuto = sincronizacion;
         }
 
-        setRows(prev => [
+        setRows(prev => sortOrdersDesc([
           {
             id_orden: ordenResult.id_orden as string,
             numero_orden: ordenResult.numero_orden as string || ordenResult.id_orden as string,
             fecha: ordenResult.fecha_orden as string,
+            fecha_entrega_estimada: (ordenResult.fecha_entrega_estimada as string | null) ?? null,
             id_proveedor: ordenResult.id_proveedor as number,
             proveedor: proveedores.find(p => p.id_proveedor === ordenResult.id_proveedor) ? { nombre: proveedores.find(p => p.id_proveedor === ordenResult.id_proveedor)!.nombre } : undefined,
             total: ordenResult.total as number,
-            estado: aprobarAutomaticamente ? "recibida" : "pendiente",
+            estado: aprobarAutomaticamente ? 'recibida' : (ordenResult.estado as string),
+            motivo_generacion: (ordenResult.motivo_generacion as string | null) ?? null,
+            tipo_pago: (ordenResult.tipo_pago as string | null) ?? tipoPago,
+            tipo_orden: (ordenResult.tipo_orden as string | null) ?? 'manual',
             items_count: items.length,
           },
           ...prev
-        ]);
-        message.success(aprobarAutomaticamente ? "Orden de compra creada y aprobada correctamente" : "Orden de compra creada correctamente");
+        ]));
+        await loadData();
+        // Reset filtros para mostrar la orden recién creada
+        if (setStatus) setStatus("Todas");
+        if (setQ) setQ("");
+        if (setSelectedProveedorIdFilter) setSelectedProveedorIdFilter("Todos");
+        const mensajeExito = aprobarAutomaticamente 
+          ? resumenSincronizacionAuto?.movimientos.movimientosAplicados
+            ? "Orden de compra guardada y recibida correctamente. Movimientos de inventario aplicados." 
+            : "Orden de compra marcada como recibida. Revisa la recepción y los movimientos." 
+          : "Orden de compra guardada como borrador (estado: pendiente)";
+        message.success(mensajeExito);
       }
+      // Cerrar el drawer después de guardar exitosamente
       onClose();
     } catch (error) {
-      let msg = detail ? "Error al actualizar la orden de compra." : "Error al crear la orden de compra.";
-      if (error instanceof Error) msg = error.message;
-      message.error(msg);
-      console.error(msg, error);
+      console.error('Error guardando orden de compra:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const lower = errorMessage.toLowerCase();
+      if (lower.includes('forbidden') || lower.includes('permission') || lower.includes('policy')) {
+        message.error(`Error de permisos al guardar orden de compra. Revisa roles/permisos en el backend. Detalles: ${errorMessage}`);
+      } else {
+        message.error(`Error guardando orden de compra. Revisa la consola para más detalles. ${errorMessage}`);
+      }
     } finally {
       setSaving(false);
     }
@@ -1470,6 +1851,8 @@ function PurchaseOrderForm({
     <>
       <form className="p-6 lg:p-7 space-y-6" onSubmit={(e) => e.preventDefault()}>
       {/* Proveedor/Fecha/Número */}  
+  
+  
       <section className="bg-gray-50 rounded-xl border border-gray-200 p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
         <div>
           <label htmlFor="proveedorSelectForm" className="block text-xs font-semibold text-gray-600 mb-1">Proveedor *</label>
@@ -1482,6 +1865,34 @@ function PurchaseOrderForm({
           <label htmlFor="fechaInputForm" className="block text-xs font-semibold text-gray-600 mb-1">Fecha *</label>
           <input id="fechaInputForm" type="date" value={fecha} onChange={e => setFecha(e.target.value)} disabled={true} required className={INPUT_CLS} />
         </div>
+        {!readOnly && detail && (
+          <>
+            <div>
+              <label htmlFor="horaInputForm" className="block text-xs font-semibold text-gray-600 mb-1">Hora</label>
+              <input 
+                id="horaInputForm" 
+                type="time" 
+                value={fecha.includes('T') ? fecha.split('T')[1].slice(0, 5) : new Date().toTimeString().slice(0, 5)} 
+                onChange={e => {
+                  const [hours, minutes] = e.target.value.split(':');
+                  const currentDate = new Date(fecha);
+                  currentDate.setHours(parseInt(hours), parseInt(minutes));
+                  setFecha(currentDate.toISOString().slice(0, 16));
+                }} 
+                className={INPUT_CLS} 
+              />
+            </div>
+            <div>
+              <label htmlFor="estadoSelectForm" className="block text-xs font-semibold text-gray-600 mb-1">Estado</label>
+              <select id="estadoSelectForm" value={estado} onChange={e => setEstado(e.target.value)} className={INPUT_CLS}>
+                <option value="pendiente">Pendiente</option>
+                <option value="aprobada">Aprobada</option>
+                <option value="recibida">Recibida</option>
+                <option value="cancelada">Cancelada</option>
+              </select>
+            </div>
+          </>
+        )}
         <div>
           <label htmlFor="fechaEntregaInputForm" className="block text-xs font-semibold text-gray-600 mb-1">Fecha entrega estimada</label>
           <input
@@ -1789,7 +2200,6 @@ function PurchaseOrderForm({
                             // Si está entre mínimo y máximo, sugerir llegar al máximo
                             sugerenciaMaxima = stockMaximo - stockActual;
                           }
-                          // Si stockActual >= stockMaximo, no hay sugerencia (ya está al máximo o por encima)
                         }
 
                         // Bloquear si excede la sugerencia calculada
@@ -2115,3 +2525,14 @@ function ProviderInsumosModal({ id_proveedor, proveedorData }: { id_proveedor: n
     </div>
   );
 }
+
+/* ======================================================================
+ * ===== Tipos adicionales para Recepción y Detalle de Recepción =====
+ * ====================================================================== */
+type Recepcion = {
+  id_recepcion: number;
+  id_orden: number;
+  fecha_recepcion: string;
+  id_perfil: number;
+  numero_factura?: string;
+};

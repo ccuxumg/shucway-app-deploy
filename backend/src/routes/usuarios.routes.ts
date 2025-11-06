@@ -70,4 +70,10 @@ router.post('/roles', requireAdministrador, usuariosController.createRol);
 // Actualizar rol - Requiere Propietario (nivel 100)
 router.put('/roles/:id', requireAdministrador, usuariosController.updateRol);
 
+// Verificar si email existe - Requiere Cajero (nivel 30)
+router.get('/check-email', requireCajero, usuariosController.checkEmailExists);
+
+// Verificar si username existe - Requiere Cajero (nivel 30)
+router.get('/check-username', requireCajero, usuariosController.checkUsernameExists);
+
 export default router;

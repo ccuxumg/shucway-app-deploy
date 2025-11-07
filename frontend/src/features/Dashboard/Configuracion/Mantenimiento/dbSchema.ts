@@ -17,13 +17,31 @@ const tables: Record<string, TableMeta> = {
   categoria_insumo: { pk: 'id_categoria', labelFields: ['nombre'] },
   proveedor: { pk: 'id_proveedor', labelFields: ['nombre_empresa'], deletedValue: false },
   insumo: { pk: 'id_insumo', labelFields: ['nombre_insumo'], foreignKeys: { id_categoria: 'categoria_insumo', id_proveedor_principal: 'proveedor' }, autoCreated: ['fecha_registro'], deletedValue: false },
+  insumo_presentacion: {
+    pk: 'id_presentacion',
+    labelFields: ['descripcion_presentacion'],
+    foreignKeys: { id_insumo: 'insumo', id_proveedor: 'proveedor' },
+    autoCreated: [],
+    deletedValue: false,
+  },
   lote_insumo: { pk: 'id_lote', foreignKeys: { id_insumo: 'insumo' }, autoCreated: ['fecha_vencimiento'] },
   movimiento_inventario: { pk: 'id_movimiento', foreignKeys: { id_insumo: 'insumo', id_lote: 'lote_insumo' }, autoCreated: ['fecha_movimiento'] },
 
   orden_compra: { pk: 'id_orden', foreignKeys: { id_proveedor: 'proveedor', creado_por: 'perfil_usuario', aprobado_por: 'perfil_usuario' }, labelFields: ['fecha_orden'], autoCreated: ['fecha_orden'] },
-  detalle_orden_compra: { pk: 'id_detalle', foreignKeys: { id_orden: 'orden_compra', id_insumo: 'insumo' } },
+  detalle_orden_compra: {
+    pk: 'id_detalle',
+    foreignKeys: { id_orden: 'orden_compra', id_insumo: 'insumo', id_presentacion: 'insumo_presentacion' },
+  },
   recepcion_mercaderia: { pk: 'id_recepcion', foreignKeys: { id_orden: 'orden_compra', id_perfil: 'perfil_usuario' }, autoCreated: ['fecha_recepcion'] },
-  detalle_recepcion_mercaderia: { pk: 'id_detalle', foreignKeys: { id_recepcion: 'recepcion_mercaderia', id_detalle_orden: 'detalle_orden_compra', id_lote: 'lote_insumo' } },
+  detalle_recepcion_mercaderia: {
+    pk: 'id_detalle',
+    foreignKeys: {
+      id_recepcion: 'recepcion_mercaderia',
+      id_detalle_orden: 'detalle_orden_compra',
+      id_lote: 'lote_insumo',
+      id_presentacion: 'insumo_presentacion',
+    },
+  },
 
   // Para categoria_producto, producto, producto_variante: usar 'desactivado' ya que la constraint no permite 'inactivo'.
   // Para perfil_usuario: usar 'inactivo' (permitido por constraint).
@@ -50,6 +68,23 @@ const tables: Record<string, TableMeta> = {
   bitacora_ventas: { pk: 'id_bitacora_venta', foreignKeys: { id_venta: 'venta' }, autoCreated: ['fecha_accion'] },
   bitacora_ordenes_compra: { pk: 'id_bitacora_orden', foreignKeys: { id_orden: 'orden_compra' }, autoCreated: ['fecha_accion'] },
   bitacora_productos: { pk: 'id_bitacora_producto', foreignKeys: { id_producto: 'producto' }, autoCreated: ['fecha_accion'] },
+
+  auditoria_inventario: {
+    pk: 'id_auditoria',
+    labelFields: ['nombre_auditoria'],
+    foreignKeys: { id_perfil: 'perfil_usuario' },
+    autoCreated: ['fecha_creacion'],
+    deletedValue: 'cancelada',
+  },
+  auditoria_detalle: {
+    pk: 'id_detalle',
+    foreignKeys: { id_auditoria: 'auditoria_inventario', id_insumo: 'insumo' },
+  },
+  bitacora_auditoria: {
+    pk: 'id_bitacora',
+    foreignKeys: { id_auditoria: 'auditoria_inventario', id_perfil: 'perfil_usuario' },
+    autoCreated: ['fecha_accion'],
+  },
 
   // Si faltan tablas concretas, se pueden añadir aquí con el mismo formato
 };

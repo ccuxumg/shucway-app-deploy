@@ -442,7 +442,7 @@ table{font-size:12px}
 
   /* ========================= UI ========================= */
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-white p-6">
       {/* Header compacto */}
   <div className="w-full max-w-[1200px] mx-auto mb-4">
         <div className="flex items-center justify-between gap-3">
@@ -487,15 +487,23 @@ table{font-size:12px}
         <div className="mt-3 bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-gray-700 mr-1">Periodo:</span>
-            {(["hoy","ayer","30d","rango"] as Periodo[]).map(p=>(
-              <button
-                key={p}
-                onClick={()=>setPeriodo(p)}
-                className={`tag-tab ${periodo===p ? "is-active" : ""}`}
-              >
-                {p==="hoy"?"Hoy":p==="ayer"?"Ayer":p==="30d"?"Últimos 30 días":"Rango"}
-              </button>
-            ))}
+            {(["hoy","ayer","30d","rango"] as Periodo[]).map((p) => {
+              const isActive = periodo === p;
+              const label = p === "hoy" ? "Hoy" : p === "ayer" ? "Ayer" : p === "30d" ? "Últimos 30 días" : "Rango";
+              return (
+                <button
+                  key={p}
+                  onClick={() => setPeriodo(p)}
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 ${
+                    isActive
+                      ? "bg-emerald-700 text-white shadow-lg ring-1 ring-emerald-800"
+                      : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
 
             {periodo==="rango" && (
               <div className="flex items-center gap-2 ml-1">

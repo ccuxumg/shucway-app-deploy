@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import dbSchema, { TableMeta } from './dbSchema';
 import api from '@/api/apiClient';
-import { FaEye, FaEdit, FaTrash, FaPlus, FaFilter, FaColumns, FaUndo } from 'react-icons/fa';
-import { Button, Spin, Table, message, Modal, Input, Select, Form, Drawer, Switch, Dropdown } from 'antd';
+import { FaEye, FaEdit, FaTrash, FaPlus, FaFilter, FaColumns, FaUndo, FaSearch, FaChevronRight, FaDatabase } from 'react-icons/fa';
+import { Button, Spin, Table, message, Modal, Input, Select, Form, Drawer, Switch, Dropdown, Tag, Alert, Empty } from 'antd';
 import { ColumnsType } from 'antd/es/table';
 
 interface TableRecord {
@@ -20,6 +20,46 @@ interface TableColumn {
   ellipsis?: boolean;
   render?: (value: string | number | boolean | null | undefined, record: TableRecord) => React.ReactNode;
 }
+
+const formatTableLabel = (tableName: string) =>
+  tableName ? tableName.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()) : '';
+
+const TABLE_GROUPS: Record<string, string[]> = {
+  'Autenticación y seguridad': ['rol_usuario', 'perfil_usuario', 'bitacora_seguridad'],
+  Inventario: [
+    'categoria_insumo',
+    'insumo',
+    'insumo_presentacion',
+    'lote_insumo',
+    'movimiento_inventario',
+    'bitacora_inventario',
+  ],
+  'Compras y proveedores': [
+    'proveedor',
+    'orden_compra',
+    'detalle_orden_compra',
+    'recepcion_mercaderia',
+    'detalle_recepcion_mercaderia',
+    'bitacora_ordenes_compra',
+  ],
+  'Productos y ventas': [
+    'categoria_producto',
+    'producto',
+    'producto_variante',
+    'receta_detalle',
+    'cliente',
+    'venta',
+    'detalle_venta',
+    'historial_puntos',
+    'bitacora_productos',
+    'bitacora_ventas',
+  ],
+  'Gastos y finanzas': ['categoria_gasto', 'gasto_operativo', 'deposito_banco', 'arqueo_caja'],
+  Auditoría: ['auditoria_inventario', 'auditoria_detalle', 'bitacora_auditoria'],
+};
+
+const SCHEMA_TABLE_MAP = dbSchema.tables as Record<string, TableMeta>;
+const SCHEMA_TABLE_KEYS = Object.keys(SCHEMA_TABLE_MAP);
 
 const Mantenimiento: React.FC = () => {
   const navigate = useNavigate();
@@ -43,9 +83,13 @@ const Mantenimiento: React.FC = () => {
   const [primaryKey, setPrimaryKey] = useState<string>('id');
   const [lookupTables, setLookupTables] = useState<Record<string, string>>({});
   const [footerHeight, setFooterHeight] = useState<number>(0);
+  const [tablePageSize, setTablePageSize] = useState<number>(10);
+  const [tableCurrentPage, setTableCurrentPage] = useState<number>(1);
+  const [tableSearch, setTableSearch] = useState<string>('');
+  const [lastError, setLastError] = useState<string | null>(null);
 
   // metadata schema for the currently selected table (if available)
-  const schemaForSelected: TableMeta | undefined = selectedTable ? (dbSchema.tables as Record<string, TableMeta>)[selectedTable] : undefined;
+  const schemaForSelected: TableMeta | undefined = selectedTable ? SCHEMA_TABLE_MAP[selectedTable] : undefined;
 
   // Valor que representa el estado borrado para la tabla seleccionada (fallback a 'eliminado')
   const deletedMarker: string | boolean = schemaForSelected?.deletedValue ?? 'eliminado';
@@ -60,6 +104,54 @@ const Mantenimiento: React.FC = () => {
     secondary: '#12443D', 
     accent: '#FFD40D'      
   };
+
+  const availableTables = useMemo(() => {
+    const union = new Set<string>([...tables, ...SCHEMA_TABLE_KEYS]);
+    return Array.from(union).sort((a, b) =>
+      formatTableLabel(a).localeCompare(formatTableLabel(b), 'es', { sensitivity: 'base' })
+    );
+  }, [tables]);
+
+  const normalizedSearch = useMemo(() => tableSearch.trim().toLowerCase(), [tableSearch]);
+
+  const groupedTables = useMemo(() => {
+    if (!availableTables.length) return [] as { label: string; tables: string[] }[];
+
+    const assigned = new Set<string>();
+    const groups: { label: string; tables: string[] }[] = [];
+
+    Object.entries(TABLE_GROUPS).forEach(([label, tableList]) => {
+      const filtered = tableList.filter((name) => availableTables.includes(name));
+      const searched = normalizedSearch
+        ? filtered.filter((name) =>
+            formatTableLabel(name).toLowerCase().includes(normalizedSearch)
+          )
+        : filtered;
+
+      if (searched.length) {
+        searched.forEach((name) => assigned.add(name));
+        groups.push({ label, tables: searched });
+      }
+    });
+
+    const remaining = availableTables.filter(
+      (name) =>
+        !assigned.has(name) &&
+        (!normalizedSearch || formatTableLabel(name).toLowerCase().includes(normalizedSearch))
+    );
+
+    if (remaining.length) {
+      groups.push({ label: 'Otras tablas', tables: remaining });
+    }
+
+    return groups;
+  }, [availableTables, normalizedSearch]);
+
+  const selectedTableLabel = formatTableLabel(selectedTable);
+  const selectedGroupLabel = useMemo(() => {
+    const entry = Object.entries(TABLE_GROUPS).find(([, tableList]) => tableList.includes(selectedTable));
+    return entry ? entry[0] : null;
+  }, [selectedTable]);
 
   const handleRestore = async (record: TableRecord) => {
     Modal.confirm({
@@ -119,17 +211,26 @@ const Mantenimiento: React.FC = () => {
           localStorage.removeItem('user');
           window.location.href = '/login';
         } else {
-          console.error('Error al obtener tablas disponibles:', response.statusText);
-          message.error('Error al cargar las tablas disponibles');
+          // Si el endpoint no está disponible o falla, usar el esquema local (dbSchema)
+          console.warn('Endpoint available-tables no disponible, usando dbSchema local');
+          setTables(SCHEMA_TABLE_KEYS);
         }
       } catch (error) {
         console.error('Error al cargar tablas:', error);
-        message.error('Error al conectar con el servidor');
+        // fallback to local schema list
+  setTables(SCHEMA_TABLE_KEYS);
       }
     };
 
     loadAvailableTables();
   }, []);
+
+  useEffect(() => {
+    if (!availableTables.length) return;
+    if (!selectedTable || !availableTables.includes(selectedTable)) {
+      setSelectedTable(availableTables[0]);
+    }
+  }, [availableTables, selectedTable]);
 
   // Construir opciones lookup para columnas FK detectadas (ej. categoria_id -> tablas 'categoria' o 'categorias')
   useEffect(() => {
@@ -350,13 +451,14 @@ const Mantenimiento: React.FC = () => {
   const fetchData = useCallback(async () => {
     if (!selectedTable) return;
     setLoading(true);
+    setLastError(null);
     try {
       const filtersParam = Object.keys(filters).length > 0 ? `?filters=${encodeURIComponent(JSON.stringify(filters))}` : '';
-  const response = await fetch(`/api/dashboard/table-data/${selectedTable}${filtersParam}`, {
+      const response = await fetch(`/api/dashboard/table-data/${selectedTable}${filtersParam}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-          'Content-Type': 'application/json'
-        }
+          'Content-Type': 'application/json',
+        },
       });
 
       if (response.ok) {
@@ -366,41 +468,37 @@ const Mantenimiento: React.FC = () => {
         if (rows.length > 0) {
           setColumns(generateColumns(rows[0]));
 
-          // detectar primary key (preferir 'id')
-          const detectedPrimary = Object.keys(rows[0]).find(k => k.toLowerCase() === 'id') || Object.keys(rows[0])[0];
+          const detectedPrimary = Object.keys(rows[0]).find((k) => k.toLowerCase() === 'id') || Object.keys(rows[0])[0];
           setPrimaryKey(detectedPrimary);
 
-          // calcular siguiente id para autoincremental (si es numérico)
-            try {
-              // Intentamos inferir si existe un id numérico para información, pero no lo usamos en frontend
-              const ids = (rows as unknown[]).map(r => Number((r as Record<string, unknown>)[detectedPrimary] as unknown)).filter((n: number) => !isNaN(n));
-              const maxId = ids.length ? Math.max(...ids) : 0;
-              void maxId; // conservamos la operación para posible uso futuro
-            } catch {
-              // ignore
-            }
+          try {
+            const ids = (rows as unknown[])
+              .map((r) => Number((r as Record<string, unknown>)[detectedPrimary] as unknown))
+              .filter((n: number) => !Number.isNaN(n));
+            const maxId = ids.length ? Math.max(...ids) : 0;
+            void maxId;
+          } catch {
+            /* noop */
+          }
 
-          const detectedEstado = Object.keys(rows[0]).find(k => k.toLowerCase().includes('estado')) || null;
-          const detectedActivo = Object.keys(rows[0]).find(k => k.toLowerCase().includes('activo')) || null;
+          const detectedEstado = Object.keys(rows[0]).find((k) => k.toLowerCase().includes('estado')) || null;
+          const detectedActivo = Object.keys(rows[0]).find((k) => k.toLowerCase().includes('activo')) || null;
           setEstadoField(detectedEstado);
           setActivoField(detectedActivo);
 
           let filtered = rows;
           if (detectedEstado) {
-            if (showDeleted) {
-              filtered = rows.filter((r: TableRecord) => isDeletedValue((r as Record<string, unknown>)[detectedEstado]));
-            } else {
-              filtered = rows.filter((r: TableRecord) => !isDeletedValue((r as Record<string, unknown>)[detectedEstado]));
-            }
+            filtered = rows.filter((r: TableRecord) =>
+              showDeleted
+                ? isDeletedValue((r as Record<string, unknown>)[detectedEstado])
+                : !isDeletedValue((r as Record<string, unknown>)[detectedEstado])
+            );
           } else if (detectedActivo) {
-            if (showDeleted) {
-              filtered = rows.filter((r: TableRecord) => r[detectedActivo] === false || String(r[detectedActivo]) === 'false');
-            } else {
-              filtered = rows.filter((r: TableRecord) => !(r[detectedActivo] === false || String(r[detectedActivo]) === 'false'));
-            }
-          } else {
-            if (showDeleted) filtered = [];
-            else filtered = rows;
+            filtered = rows.filter((r: TableRecord) =>
+              showDeleted
+                ? r[detectedActivo] === false || String(r[detectedActivo]) === 'false'
+                : !(r[detectedActivo] === false || String(r[detectedActivo]) === 'false')
+            );
           }
 
           setData(filtered);
@@ -409,18 +507,19 @@ const Mantenimiento: React.FC = () => {
           if (colNames && colNames.length > 0) {
             setColumns(generateColumnsFromNames(colNames));
 
-            const detectedPrimary = colNames.find(k => k.toLowerCase() === 'id') || colNames[0];
+            const detectedPrimary = colNames.find((k) => k.toLowerCase() === 'id') || colNames[0];
             setPrimaryKey(detectedPrimary);
 
-            const detectedEstado = colNames.find(k => k.toLowerCase().includes('estado')) || null;
-            const detectedActivo = colNames.find(k => k.toLowerCase().includes('activo')) || null;
+            const detectedEstado = colNames.find((k) => k.toLowerCase().includes('estado')) || null;
+            const detectedActivo = colNames.find((k) => k.toLowerCase().includes('activo')) || null;
             setEstadoField(detectedEstado);
             setActivoField(detectedActivo);
 
-            const emptyRow: TableRecord = colNames.reduce((acc, c) => ({ ...acc, [c]: null }), {} as TableRecord);
-            setData(showDeleted ? [] : [emptyRow]);
+            setData([]);
           } else {
             setColumns([]);
+            setEstadoField(null);
+            setActivoField(null);
             setData([]);
           }
         }
@@ -431,26 +530,48 @@ const Mantenimiento: React.FC = () => {
         window.location.href = '/login';
       } else if (response.status === 403) {
         const errorData = await response.json();
-        message.error(errorData.message || 'No tienes permisos para acceder a esta tabla');
+        const errorMessage = errorData.message || 'No tienes permisos para acceder a esta tabla';
+        message.error(errorMessage);
+        setLastError(errorMessage);
+        setColumns([]);
+        setData([]);
       } else {
-        console.error('Error fetching data:', response.statusText);
-        message.error('Error al obtener los datos');
+        const errorDetails = await response.text();
+        const errorMessage = errorDetails || `Error al obtener los datos (HTTP ${response.status})`;
+        console.error('Error fetching data:', errorMessage);
+        message.error(errorMessage);
+        setLastError(errorMessage);
+
+        if (schemaForSelected?.columns && schemaForSelected.columns.length) {
+          setColumns(generateColumnsFromNames(schemaForSelected.columns));
+        } else {
+          setColumns([]);
+        }
+        setEstadoField(null);
+        setActivoField(null);
+        setData([]);
       }
     } catch (error) {
+      const fallbackMessage = error instanceof Error ? error.message : 'Error al cargar los datos';
       console.error('Error fetching data:', error);
-      if (error instanceof Error) {
-        message.error(error.message);
-      } else {
-        message.error('Error al cargar los datos');
-      }
+      message.error(fallbackMessage);
+      setLastError(fallbackMessage);
+      setColumns([]);
+      setEstadoField(null);
+      setActivoField(null);
+      setData([]);
     } finally {
       setLoading(false);
     }
-  }, [selectedTable, filters, generateColumns, showDeleted, fetchColumnNames, generateColumnsFromNames, isDeletedValue]);
+  }, [selectedTable, filters, showDeleted, generateColumns, fetchColumnNames, generateColumnsFromNames, isDeletedValue, schemaForSelected]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    setTableCurrentPage(1);
+  }, [selectedTable, tablePageSize, showDeleted]);
 
   const handleAdd = () => {
     setSelectedRecord(null);
@@ -656,6 +777,7 @@ const Mantenimiento: React.FC = () => {
 
   const handleFilterChange = (column: string, value: string) => {
     setFilters(prev => ({ ...prev, [column]: value }));
+    setTableCurrentPage(1);
   };
 
   const handleColumnToggle = (key: string) => {
@@ -690,31 +812,35 @@ const Mantenimiento: React.FC = () => {
     render: (_, record) => (
       <div className="flex gap-2">
         <Button
-          type="text"
+          size="small"
+          shape="circle"
           icon={<FaEye />}
           onClick={() => handleView(record)}
-          style={{ color: colors.primary }}
+          className="border-0 bg-emerald-600 text-white hover:bg-emerald-700"
         />
         <Button
-          type="text"
+          size="small"
+          shape="circle"
           icon={<FaEdit />}
           onClick={() => handleEdit(record)}
-          style={{ color: colors.accent }}
+          className="border-0 bg-yellow-400 text-white hover:bg-yellow-500"
         />
         {/* Mostrar botón Restaurar si el registro está eliminado */}
         {((estadoField && isDeletedValue(record[estadoField])) || (activoField && (record[activoField] === false || String(record[activoField]) === 'false'))) && (
           <Button
-            type="text"
+            size="small"
+            shape="circle"
             icon={<FaUndo />}
             onClick={() => handleRestore(record)}
-            style={{ color: '#0f766e' }}
+            className="border-0 bg-emerald-700 text-white hover:bg-emerald-800"
           />
         )}
         <Button
-          type="text"
+          size="small"
+          shape="circle"
           icon={<FaTrash />}
           onClick={() => handleDelete(record)}
-          style={{ color: '#ff4d4f' }}
+          className="border-0 bg-red-500 text-white hover:bg-red-600"
         />
       </div>
     )
@@ -911,178 +1037,273 @@ const Mantenimiento: React.FC = () => {
   }, []);
 
   return (
-    // Contenedor centrado y de ancho limitado para mejor adaptación al layout
     <div className="w-full" style={{ paddingBottom: footerHeight || 16 }}>
-  <div className="max-w-screen-2xl mx-auto px-8">
-        <div className="mb-6 flex items-center justify-between">
+      <div className="max-w-screen-2xl mx-auto px-4 lg:px-8">
+        <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-2xl md:text-3xl font-semibold mb-2" style={{ color: colors.primary }}>
+            <h1 className="text-2xl md:text-3xl font-semibold" style={{ color: colors.primary }}>
               Mantenimiento de Base de Datos
             </h1>
             <p className="text-gray-600">Gestiona las tablas de la base de datos de forma eficiente</p>
           </div>
-          <button onClick={() => navigate(-1)} className="px-3 py-2 rounded-md border bg-white hover:bg-gray-50">
+          <button
+            onClick={() => navigate(-1)}
+            className="self-start rounded-md border bg-white px-3 py-2 text-sm shadow-sm transition hover:bg-gray-50"
+          >
             ← Regresar
           </button>
         </div>
 
-        <div className="bg-white rounded-lg shadow-sm p-4">
-          <div className="mb-6">
-            <label className="block text-sm font-medium mb-2" style={{ color: colors.secondary }}>
-              Seleccionar Tabla
-            </label>
-            <Select
-              value={selectedTable}
-              onChange={(value) => setSelectedTable(value)}
-              className="w-full"
-              placeholder="Selecciona una tabla para gestionar"
-            >
-              {tables.map(table => (
-                <Select.Option key={table} value={table}>
-                  {table.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                </Select.Option>
-              ))}
-            </Select>
-          </div>
-
-          {selectedTable && (
-            <>
-              <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center gap-4">
-                  <div className="text-sm text-gray-600">
-                    Total de registros: <span className="font-semibold" style={{ color: colors.primary }}>{data.length}</span>
-                  </div>
+        <div className="flex flex-col gap-6 xl:flex-row">
+          <aside className="shrink-0 xl:w-80">
+            <div className="rounded-lg bg-white p-4 shadow-sm">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: colors.secondary }}>
+                  <FaDatabase />
+                  <span>Tablas disponibles</span>
                 </div>
-
-                <div className="flex gap-3">
-                  <Button
-                    icon={<FaFilter />}
-                    onClick={() => setShowFilters(!showFilters)}
-                    style={{ borderColor: colors.primary, color: colors.primary }}
-                  >
-                    Filtros
-                  </Button>
-                  <Button
-                    onClick={() => setShowDeleted(prev => !prev)}
-                    style={{ borderColor: colors.secondary, color: colors.secondary }}
-                  >
-                    {showDeleted ? 'Ocultar eliminados' : 'Mostrar eliminados'}
-                  </Button>
-
-                  <Dropdown
-                    menu={{
-                      items: columns.map((col, index) => ({
-                        key: index,
-                        label: (
-                          <div className="flex items-center justify-between w-48 py-2">
-                            <span>{col.title}</span>
-                            <Switch
-                              checked={!col.hidden}
-                              onChange={() => handleColumnToggle(col.key)}
-                              size="small"
-                            />
-                          </div>
-                        )
-                      }))
-                    }}
-                    trigger={['click']}
-                  >
-                    <Button
-                      icon={<FaColumns />}
-                      style={{ borderColor: colors.secondary, color: colors.secondary }}
-                    >
-                      Columnas
-                    </Button>
-                  </Dropdown>
-
-                  <Button
-                    type="primary"
-                    icon={<FaPlus />}
-                    onClick={handleAdd}
-                    style={{ backgroundColor: colors.primary, borderColor: colors.primary }}
-                  >
-                    Agregar {selectedTable.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                  </Button>
-                </div>
+                <Tag color="geekblue">{availableTables.length}</Tag>
               </div>
 
-              {showFilters && (
-                <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                  <h3 className="text-lg font-semibold mb-4" style={{ color: colors.secondary }}>
-                    Filtros
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {visibleColumns.slice(0, 8).map(col => (
-                      (lookupOptions[col.key] && lookupOptions[col.key].length > 0) ? (
-                            <Select
-                              key={col.key}
-                              placeholder={`Filtrar ${col.title}`}
-                              allowClear
-                              options={lookupOptions[col.key]}
-                              filterOption={false}
-                              onSearch={async (val) => {
-                                const tableForCol = lookupTables[col.key];
-                                if (!tableForCol) return;
-                                if (!val || val.length < 2) return;
-                                const opts = await fetchLookupOptionsRemote(tableForCol, val);
-                                setLookupOptions(prev => ({ ...prev, [col.key]: opts }));
-                              }}
-                              onChange={(val) => handleFilterChange(col.key, String(val || ''))}
-                              value={filters[col.key] || undefined}
-                            />
-                      ) : (
-                        <Input
-                          key={col.key}
-                          placeholder={`Filtrar ${col.title}`}
-                          value={filters[col.key] || ''}
-                          onChange={(e) => handleFilterChange(col.key, e.target.value)}
-                          allowClear
-                        />
-                      )
-                    ))}
+              <Select
+                value={selectedTable || undefined}
+                onChange={(value) => setSelectedTable(value)}
+                allowClear
+                placeholder="Selecciona una tabla"
+                className="mb-3 w-full"
+                showSearch
+                optionFilterProp="children"
+                onClear={() => setSelectedTable('')}
+              >
+                {availableTables.map((table) => (
+                  <Select.Option key={table} value={table}>
+                    {formatTableLabel(table)}
+                  </Select.Option>
+                ))}
+              </Select>
+
+              <Input
+                allowClear
+                value={tableSearch}
+                onChange={(event) => setTableSearch(event.target.value)}
+                prefix={<FaSearch className="text-gray-400" />}
+                placeholder="Buscar tabla"
+              />
+
+              <div className="mt-4 max-h-[420px] space-y-4 overflow-y-auto pr-1">
+                {groupedTables.length ? (
+                  groupedTables.map((group) => (
+                    <div key={group.label}>
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        {group.label}
+                      </p>
+                      <div className="space-y-2">
+                        {group.tables.map((tableName) => {
+                          const isActive = selectedTable === tableName;
+                          return (
+                            <button
+                              key={tableName}
+                              type="button"
+                              onClick={() => setSelectedTable(tableName)}
+                              className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition ${
+                                isActive
+                                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm'
+                                  : 'border-gray-200 hover:border-emerald-300 hover:bg-emerald-50'
+                              }`}
+                            >
+                              <span className="font-medium">{formatTableLabel(tableName)}</span>
+                              <FaChevronRight className="text-xs opacity-60" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <Empty description="No se encontraron tablas" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                )}
+              </div>
+            </div>
+          </aside>
+
+          <section className="min-w-0 flex-1">
+            {selectedTable ? (
+              <div className="rounded-lg bg-white p-4 shadow-sm md:p-6">
+                <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h2 className="text-xl font-semibold md:text-2xl" style={{ color: colors.primary }}>
+                        {selectedTableLabel}
+                      </h2>
+                      {selectedGroupLabel && <Tag color="default">{selectedGroupLabel}</Tag>}
+                      <Tag color="success">{data.length} registros</Tag>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      icon={<FaFilter />}
+                      onClick={() => setShowFilters((prev) => !prev)}
+                      style={{ borderColor: colors.primary, color: colors.primary }}
+                    >
+                      {showFilters ? 'Ocultar filtros' : 'Filtros'}
+                    </Button>
+                    <Button
+                      onClick={() => setShowDeleted((prev) => !prev)}
+                      type={showDeleted ? 'primary' : 'default'}
+                      style={
+                        showDeleted
+                          ? { backgroundColor: colors.secondary, borderColor: colors.secondary }
+                          : { borderColor: colors.secondary, color: colors.secondary }
+                      }
+                    >
+                      {showDeleted ? 'Ver activos' : 'Mostrar eliminados'}
+                    </Button>
+                    <Dropdown
+                      menu={{
+                        items: columns.map((col, index) => ({
+                          key: index,
+                          label: (
+                            <div className="flex w-48 items-center justify-between py-2">
+                              <span>{col.title}</span>
+                              <Switch
+                                checked={!col.hidden}
+                                onChange={() => handleColumnToggle(col.key)}
+                                size="small"
+                              />
+                            </div>
+                          )
+                        }))
+                      }}
+                      trigger={['click']}
+                    >
+                      <Button icon={<FaColumns />} style={{ borderColor: colors.secondary, color: colors.secondary }}>
+                        Columnas
+                      </Button>
+                    </Dropdown>
+                    <Button
+                      type="primary"
+                      icon={<FaPlus />}
+                      onClick={handleAdd}
+                      style={{ backgroundColor: colors.primary, borderColor: colors.primary }}
+                    >
+                      Agregar {selectedTableLabel.toLowerCase()}
+                    </Button>
                   </div>
                 </div>
-              )}
 
-              {loading ? (
-                <div className="text-center py-12">
-                  <Spin size="large" />
-                  <p className="mt-4 text-gray-600">Cargando datos...</p>
-                </div>
-              ) : showDeleted && data.length === 0 ? (
-                <div className="text-center py-12">
-                  <p className="mt-4 text-gray-600">No hay datos eliminados</p>
-                </div>
-              ) : data.length > 0 ? (
-                // Wrapper con overflow-x para que la tabla se adapte y permita scroll horizontal si hace falta
-                <div className="overflow-x-auto">
-                  <Table
-                    columns={tableColumns}
-                    dataSource={data}
-                    rowKey={(record) => Object.values(record).join('-')}
-                    rowClassName={(record) => {
-                      try {
-                        if (estadoField && isDeletedValue(record[estadoField])) return 'deleted-row';
-                        if (activoField && String(record[activoField]) === 'false') return 'deleted-row';
-                      } catch {
-                        return '';
-                      }
-                      return '';
-                    }}
-                    pagination={{
-                      pageSize: 10,
-                      showSizeChanger: true,
-                      showQuickJumper: true,
-                      showTotal: (total, range) =>
-                        `${range[0]}-${range[1]} de ${total} registros`
-                    }}
-                    className="custom-table w-full"
-                    size="middle"
+                {lastError && (
+                  <Alert
+                    type="error"
+                    message="Hubo un problema al cargar la tabla"
+                    description={lastError}
+                    showIcon
+                    closable
+                    className="mb-4"
+                    onClose={() => setLastError(null)}
                   />
-                </div>
-              ) : null}
-            </>
-          )}
+                )}
+
+                {showFilters && (
+                  <div className="mb-6 rounded-lg bg-gray-50 p-4">
+                    <h3 className="mb-4 text-lg font-semibold" style={{ color: colors.secondary }}>
+                      Filtros rápidos
+                    </h3>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4">
+                      {visibleColumns.slice(0, 8).map((col) => (
+                        lookupOptions[col.key] && lookupOptions[col.key].length > 0 ? (
+                          <Select
+                            key={col.key}
+                            placeholder={`Filtrar ${col.title}`}
+                            allowClear
+                            options={lookupOptions[col.key]}
+                            filterOption={false}
+                            onSearch={async (val) => {
+                              const tableForCol = lookupTables[col.key];
+                              if (!tableForCol) return;
+                              if (!val || val.length < 2) return;
+                              const opts = await fetchLookupOptionsRemote(tableForCol, val);
+                              setLookupOptions((prev) => ({ ...prev, [col.key]: opts }));
+                            }}
+                            onChange={(val) => handleFilterChange(col.key, String(val || ''))}
+                            value={filters[col.key] || undefined}
+                          />
+                        ) : (
+                          <Input
+                            key={col.key}
+                            placeholder={`Filtrar ${col.title}`}
+                            value={filters[col.key] || ''}
+                            onChange={(event) => handleFilterChange(col.key, event.target.value)}
+                            allowClear
+                          />
+                        )
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {loading ? (
+                  <div className="py-12 text-center">
+                    <Spin size="large" />
+                    <p className="mt-4 text-gray-600">Cargando datos...</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table
+                      columns={tableColumns}
+                      dataSource={data}
+                      rowKey={(record) => {
+                        const pkValue = primaryKey ? record[primaryKey] : undefined;
+                        if (pkValue !== null && pkValue !== undefined) {
+                          return String(pkValue);
+                        }
+                        return Object.values(record).join('-');
+                      }}
+                      rowClassName={(record) => {
+                        try {
+                          if (estadoField && isDeletedValue(record[estadoField])) return 'deleted-row';
+                          if (activoField && String(record[activoField]) === 'false') return 'deleted-row';
+                        } catch {
+                          return '';
+                        }
+                        return '';
+                      }}
+                      pagination={{
+                        current: tableCurrentPage,
+                        pageSize: tablePageSize,
+                        total: data.length,
+                        showSizeChanger: true,
+                        pageSizeOptions: ['5', '10', '20', '50'],
+                        showQuickJumper: true,
+                        onChange: (page, size) => {
+                          setTableCurrentPage(page);
+                          setTablePageSize(size as number);
+                        },
+                        showTotal: (total, range) => `${range[0]}-${range[1]} de ${total} registros`
+                      }}
+                      className="custom-table inv-table w-full"
+                      size="middle"
+                      scroll={{ x: true }}
+                      locale={{
+                        emptyText: (
+                          <Empty
+                            image={Empty.PRESENTED_IMAGE_SIMPLE}
+                            description={showDeleted ? 'No hay registros eliminados' : 'Sin registros disponibles'}
+                          />
+                        )
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center gap-3 rounded-lg bg-white p-12 text-center shadow-sm">
+                <Empty description="Selecciona una tabla para comenzar" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                <p className="text-sm text-gray-500">
+                  Explora el listado de la izquierda y elige la tabla que deseas administrar.
+                </p>
+              </div>
+            )}
+          </section>
         </div>
 
         <Drawer

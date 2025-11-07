@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Modal, Select, Space, Tooltip, Typography, message } from 'antd';
+import { Alert, Button, Modal, Select, Tooltip, Typography, message } from 'antd';
 import {
   DeleteOutlined,
   DownloadOutlined,
-  FileSearchOutlined,
+  LeftOutlined,
   ReloadOutlined,
   RollbackOutlined,
+  RightOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 
@@ -44,6 +45,13 @@ const tableStyles = `
 .inv-table tbody tr:last-child td {
   border-bottom: none;
 }
+
+.inv-table tfoot td {
+  background: #f8f9fa;
+  font-weight: 500;
+  color: #12443D;
+  border-top: 1px solid #e4e7eb;
+}
 `;
 
 interface SchemaSnippet {
@@ -79,11 +87,6 @@ interface BackupHistoryItem {
   sizeBytes: number;
   sourceGeneratedAt?: string;
   tableKey?: IncrementalTableKey;
-}
-
-interface PreviewState {
-  title: string;
-  content: string;
 }
 
 const LOCAL_STORAGE_KEY = 'backups';
@@ -213,8 +216,9 @@ const Backup: React.FC = () => {
   const [incrementalError, setIncrementalError] = useState<string | null>(null);
 
   const [selectedTable, setSelectedTable] = useState<IncrementalTableKey>('insumo');
-  const [preview, setPreview] = useState<PreviewState | null>(null);
   const [history, setHistory] = useState<BackupHistoryItem[]>(() => loadStoredHistory());
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState<number>(6);
 
   const persistHistory = useCallback((records: BackupHistoryItem[]) => {
     if (typeof window !== 'undefined') {
@@ -229,9 +233,15 @@ const Backup: React.FC = () => {
         persistHistory(next);
         return next;
       });
+      setHistoryPage(1);
     },
     [persistHistory]
   );
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(history.length / historyPageSize));
+    setHistoryPage((prev) => (prev > totalPages ? totalPages : prev));
+  }, [history, historyPageSize]);
 
   const downloadTextFile = useCallback((content: string, filename: string) => {
     const blob = new Blob([content], { type: 'text/sql;charset=utf-8;' });
@@ -379,38 +389,11 @@ const Backup: React.FC = () => {
     downloadIncremental(selectedTable);
   }, [downloadIncremental, selectedTable]);
 
-  const previewIncrementalForTable = useCallback(
-    (tableKey: IncrementalTableKey) => {
-      if (!incrementalData) {
-        messageApi.warning('Aún no se cargó la información incremental.');
-        return;
-      }
-
-      const tablePayload = incrementalData.tables[tableKey];
-      if (!tablePayload || !tablePayload.sql.trim()) {
-        messageApi.warning('No hay datos disponibles para la tabla seleccionada.');
-        return;
-      }
-
-      const label = INCREMENTAL_OPTIONS.find((option) => option.value === tableKey)?.label ?? tableKey;
-      setPreview({
-        title: `SQL incremental - ${label}`,
-        content: tablePayload.sql,
-      });
-    },
-    [incrementalData, messageApi]
-  );
-
-  const handlePreviewIncremental = useCallback(() => {
-    previewIncrementalForTable(selectedTable);
-  }, [previewIncrementalForTable, selectedTable]);
-
   const handleHistoryDownload = useCallback(
     (item: BackupHistoryItem) => {
       if (item.type === 'schema') {
         handleDownloadSchema();
       } else if (item.tableKey) {
-        setSelectedTable(item.tableKey);
         downloadIncremental(item.tableKey);
       } else {
         handleDownloadIncremental();
@@ -440,6 +423,29 @@ const Backup: React.FC = () => {
     [messageApi, persistHistory]
   );
 
+  const handleClearHistory = useCallback(() => {
+    if (!history.length) {
+      messageApi.info('No existen registros para limpiar.');
+      return;
+    }
+
+    Modal.confirm({
+      title: '¿Limpiar historial local?',
+      content: 'Se eliminarán todos los registros almacenados en este navegador.',
+      okText: 'Limpiar',
+      okType: 'danger',
+      cancelText: 'Cancelar',
+      onOk: () => {
+        setHistory(() => {
+          persistHistory([]);
+          return [];
+        });
+        setHistoryPage(1);
+        messageApi.success('Historial limpiado correctamente.');
+      },
+    });
+  }, [history, messageApi, persistHistory]);
+
   const incrementalTotals = useMemo(() => {
     if (!incrementalData) return null;
     const entries = Object.entries(incrementalData.tables) as [IncrementalTableKey, { sql: string; count: number }][];
@@ -461,8 +467,15 @@ const Backup: React.FC = () => {
     [schemaData]
   );
 
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(history.length / historyPageSize)), [historyPageSize, history]);
+
+  const paginatedHistory = useMemo(() => {
+    const startIndex = (historyPage - 1) * historyPageSize;
+    return history.slice(startIndex, startIndex + historyPageSize);
+  }, [historyPageSize, history, historyPage]);
+
   return (
-    <div className="min-h-screen bg-slate-100 py-8 px-4">
+    <div className="min-h-screen bg-white py-8 px-4">
       {contextHolder}
       <style>{tableStyles}</style>
       <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-10">
@@ -570,39 +583,22 @@ const Backup: React.FC = () => {
                     </thead>
                     <tbody>
                       {history.length ? (
-                        history.map((item) => (
+                        paginatedHistory.map((item) => (
                           <tr key={item.id}>
                             <td>{formatDateTime(item.createdAt)}</td>
                             <td>{item.type === 'schema' ? 'Estructura' : `Incremental · ${item.label}`}</td>
                             <td>{item.filename}</td>
                             <td>{formatSize(item.sizeBytes)}</td>
                             <td>
-                              <Space>
-                                <Tooltip title="Descargar respaldo">
-                                  <Button
-                                    size="small"
-                                    shape="circle"
-                                    icon={<DownloadOutlined />}
-                                    onClick={() => handleHistoryDownload(item)}
-                                    className="border-0 bg-emerald-600 text-white hover:bg-emerald-700"
-                                  />
-                                </Tooltip>
-                                {item.type === 'incremental' ? (
-                                  <Tooltip title="Seleccionar y previsualizar">
-                                    <Button
-                                      size="small"
-                                      shape="circle"
-                                      icon={<FileSearchOutlined />}
-                                      onClick={() => {
-                                        if (!item.tableKey) return;
-                                        setSelectedTable(item.tableKey);
-                                        previewIncrementalForTable(item.tableKey);
-                                      }}
-                                      disabled={!item.tableKey}
-                                    />
-                                  </Tooltip>
-                                ) : null}
-                              </Space>
+                              <Tooltip title="Descargar respaldo">
+                                <Button
+                                  size="small"
+                                  shape="circle"
+                                  icon={<DownloadOutlined />}
+                                  onClick={() => handleHistoryDownload(item)}
+                                  className="border-0 bg-emerald-600 text-white hover:bg-emerald-700"
+                                />
+                              </Tooltip>
                             </td>
                             <td>
                               <Button
@@ -623,6 +619,74 @@ const Backup: React.FC = () => {
                         </tr>
                       )}
                     </tbody>
+                    {history.length ? (
+                      <tfoot>
+                        <tr>
+                          <td colSpan={6}>
+                            <div className="flex flex-col gap-4 text-xs text-slate-600">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <span>
+                                  Mostrando {paginatedHistory.length} de {history.length}{' '}
+                                  {history.length === 1
+                                    ? 'respaldo guardado localmente.'
+                                    : 'respaldos guardados localmente.'}
+                                </span>
+                                <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
+                                  <span className="text-slate-400">
+                                    Última descarga registrada {formatDateTime(history[0]?.createdAt)}
+                                  </span>
+                                  <Tooltip title="Eliminar todos los registros locales">
+                                    <Button
+                                      type="primary"
+                                      size="small"
+                                      danger
+                                      icon={<DeleteOutlined />}
+                                      onClick={handleClearHistory}
+                                    >
+                                      Limpiar historial
+                                    </Button>
+                                  </Tooltip>
+                                </div>
+                              </div>
+                              {totalPages > 1 ? (
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-[11px] uppercase tracking-wide text-slate-500">
+                                  <div className="flex items-center gap-3">
+                                    <span>Página {historyPage} de {totalPages}</span>
+                                    <Button
+                                      size="small"
+                                      onClick={() => setHistoryPage((prev) => Math.max(1, prev - 1))}
+                                      disabled={historyPage <= 1}
+                                    >
+                                      <LeftOutlined /> Anterior
+                                    </Button>
+                                    <Button
+                                      size="small"
+                                      onClick={() => setHistoryPage((prev) => (prev < totalPages ? prev + 1 : prev))}
+                                      disabled={historyPage >= totalPages}
+                                    >
+                                      Siguiente <RightOutlined />
+                                    </Button>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-slate-400 mr-2">Mostrar:</span>
+                                    <Select
+                                      size="small"
+                                      value={historyPageSize}
+                                      onChange={(val: number) => {
+                                        setHistoryPageSize(Number(val));
+                                        setHistoryPage(1);
+                                      }}
+                                      options={[5, 10, 20, 50].map(n => ({ value: n, label: String(n) }))}
+                                      style={{ width: 96 }}
+                                    />
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      </tfoot>
+                    ) : null}
                   </table>
                 </div>
               </div>
@@ -660,15 +724,6 @@ const Backup: React.FC = () => {
                       disabled={incrementalLoading || !incrementalData}
                     />
                   </Tooltip>
-                  <Tooltip title="Previsualizar SQL">
-                    <Button
-                      shape="circle"
-                      icon={<FileSearchOutlined />}
-                      className="border-sky-600/30 text-sky-700 hover:bg-sky-50"
-                      onClick={handlePreviewIncremental}
-                      disabled={!incrementalData}
-                    />
-                  </Tooltip>
                 </div>
                 {incrementalTotals ? (
                   <div className="grid gap-3 rounded-2xl border border-sky-100 bg-sky-50 p-4 text-sm text-sky-700">
@@ -694,21 +749,6 @@ const Backup: React.FC = () => {
         </div>
       </div>
 
-      <Modal
-        open={!!preview}
-        title={preview?.title}
-        onCancel={() => setPreview(null)}
-        footer={[
-          <Button key="close" onClick={() => setPreview(null)}>
-            Cerrar
-          </Button>,
-        ]}
-        width={800}
-      >
-        <div className="max-h-[60vh] overflow-auto rounded-md bg-slate-900 p-4">
-          <pre className="whitespace-pre-wrap text-xs text-green-100">{preview?.content}</pre>
-        </div>
-      </Modal>
     </div>
   );
 };

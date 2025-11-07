@@ -7,31 +7,31 @@ const teamMembers = [
     name: 'Andrea Sofia Chafolla Mendez',
     carne: '5090-22-216',
     phone: '+502 3052 6004',
-    email: 'andrea@shucway.com'
+    email: 'achafollam@miumg.edu.gt'
   },
   {
     name: 'Carmi Emileny Cuxum Gonzalez',
     carne: '5090-22-3686',
     phone: '+502 3031 8249',
-    email: 'carmi@shucway.com'
+    email: 'ccuxumg@miumg.edu.gt'
   },
   {
     name: 'Josué Daniel Figueroa Herrera',
     carne: '5090-22-36',
     phone: '+502 5625 2922',
-    email: 'josue@shucway.com'
+    email: 'jfigueroah4@miumg.edu.gt'
   },
   {
     name: 'Dilan René Escobar Rodríguez',
     carne: '5090-22-1010',
     phone: '+502 5748 1467',
-    email: 'dilan@shucway.com'
+    email: 'descobarr9@miumg.edu.gt'
   },
   {
     name: 'Bartola Angelica Grave Barrera',
     carne: '5090-22-7985',
     phone: '+502 3652 9993',
-    email: 'bartola@shucway.com'
+    email: 'Bgraveb@miumg.edu.gt'
   }
 ];
 

@@ -21,6 +21,7 @@ export interface Insumo {
   fecha_registro: Date;
   activo: boolean;
   descripcion_presentacion?: string;
+  insumo_url?: string;
 }
 
 export interface CatalogoInsumo {
@@ -41,6 +42,8 @@ export interface CatalogoInsumo {
   };
   descripcion_presentacion?: string;
   ubicacion?: string;
+  insumo_url?: string;
+  fecha_vencimiento?: string;
 }
 
 export interface LoteInsumo {
@@ -105,6 +108,7 @@ export interface CreateInsumoDTO {
   descripcion_presentacion?: string;
   fecha_vencimiento?: string;
   ubicacion?: string;
+  insumo_url?: string;
 }
 
 export interface UpdateInsumoDTO {
@@ -119,6 +123,7 @@ export interface UpdateInsumoDTO {
   activo?: boolean;
   fecha_vencimiento?: string;
   ubicacion?: string;
+  insumo_url?: string;
 }
 
 export interface CreateLoteDTO {

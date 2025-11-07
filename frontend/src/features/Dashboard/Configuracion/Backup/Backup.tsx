@@ -1,9 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { message, Button, Modal } from 'antd';
-import { DownloadOutlined, InfoCircleOutlined, DeleteOutlined, CheckCircleOutlined, SettingOutlined, FolderOpenOutlined } from '@ant-design/icons';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Button, Modal, Select, Space, Tooltip, Typography, message } from 'antd';
+import {
+  DeleteOutlined,
+  DownloadOutlined,
+  FileSearchOutlined,
+  ReloadOutlined,
+  RollbackOutlined,
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 
-// Estilos CSS para la tabla similar al inventario
+const { Paragraph, Text, Title } = Typography;
+
 const tableStyles = `
 .inv-table {
   width: 100%;
@@ -39,45 +46,137 @@ const tableStyles = `
 }
 `;
 
-interface BackupRecord {
-  id: string;
-  date: string;
-  size: string;
-  status: string;
-  type: 'full' | 'incremental';
+interface SchemaSnippet {
+  name: string;
+  definition: string;
 }
 
-interface IncrementalBackupMetadata {
-  generatedAt: string;
-  filename?: string;
-  ventasCount: number;
-  detallesCount: number;
-  insumosCount: number;
-  totalVentas?: number;
-  totalStock?: number;
-  note?: string;
-}
-
-interface BackupDatasets {
-  ventas?: unknown[];
-  insumos?: unknown[];
-}
-
-interface BackupInfoResponse {
+interface SchemaSqlPayload {
   success?: boolean;
-  message?: string;
-  recommendation?: string;
-  availableOptions?: string[];
-  limitations?: Record<string, string>;
-  error?: string;
+  generatedAt: string;
+  tables: SchemaSnippet[];
+  inserts: string[];
+  triggers: SchemaSnippet[];
+  functions: SchemaSnippet[];
   details?: string;
-  metadata?: IncrementalBackupMetadata;
-  datasets?: BackupDatasets;
 }
 
-type IncrementalBackupPayload = BackupInfoResponse & { datasets?: Required<BackupDatasets> };
+export type IncrementalTableKey = 'insumo' | 'venta' | 'gasto_operativo';
 
-const DEFAULT_INCREMENTAL_MESSAGE = 'Genera un backup incremental para exportar ventas e insumos con su stock actual.';
+interface IncrementalSqlPayload {
+  success?: boolean;
+  generatedAt: string;
+  tables: Record<IncrementalTableKey, { sql: string; count: number }>;
+  details?: string;
+}
+
+interface BackupHistoryItem {
+  id: string;
+  type: 'schema' | 'incremental';
+  label: string;
+  filename: string;
+  createdAt: string;
+  sizeBytes: number;
+  sourceGeneratedAt?: string;
+  tableKey?: IncrementalTableKey;
+}
+
+interface PreviewState {
+  title: string;
+  content: string;
+}
+
+const LOCAL_STORAGE_KEY = 'backups';
+const MAX_HISTORY_ITEMS = 10;
+
+const INCREMENTAL_OPTIONS: { value: IncrementalTableKey; label: string }[] = [
+  { value: 'insumo', label: 'Insumos' },
+  { value: 'venta', label: 'Ventas' },
+  { value: 'gasto_operativo', label: 'Gastos operativos' },
+];
+
+const createId = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2, 12);
+
+const sanitizeFilenameFragment = (value: string) => value.replace(/[:.]/g, '-');
+
+const composeSchemaSql = (payload: SchemaSqlPayload): string => {
+  const sections: string[] = [];
+
+  sections.push('-- SHUCWAY ERP - Backup de estructura');
+  sections.push(`-- Generado: ${payload.generatedAt}`);
+  sections.push('');
+
+  if (payload.tables.length) {
+    sections.push('-- === Tablas ===');
+    payload.tables.forEach(({ name, definition }) => {
+      sections.push(`-- Tabla: ${name}`);
+      sections.push(definition.trim());
+      sections.push('');
+    });
+  }
+
+  if (payload.triggers.length) {
+    sections.push('-- === Triggers ===');
+    payload.triggers.forEach(({ name, definition }) => {
+      sections.push(`-- Trigger: ${name}`);
+      sections.push(definition.trim());
+      sections.push('');
+    });
+  }
+
+  if (payload.functions.length) {
+    sections.push('-- === Funciones ===');
+    payload.functions.forEach(({ name, definition }) => {
+      sections.push(`-- Función: ${name}`);
+      sections.push(definition.trim());
+      sections.push('');
+    });
+  }
+
+  if (payload.inserts.length) {
+    sections.push('-- === Inserts ===');
+    payload.inserts.forEach((statement) => {
+      sections.push(statement.trim());
+    });
+    sections.push('');
+  }
+
+  sections.push('-- Fin del respaldo');
+
+  return sections.join('\n');
+};
+
+const loadStoredHistory = (): BackupHistoryItem[] => {
+  if (typeof window === 'undefined') return [];
+
+  try {
+    const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .map((item: Partial<BackupHistoryItem>) => ({
+        id: item.id ?? createId(),
+        type: (item.type as BackupHistoryItem['type']) ?? 'schema',
+        label: item.label ?? 'Desconocido',
+        filename: item.filename ?? 'backup.sql',
+        createdAt: item.createdAt ?? new Date().toISOString(),
+        sizeBytes: typeof item.sizeBytes === 'number' ? item.sizeBytes : 0,
+        sourceGeneratedAt: item.sourceGeneratedAt,
+        tableKey: item.tableKey as IncrementalTableKey | undefined,
+      }))
+      .slice(0, MAX_HISTORY_ITEMS);
+  } catch {
+    return [];
+  }
+};
 
 const formatDateTime = (value?: string) => {
   if (!value) return '';
@@ -85,492 +184,531 @@ const formatDateTime = (value?: string) => {
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat('es-ES', {
     dateStyle: 'medium',
-    timeStyle: 'short'
+    timeStyle: 'short',
   }).format(date);
 };
 
-const MAX_BACKUPS = 5;
+const formatSize = (bytes: number) => {
+  if (!bytes) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+};
 
 const Backup: React.FC = () => {
   const navigate = useNavigate();
+  const [messageApi, contextHolder] = message.useMessage();
 
-  const apiBaseUrl = ((import.meta.env.VITE_API_URL as string | undefined) || '/api').replace(/\/$/, '');
-  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || '';
-  const supabaseProjectRef = (() => {
-    try {
-      const host = new URL(supabaseUrl).hostname;
-      return host.split('.')[0] || '';
-    } catch {
-      return '';
-    }
-  })();
-  const supabaseDashboardUrl = supabaseProjectRef
-    ? `https://supabase.com/dashboard/project/${supabaseProjectRef}/sql`
-    : 'https://supabase.com/dashboard';
-
-  const [backups, setBackups] = useState<BackupRecord[]>([]);
-  const [loading, setLoading] = useState<{ full: boolean; incremental: boolean }>({
-    full: false,
-    incremental: false,
-  });
-  const [supportInfo, setSupportInfo] = useState<BackupInfoResponse | null>(null);
-
-  const loadStoredBackups = useCallback(() => {
-    try {
-      const storedBackups = localStorage.getItem('backups');
-      if (!storedBackups) return;
-      const parsed: BackupRecord[] = JSON.parse(storedBackups);
-      setBackups(parsed.slice(0, MAX_BACKUPS));
-    } catch (error) {
-      console.warn('No se pudo leer el historial de backups locales:', error);
-      localStorage.removeItem('backups');
-    }
-  }, []);
-
-  const fetchSupportInfo = useCallback(async () => {
-    try {
-      const response = await fetch(`${apiBaseUrl}/backup/incremental?summary=true`);
-      if (!response.ok) return;
-      const data: BackupInfoResponse = await response.json();
-      setSupportInfo({
-        success: data.success,
-        message: data.message,
-        metadata: data.metadata,
-        recommendation: data.recommendation,
-        availableOptions: data.availableOptions,
-        limitations: data.limitations,
-      });
-    } catch (error) {
-      console.error('Error cargando la información de soporte de backups:', error);
-    }
-  }, [apiBaseUrl]);
-
-  useEffect(() => {
-    loadStoredBackups();
-    void fetchSupportInfo();
-  }, [loadStoredBackups, fetchSupportInfo]);
-
-  const downloadBackup = useCallback(
-    async (type: 'full' | 'incremental') => {
-      setLoading((prev) => ({ ...prev, [type]: true }));
-
-      try {
-        const endpoint = `${apiBaseUrl}/backup/${type === 'full' ? 'full' : 'incremental'}`;
-        const response = await fetch(endpoint);
-        const contentDisposition = response.headers.get('Content-Disposition');
-
-        if (!response.ok) {
-          const contentType = response.headers.get('content-type') || '';
-          if (contentType.includes('application/json')) {
-            const errorPayload: BackupInfoResponse = await response.json();
-            setSupportInfo((prev) => ({ ...(prev ?? {}), ...errorPayload }));
-
-            Modal.info({
-              title:
-                errorPayload.error ||
-                `Backup ${type === 'full' ? 'completo' : 'incremental'} no disponible`,
-              okText: 'Entendido',
-              content: (
-                <div className="space-y-2">
-                  {errorPayload.message && <p>{errorPayload.message}</p>}
-                  {errorPayload.details && (
-                    <p className="text-sm text-gray-600">{errorPayload.details}</p>
-                  )}
-                  {type === 'full' ? (
-                    <>
-                      <p className="text-sm text-gray-600">
-                        Puedes generar un respaldo manual desde Supabase:
-                      </p>
-                      <a
-                        href={supabaseDashboardUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-emerald-600 underline"
-                      >
-                        {supabaseDashboardUrl}
-                      </a>
-                    </>
-                  ) : null}
-                </div>
-              ),
-            });
-            return;
-          }
-
-          throw new Error(`Error HTTP ${response.status}`);
-        }
-
-        const now = new Date();
-        const timestamp = now.toISOString().replace(/[:.]/g, '-');
-        let filename =
-          type === 'incremental'
-            ? `backup-${type}-${timestamp}.json`
-            : `backup-${type}-${now.toISOString().split('T')[0]}.sql`;
-
-        let blob: Blob;
-
-        if (type === 'incremental') {
-          const data: IncrementalBackupPayload = await response.json();
-          const jsonString = JSON.stringify(data, null, 2);
-          blob = new Blob([jsonString], { type: 'application/json' });
-
-          if (data.metadata) {
-            filename = data.metadata.filename ?? filename;
-            setSupportInfo({
-              success: data.success,
-              message: data.message,
-              metadata: data.metadata,
-            });
-          } else {
-            setSupportInfo({ success: data.success, message: data.message });
-          }
-
-          if (data.metadata) {
-            Modal.success({
-              title: 'Backup incremental generado',
-              okText: 'Entendido',
-              content: (
-                <div className="space-y-2 text-sm text-gray-700">
-                  <p>Generado: {formatDateTime(data.metadata.generatedAt)}</p>
-                  <p>Ventas exportadas: {data.metadata.ventasCount}</p>
-                  <p>Detalles de venta exportados: {data.metadata.detallesCount}</p>
-                  <p>Insumos exportados: {data.metadata.insumosCount}</p>
-                  {typeof data.metadata.totalVentas === 'number' && (
-                    <p>
-                      Total vendido:
-                      {' '}
-                      {new Intl.NumberFormat('es-BO', {
-                        style: 'currency',
-                        currency: 'BOB',
-                      }).format(data.metadata.totalVentas)}
-                    </p>
-                  )}
-                  {typeof data.metadata.totalStock === 'number' && (
-                    <p>Stock total acumulado: {data.metadata.totalStock}</p>
-                  )}
-                  {data.metadata.note && <p>{data.metadata.note}</p>}
-                </div>
-              ),
-            });
-          }
-        } else {
-          const contentType = response.headers.get('content-type') || '';
-          if (contentType.includes('application/json')) {
-            const errorPayload: BackupInfoResponse = await response.json();
-            setSupportInfo((prev) => ({ ...(prev ?? {}), ...errorPayload }));
-
-            Modal.info({
-              title: errorPayload.error || 'Backup completo no disponible',
-              okText: 'Entendido',
-              content: (
-                <div className="space-y-2">
-                  {errorPayload.message && <p>{errorPayload.message}</p>}
-                  {errorPayload.details && (
-                    <p className="text-sm text-gray-600">{errorPayload.details}</p>
-                  )}
-                  <p className="text-sm text-gray-600">
-                    Puedes generar un respaldo manual desde Supabase:
-                  </p>
-                  <a
-                    href={supabaseDashboardUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-emerald-600 underline"
-                  >
-                    {supabaseDashboardUrl}
-                  </a>
-                </div>
-              ),
-            });
-            return;
-          }
-
-          blob = await response.blob();
-        }
-
-        if (contentDisposition) {
-          const matches = contentDisposition.match(/filename="(.+)"/);
-          if (matches?.[1]) {
-            filename = matches[1];
-          }
-        }
-
-        if (!blob.size) {
-          message.warning('El backup generado no contiene datos.');
-          return;
-        }
-
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
-        anchor.href = url;
-        anchor.download = filename;
-        document.body.appendChild(anchor);
-        anchor.click();
-        document.body.removeChild(anchor);
-        URL.revokeObjectURL(url);
-
-        const backupRecord: BackupRecord = {
-          id: Date.now().toString(),
-          date: new Date().toISOString(),
-          size: `${(blob.size / 1024 / 1024).toFixed(2)} MB`,
-          status: 'Completado',
-          type,
-        };
-
-        setBackups((prev) => {
-          const updated = [backupRecord, ...prev].slice(0, MAX_BACKUPS);
-          localStorage.setItem('backups', JSON.stringify(updated));
-          return updated;
-        });
-        message.success(
-          type === 'incremental'
-            ? 'Backup incremental generado correctamente.'
-            : 'Backup completo generado correctamente.'
-        );
-      } catch (error) {
-        console.error(`Error descargando backup ${type}:`, error);
-        message.error(
-          `Error al descargar backup ${type}: ${error instanceof Error ? error.message : 'Error desconocido'}`
-        );
-      } finally {
-        setLoading((prev) => ({ ...prev, [type]: false }));
-      }
-    },
-    [apiBaseUrl, supabaseDashboardUrl]
+  const apiBaseUrl = useMemo(
+    () => ((import.meta.env.VITE_API_URL as string | undefined) || '/api').replace(/\/$/, ''),
+    []
   );
 
-  const deleteBackup = useCallback((backupId: string) => {
-    Modal.confirm({
-      title: '¿Eliminar backup?',
-      content: 'Esta acción no se puede deshacer. ¿Estás seguro de que quieres eliminar este backup?',
-      okText: 'Eliminar',
-      okType: 'danger',
-      cancelText: 'Cancelar',
-      onOk() {
-        setBackups((prev) => {
-          const updated = prev.filter((backup) => backup.id !== backupId);
-          localStorage.setItem('backups', JSON.stringify(updated));
-          return updated;
-        });
-        message.success('Backup eliminado exitosamente');
-      },
-    });
+  const [schemaData, setSchemaData] = useState<SchemaSqlPayload | null>(null);
+  const [schemaLoading, setSchemaLoading] = useState(false);
+  const [schemaError, setSchemaError] = useState<string | null>(null);
+
+  const [incrementalData, setIncrementalData] = useState<IncrementalSqlPayload | null>(null);
+  const [incrementalLoading, setIncrementalLoading] = useState(false);
+  const [incrementalError, setIncrementalError] = useState<string | null>(null);
+
+  const [selectedTable, setSelectedTable] = useState<IncrementalTableKey>('insumo');
+  const [preview, setPreview] = useState<PreviewState | null>(null);
+  const [history, setHistory] = useState<BackupHistoryItem[]>(() => loadStoredHistory());
+
+  const persistHistory = useCallback((records: BackupHistoryItem[]) => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(records));
+    }
   }, []);
 
+  const registerHistory = useCallback(
+    (entry: BackupHistoryItem) => {
+      setHistory((prev) => {
+        const next = [entry, ...prev].slice(0, MAX_HISTORY_ITEMS);
+        persistHistory(next);
+        return next;
+      });
+    },
+    [persistHistory]
+  );
+
+  const downloadTextFile = useCallback((content: string, filename: string) => {
+    const blob = new Blob([content], { type: 'text/sql;charset=utf-8;' });
+    const size = blob.size;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    return size;
+  }, []);
+
+  const fetchSchema = useCallback(
+    async (showFeedback = false) => {
+      setSchemaLoading(true);
+      setSchemaError(null);
+
+      try {
+        const response = await fetch(`${apiBaseUrl}/backup/schema-sql`);
+        if (!response.ok) {
+          throw new Error(`No se pudo obtener el esquema (HTTP ${response.status}).`);
+        }
+
+        const payload = (await response.json()) as SchemaSqlPayload;
+        if (!payload.success) {
+          throw new Error(payload.details || 'La API devolvió un error al generar el esquema SQL.');
+        }
+
+        setSchemaData(payload);
+        if (showFeedback) {
+          messageApi.success('Esquema SQL actualizado.');
+        }
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : 'Error desconocido al cargar el esquema SQL.';
+        setSchemaError(errorMessage);
+        messageApi.error(errorMessage);
+      } finally {
+        setSchemaLoading(false);
+      }
+    },
+    [apiBaseUrl, messageApi]
+  );
+
+  const fetchIncremental = useCallback(
+    async (showFeedback = false) => {
+      setIncrementalLoading(true);
+      setIncrementalError(null);
+
+      try {
+        const response = await fetch(`${apiBaseUrl}/backup/incremental-sql`);
+        if (!response.ok) {
+          throw new Error(`No se pudo obtener el SQL incremental (HTTP ${response.status}).`);
+        }
+
+        const payload = (await response.json()) as IncrementalSqlPayload;
+        if (!payload.success) {
+          throw new Error(payload.details || 'La API devolvió un error al generar el SQL incremental.');
+        }
+
+        setIncrementalData(payload);
+        if (showFeedback) {
+          messageApi.success('SQL incremental actualizado.');
+        }
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : 'Error desconocido al cargar el SQL incremental.';
+        setIncrementalError(errorMessage);
+        messageApi.error(errorMessage);
+      } finally {
+        setIncrementalLoading(false);
+      }
+    },
+    [apiBaseUrl, messageApi]
+  );
+
+  useEffect(() => {
+    fetchSchema();
+    fetchIncremental();
+  }, [fetchSchema, fetchIncremental]);
+
+  const handleDownloadSchema = useCallback(() => {
+    if (!schemaData) {
+      messageApi.warning('Aún no se cargó la información del esquema.');
+      return;
+    }
+
+    const sql = composeSchemaSql(schemaData);
+    const timestamp = sanitizeFilenameFragment(schemaData.generatedAt || new Date().toISOString());
+    const filename = `backup-estructura-${timestamp}.sql`;
+
+    const sizeBytes = downloadTextFile(sql, filename);
+    registerHistory({
+      id: createId(),
+      type: 'schema',
+      label: 'Estructura completa',
+      createdAt: new Date().toISOString(),
+      filename,
+      sizeBytes,
+      sourceGeneratedAt: schemaData.generatedAt,
+    });
+    messageApi.success('Estructura exportada en formato SQL.');
+  }, [schemaData, downloadTextFile, registerHistory, messageApi]);
+
+  const downloadIncremental = useCallback(
+    (table: IncrementalTableKey) => {
+      if (!incrementalData) {
+        messageApi.warning('Aún no se cargó la información incremental.');
+        return;
+      }
+
+      const tablePayload = incrementalData.tables[table];
+      if (!tablePayload || !tablePayload.sql.trim()) {
+        messageApi.warning('No hay datos disponibles para la tabla seleccionada.');
+        return;
+      }
+
+      const timestamp = sanitizeFilenameFragment(incrementalData.generatedAt || new Date().toISOString());
+      const filename = `backup-incremental-${table}-${timestamp}.sql`;
+
+      const sizeBytes = downloadTextFile(tablePayload.sql, filename);
+      const label =
+        INCREMENTAL_OPTIONS.find((option) => option.value === table)?.label ?? table;
+
+      registerHistory({
+        id: createId(),
+        type: 'incremental',
+        label,
+        createdAt: new Date().toISOString(),
+        filename,
+        sizeBytes,
+        sourceGeneratedAt: incrementalData.generatedAt,
+        tableKey: table,
+      });
+
+      messageApi.success(`SQL incremental de ${label.toLowerCase()} exportado.`);
+    },
+    [incrementalData, downloadTextFile, registerHistory, messageApi]
+  );
+
+  const handleDownloadIncremental = useCallback(() => {
+    downloadIncremental(selectedTable);
+  }, [downloadIncremental, selectedTable]);
+
+  const previewIncrementalForTable = useCallback(
+    (tableKey: IncrementalTableKey) => {
+      if (!incrementalData) {
+        messageApi.warning('Aún no se cargó la información incremental.');
+        return;
+      }
+
+      const tablePayload = incrementalData.tables[tableKey];
+      if (!tablePayload || !tablePayload.sql.trim()) {
+        messageApi.warning('No hay datos disponibles para la tabla seleccionada.');
+        return;
+      }
+
+      const label = INCREMENTAL_OPTIONS.find((option) => option.value === tableKey)?.label ?? tableKey;
+      setPreview({
+        title: `SQL incremental - ${label}`,
+        content: tablePayload.sql,
+      });
+    },
+    [incrementalData, messageApi]
+  );
+
+  const handlePreviewIncremental = useCallback(() => {
+    previewIncrementalForTable(selectedTable);
+  }, [previewIncrementalForTable, selectedTable]);
+
+  const handleHistoryDownload = useCallback(
+    (item: BackupHistoryItem) => {
+      if (item.type === 'schema') {
+        handleDownloadSchema();
+      } else if (item.tableKey) {
+        setSelectedTable(item.tableKey);
+        downloadIncremental(item.tableKey);
+      } else {
+        handleDownloadIncremental();
+      }
+    },
+    [downloadIncremental, handleDownloadIncremental, handleDownloadSchema]
+  );
+
+  const handleDeleteHistory = useCallback(
+    (id: string) => {
+      Modal.confirm({
+        title: '¿Eliminar registro de backup?',
+        content: 'Esta acción no se puede deshacer. ¿Deseas eliminar este registro? ',
+        okText: 'Eliminar',
+        okType: 'danger',
+        cancelText: 'Cancelar',
+        onOk: () => {
+          setHistory((prev) => {
+            const next = prev.filter((item) => item.id !== id);
+            persistHistory(next);
+            return next;
+          });
+          messageApi.success('Registro eliminado correctamente.');
+        },
+      });
+    },
+    [messageApi, persistHistory]
+  );
+
+  const incrementalTotals = useMemo(() => {
+    if (!incrementalData) return null;
+    const entries = Object.entries(incrementalData.tables) as [IncrementalTableKey, { sql: string; count: number }][];
+    const total = entries.reduce((acc, [, value]) => acc + value.count, 0);
+    return {
+      total,
+      entries,
+      generatedAt: incrementalData.generatedAt,
+    };
+  }, [incrementalData]);
+
+  const schemaMetrics = useMemo(
+    () => [
+      { label: 'Tablas', value: schemaData?.tables.length ?? null },
+      { label: 'Triggers', value: schemaData?.triggers.length ?? null },
+      { label: 'Funciones', value: schemaData?.functions.length ?? null },
+      { label: 'Inserts', value: schemaData?.inserts.length ?? null },
+    ],
+    [schemaData]
+  );
+
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
+    <div className="min-h-screen bg-slate-100 py-8 px-4">
+      {contextHolder}
       <style>{tableStyles}</style>
-      <div className="w-full max-w-full mx-auto mb-8 flex items-start justify-between gap-6">
-        <div>
-          <h1 className="text-4xl font-bold text-gray-800 mb-2">Backup de Base de Datos</h1>
-          <p className="text-base text-gray-600">
-            Genera y gestiona backups completos de la base de datos de forma segura
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate(-1)}
-            className="px-4 py-2 rounded-md border bg-white hover:bg-gray-50 text-gray-700 font-medium"
-          >
-            ← Regresar
-          </button>
-        </div>
-      </div>
-
-      <div className="w-full max-w-full mx-auto grid grid-cols-1 xl:grid-cols-5 gap-6">
-        <div className="xl:col-span-1 space-y-4">
-          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg shadow-sm p-4 border border-blue-100">
-            <div className="flex items-center mb-3">
-              <SettingOutlined className="text-blue-600 mr-2" />
-              <h3 className="text-lg font-semibold text-gray-800">Configuración</h3>
+      <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-10">
+        <section className="overflow-hidden rounded-3xl bg-gradient-to-r from-emerald-600 via-emerald-500 to-sky-500 p-8 shadow-2xl">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-3 text-white">
+              <Title level={2} className="!mb-0 !text-white !text-3xl">
+                Gestor de Backups SQL
+              </Title>
+              <Paragraph className="!mb-0 max-w-xl text-sm leading-relaxed text-white/70">
+                Centraliza la generación de respaldos de estructura y datos incrementales con acciones rápidas, métricas
+                en vivo y un historial listo para volver a descargar.
+              </Paragraph>
+              <div className="flex items-center gap-3 text-xs text-white/75">
+                <Tooltip title="Actualizar esquema e incrementales">
+                  <Button
+                    shape="circle"
+                    icon={<ReloadOutlined />}
+                    onClick={() => {
+                      fetchSchema(true);
+                      fetchIncremental(true);
+                    }}
+                    loading={schemaLoading || incrementalLoading}
+                    className="border border-white/30 bg-white/10 !text-white hover:bg-white/20"
+                  />
+                </Tooltip>
+                <Tooltip title="Regresar">
+                  <Button
+                    shape="circle"
+                    icon={<RollbackOutlined />}
+                    onClick={() => navigate(-1)}
+                    className="border border-white/30 bg-white/10 !text-white hover:bg-white/20"
+                  />
+                </Tooltip>
+                <span>
+                  {schemaData ? `Esquema generado ${formatDateTime(schemaData.generatedAt)}` : 'Aún no se genera un esquema'}
+                </span>
+              </div>
             </div>
-            <div className="space-y-3">
-              <div className="flex items-center p-2 bg-green-50 rounded-md border border-green-200">
-                <CheckCircleOutlined className="text-green-600 mr-2" />
-                <div>
-                  <div className="text-green-700 font-medium text-sm">SQL Legible</div>
-                  <p className="text-xs text-gray-600">Formato recomendado para revisión manual</p>
+            <div className="grid w-full gap-3 text-white sm:grid-cols-2 lg:grid-cols-4">
+              {schemaMetrics.map((metric) => (
+                <div
+                  key={metric.label}
+                  className="rounded-2xl bg-white/10 p-4 text-center backdrop-blur-sm transition hover:bg-white/20"
+                >
+                  <span className="text-[11px] uppercase tracking-wide text-white/70">{metric.label}</span>
+                  <p className="mt-2 text-2xl font-semibold text-white">
+                    {metric.value !== null ? metric.value : '—'}
+                  </p>
                 </div>
-              </div>
-              <div className="flex items-center p-2 bg-orange-50 rounded-md border border-orange-200">
-                <FolderOpenOutlined className="text-orange-600 mr-2" />
-                <div>
-                  <div className="text-orange-700 font-medium text-sm">
-                    {Math.max(0, MAX_BACKUPS - backups.length)} backups disponibles
-                  </div>
-                  <p className="text-xs text-gray-600">Límite: {MAX_BACKUPS} backups locales</p>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="xl:col-span-4 space-y-6">
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <div className="mb-4">
-              <h2 className="text-2xl font-semibold text-gray-800 mb-2">Generar Nuevo Backup</h2>
-              <p className="text-gray-600">Crea un respaldo completo de tu base de datos</p>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div className="bg-green-50 p-4 rounded-lg border border-green-200 flex-1">
-                <Button
-                  type="primary"
-                  onClick={() => void downloadBackup('full')}
-                  disabled={loading.full}
-                  icon={<DownloadOutlined />}
-                  className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg text-base font-bold disabled:opacity-50 w-full h-auto"
-                  size="large"
-                >
-                  {loading.full ? 'Generando...' : 'BACKUP COMPLETO'}
-                </Button>
-                <p className="text-xs text-gray-600 mt-3">Archivo SQL con estructura y datos completos</p>
+        <div className="grid gap-10 lg:grid-cols-[2fr,1fr]">
+          <div className="flex flex-col gap-8">
+            <section className="rounded-3xl border border-emerald-100 bg-white p-8 shadow-xl">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="max-w-xl space-y-2">
+                  <Text strong className="text-emerald-700">
+                    Respaldo de estructura
+                  </Text>
+                  <Paragraph className="!mb-0 text-sm text-emerald-900/75">
+                    Exporta la definición completa de tu base de datos incluyendo tablas, triggers y funciones. Ideal
+                    para migraciones o restauraciones totales.
+                  </Paragraph>
+                </div>
+                <Tooltip title="Descargar SQL completo">
+                  <Button
+                    type="primary"
+                    shape="circle"
+                    icon={<DownloadOutlined />}
+                    className="border-0 bg-emerald-600 hover:bg-emerald-700"
+                    onClick={handleDownloadSchema}
+                    loading={schemaLoading}
+                    disabled={schemaLoading || !schemaData}
+                  />
+                </Tooltip>
               </div>
+              {schemaError ? <Alert type="error" message={schemaError} showIcon className="mt-4" /> : null}
+            </section>
 
-              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 flex-1">
-                <Button
-                  onClick={() => void downloadBackup('incremental')}
-                  disabled={loading.incremental}
-                  icon={<InfoCircleOutlined />}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg text-base font-bold disabled:opacity-50 w-full h-auto"
-                  size="large"
-                >
-                  {loading.incremental ? 'Procesando...' : 'DISPONIBILIDAD INCREMENTAL'}
-                </Button>
-                <p className="text-xs text-gray-600 mt-3">
-                  Consulta la disponibilidad según tu plan de Supabase
-                </p>
+            <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-xl">
+              <div className="mb-6 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <Text strong className="text-lg text-slate-800">Historial de descargas</Text>
+                  <Paragraph className="!mb-0 text-sm text-slate-500">
+                    Tabla con el mismo estilo que el inventario para volver a descargar o limpiar registros locales.
+                  </Paragraph>
+                </div>
               </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <div className="mb-4">
-              <h2 className="text-2xl font-semibold text-gray-800 mb-2">Historial de Backups</h2>
-              <p className="text-gray-600">Revisa y descarga backups anteriores</p>
-            </div>
-
-            <div className="overflow-x-auto w-full">
-              <table className="inv-table w-full">
-                <thead>
-                  <tr>
-                    <th className="min-w-[200px]">Fecha</th>
-                    <th className="min-w-[100px]">Tipo</th>
-                    <th className="min-w-[100px]">Tamaño</th>
-                    <th className="min-w-[120px]">Estado</th>
-                    <th className="min-w-[120px]">Acciones</th>
-                    <th className="min-w-[80px]">Eliminar</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {backups.length ? (
-                    backups.map((backup) => (
-                      <tr key={backup.id}>
-                        <td>{new Date(backup.date).toLocaleString()}</td>
-                        <td>{backup.type === 'full' ? 'Completo' : 'Incremental'}</td>
-                        <td>{backup.size}</td>
-                        <td>
-                          <span
-                            className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                              backup.status === 'Completado'
-                                ? 'bg-green-100 text-green-800'
-                                : 'bg-yellow-100 text-yellow-800'
-                            }`}
-                          >
-                            {backup.status}
-                          </span>
-                        </td>
-                        <td>
-                          <Button
-                            size="small"
-                            icon={<DownloadOutlined />}
-                            onClick={() => void downloadBackup(backup.type)}
-                            className="bg-teal-600 hover:bg-teal-700 text-white border-0 font-bold uppercase text-xs px-3 py-1 rounded-md flex items-center gap-1 transition-colors"
-                          >
-                            {backup.type === 'full' ? 'DESCARGAR' : 'DETALLE'}
-                          </Button>
-                        </td>
-                        <td>
-                          <Button
-                            size="middle"
-                            icon={<DeleteOutlined style={{ fontSize: '16px' }} />}
-                            danger
-                            onClick={() => deleteBackup(backup.id)}
-                            className="border-0 text-xs px-3 py-2 rounded-md flex items-center gap-1 transition-colors hover:bg-red-50"
-                          />
-                        </td>
+              <div className="overflow-hidden rounded-2xl border border-slate-200">
+                <div className="overflow-x-auto">
+                  <table className="inv-table">
+                    <thead>
+                      <tr>
+                        <th className="min-w-[200px]">Fecha</th>
+                        <th className="min-w-[130px]">Tipo</th>
+                        <th className="min-w-[160px]">Archivo</th>
+                        <th className="min-w-[110px]">Tamaño</th>
+                        <th className="min-w-[150px]">Acciones</th>
+                        <th className="min-w-[90px]">Eliminar</th>
                       </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={6} className="text-sm text-gray-500 text-center py-4">
-                        No hay backups generados aún.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody>
+                      {history.length ? (
+                        history.map((item) => (
+                          <tr key={item.id}>
+                            <td>{formatDateTime(item.createdAt)}</td>
+                            <td>{item.type === 'schema' ? 'Estructura' : `Incremental · ${item.label}`}</td>
+                            <td>{item.filename}</td>
+                            <td>{formatSize(item.sizeBytes)}</td>
+                            <td>
+                              <Space>
+                                <Tooltip title="Descargar respaldo">
+                                  <Button
+                                    size="small"
+                                    shape="circle"
+                                    icon={<DownloadOutlined />}
+                                    onClick={() => handleHistoryDownload(item)}
+                                    className="border-0 bg-emerald-600 text-white hover:bg-emerald-700"
+                                  />
+                                </Tooltip>
+                                {item.type === 'incremental' ? (
+                                  <Tooltip title="Seleccionar y previsualizar">
+                                    <Button
+                                      size="small"
+                                      shape="circle"
+                                      icon={<FileSearchOutlined />}
+                                      onClick={() => {
+                                        if (!item.tableKey) return;
+                                        setSelectedTable(item.tableKey);
+                                        previewIncrementalForTable(item.tableKey);
+                                      }}
+                                      disabled={!item.tableKey}
+                                    />
+                                  </Tooltip>
+                                ) : null}
+                              </Space>
+                            </td>
+                            <td>
+                              <Button
+                                size="middle"
+                                icon={<DeleteOutlined style={{ fontSize: '16px' }} />}
+                                danger
+                                onClick={() => handleDeleteHistory(item.id)}
+                                className="border-0"
+                              />
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={6} className="py-6 text-center text-sm text-slate-500">
+                            Todavía no hay descargas registradas en este equipo.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div className="flex flex-col gap-8">
+            <section className="rounded-3xl border border-sky-100 bg-white p-8 shadow-xl">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Text strong className="text-sky-700">
+                    Incrementales por módulo
+                  </Text>
+                  <Paragraph className="!mb-0 text-sm text-sky-900/75">
+                    Genera scripts INSERT con los datos operativos recientes. Selecciona un módulo, previsualiza el SQL y
+                    descarga el archivo listo para ejecutar.
+                  </Paragraph>
+                </div>
+                <Select
+                  value={selectedTable}
+                  onChange={(value: IncrementalTableKey) => setSelectedTable(value)}
+                  options={INCREMENTAL_OPTIONS}
+                  size="large"
+                  className="w-full"
+                />
+                <div className="flex items-center gap-2">
+                  <Tooltip title="Descargar SQL incremental">
+                    <Button
+                      type="primary"
+                      shape="circle"
+                      icon={<DownloadOutlined />}
+                      className="border-0 bg-sky-600 hover:bg-sky-700"
+                      onClick={handleDownloadIncremental}
+                      loading={incrementalLoading}
+                      disabled={incrementalLoading || !incrementalData}
+                    />
+                  </Tooltip>
+                  <Tooltip title="Previsualizar SQL">
+                    <Button
+                      shape="circle"
+                      icon={<FileSearchOutlined />}
+                      className="border-sky-600/30 text-sky-700 hover:bg-sky-50"
+                      onClick={handlePreviewIncremental}
+                      disabled={!incrementalData}
+                    />
+                  </Tooltip>
+                </div>
+                {incrementalTotals ? (
+                  <div className="grid gap-3 rounded-2xl border border-sky-100 bg-sky-50 p-4 text-sm text-sky-700">
+                    <div className="flex items-center justify-between">
+                      <span>Total incremental</span>
+                      <span className="font-semibold text-sky-900">{incrementalTotals.total} filas</span>
+                    </div>
+                    <div className="text-xs text-sky-600/90">
+                      {incrementalTotals.generatedAt
+                        ? `Generado ${formatDateTime(incrementalTotals.generatedAt)}`
+                        : 'Actualiza incrementales para conocer el detalle.'}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-sky-200 bg-sky-50/60 p-4 text-center text-sm text-sky-600">
+                    Genera o actualiza incrementales para ver las métricas.
+                  </div>
+                )}
+                {incrementalError ? <Alert type="error" message={incrementalError} showIcon /> : null}
+              </div>
+            </section>
           </div>
         </div>
       </div>
 
-      <div className="w-full max-w-full mx-auto mt-6">
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <InfoCircleOutlined className="text-yellow-600 mt-1 flex-shrink-0" />
-            <div className="space-y-2">
-              <p className="text-yellow-700 text-sm">
-                {supportInfo?.metadata
-                  ? `Último resumen generado ${formatDateTime(supportInfo.metadata.generatedAt)}`
-                  : supportInfo?.message || DEFAULT_INCREMENTAL_MESSAGE}
-              </p>
-              {supportInfo?.metadata ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-yellow-700">
-                  <div>Ventas exportadas: {supportInfo.metadata.ventasCount}</div>
-                  <div>Detalles registrados: {supportInfo.metadata.detallesCount}</div>
-                  <div>Insumos exportados: {supportInfo.metadata.insumosCount}</div>
-                  {typeof supportInfo.metadata.totalStock === 'number' && (
-                    <div>Stock total acumulado: {supportInfo.metadata.totalStock}</div>
-                  )}
-                  {typeof supportInfo.metadata.totalVentas === 'number' && (
-                    <div>
-                      Total vendido:
-                      {' '}
-                      {new Intl.NumberFormat('es-BO', {
-                        style: 'currency',
-                        currency: 'BOB',
-                      }).format(supportInfo.metadata.totalVentas)}
-                    </div>
-                  )}
-                </div>
-              ) : null}
-              {supportInfo?.metadata?.note && (
-                <p className="text-sm text-yellow-700">{supportInfo.metadata.note}</p>
-              )}
-              {supportInfo?.message && supportInfo.metadata && (
-                <p className="text-sm text-yellow-700">{supportInfo.message}</p>
-              )}
-              {!supportInfo?.metadata && supportInfo?.recommendation && (
-                <p className="text-sm text-yellow-700">Recomendación: {supportInfo.recommendation}</p>
-              )}
-              {!supportInfo?.metadata && supportInfo?.limitations?.freeTier && (
-                <p className="text-sm text-yellow-700">
-                  Limitación del plan: {supportInfo.limitations.freeTier}
-                </p>
-              )}
-              <a
-                href={supabaseDashboardUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="text-emerald-700 underline text-sm"
-              >
-                Abrir panel de SQL en Supabase
-              </a>
-            </div>
-          </div>
+      <Modal
+        open={!!preview}
+        title={preview?.title}
+        onCancel={() => setPreview(null)}
+        footer={[
+          <Button key="close" onClick={() => setPreview(null)}>
+            Cerrar
+          </Button>,
+        ]}
+        width={800}
+      >
+        <div className="max-h-[60vh] overflow-auto rounded-md bg-slate-900 p-4">
+          <pre className="whitespace-pre-wrap text-xs text-green-100">{preview?.content}</pre>
         </div>
-      </div>
+      </Modal>
     </div>
   );
 };

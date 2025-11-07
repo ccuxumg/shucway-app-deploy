@@ -1,4 +1,6 @@
 import { Request, Response } from 'express';
+import path from 'path';
+import { promises as fs } from 'fs';
 import { supabase } from '../config/database';
 import { logger } from '../utils/logger';
 
@@ -25,6 +27,155 @@ interface LoteBackupRecord {
   cantidad_actual?: number | null;
   [key: string]: unknown;
 }
+
+type SchemaSnippet = {
+  name: string;
+  definition: string;
+};
+
+type IncrementalTableKey = 'insumo' | 'venta' | 'gasto_operativo';
+
+const SCHEMA_FILE_PATH = path.resolve(__dirname, '../../..', 'database_complete_new.sql');
+
+let cachedSchemaContent: string | null = null;
+
+const readSchemaFile = async (): Promise<string> => {
+  if (cachedSchemaContent) return cachedSchemaContent;
+  try {
+    const content = await fs.readFile(SCHEMA_FILE_PATH, 'utf8');
+    cachedSchemaContent = content;
+    return content;
+  } catch (error) {
+    logger.error('No se pudo leer el archivo de esquema SQL:', error);
+    throw new Error('No se encontró el archivo de respaldo de la base de datos.');
+  }
+};
+
+const extractTableSnippets = (content: string): SchemaSnippet[] => {
+  const tables: SchemaSnippet[] = [];
+  const tableRegex = /CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+([\w." ]+)\s*\([\s\S]*?\);/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = tableRegex.exec(content)) !== null) {
+    const definition = match[0].trim();
+    const rawName = match[1]?.trim() ?? 'tabla_desconocida';
+    const normalizedName = rawName.replace(/"/g, '');
+    tables.push({ name: normalizedName, definition });
+  }
+
+  return tables;
+};
+
+const extractInsertStatements = (content: string): string[] =>
+  Array.from(content.matchAll(/INSERT\s+INTO[\s\S]+?;\s*/gi)).map((item) => item[0].trim());
+
+const extractTriggerSnippets = (content: string): SchemaSnippet[] => {
+  const triggers: SchemaSnippet[] = [];
+  const triggerRegex = /CREATE\s+TRIGGER\s+[\s\S]+?;\s*/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = triggerRegex.exec(content)) !== null) {
+    const definition = match[0].trim();
+    const nameMatch = definition.match(/CREATE\s+TRIGGER\s+([\w."-]+)/i);
+    const name = nameMatch?.[1]?.replace(/"/g, '') ?? `trigger_${triggers.length + 1}`;
+    triggers.push({ name, definition });
+  }
+
+  return triggers;
+};
+
+const extractFunctionSnippets = (content: string): SchemaSnippet[] => {
+  const functions: SchemaSnippet[] = [];
+  const functionStartRegex = /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = functionStartRegex.exec(content)) !== null) {
+    const startIndex = match.index;
+    const delimiterMatch = content.slice(startIndex).match(/\$[\w]*\$/);
+    if (!delimiterMatch) {
+      logger.warn('Función sin delimitador $$ detectada; se omite el parseo.');
+      continue;
+    }
+
+    const delimiter = delimiterMatch[0];
+    const bodyStart = startIndex + delimiterMatch.index!;
+    const bodyEnd = content.indexOf(delimiter, bodyStart + delimiter.length);
+    if (bodyEnd === -1) {
+      logger.warn('No se encontró el delimitador de cierre para una función SQL.');
+      continue;
+    }
+
+    const afterBody = content.indexOf(';', bodyEnd + delimiter.length);
+    const endIndex = afterBody === -1 ? bodyEnd + delimiter.length : afterBody + 1;
+    const definition = content.slice(startIndex, endIndex).trim();
+    const nameMatch = definition.match(/FUNCTION\s+([\w."-]+)/i);
+    const name = nameMatch?.[1]?.replace(/"/g, '') ?? `function_${functions.length + 1}`;
+
+    functions.push({ name, definition });
+    functionStartRegex.lastIndex = endIndex;
+  }
+
+  return functions;
+};
+
+const formatSqlValue = (value: unknown): string => {
+  if (value === null || value === undefined) return 'NULL';
+
+  if (typeof value === 'number') {
+    if (Number.isNaN(value)) return 'NULL';
+    return value.toString();
+  }
+
+  if (typeof value === 'bigint') {
+    return value.toString();
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'TRUE' : 'FALSE';
+  }
+
+  if (value instanceof Date) {
+    return `'${value.toISOString()}'`;
+  }
+
+  if (Array.isArray(value) || typeof value === 'object') {
+    try {
+      const jsonString = JSON.stringify(value);
+      return `'${jsonString.replace(/'/g, "''")}'`;
+    } catch {
+      return `'${String(value).replace(/'/g, "''")}'`;
+    }
+  }
+
+  const stringValue = String(value);
+  return `'${stringValue.replace(/'/g, "''")}'`;
+};
+
+const buildInsertStatement = (table: string, row: Record<string, unknown>): string => {
+  const columns = Object.keys(row);
+  if (columns.length === 0) {
+    return `-- No hay columnas para generar el INSERT en ${table}`;
+  }
+
+  const formattedColumns = columns.map((column) => `"${column}"`);
+  const values = columns.map((column) => formatSqlValue(row[column]));
+  return `INSERT INTO public.${table} (${formattedColumns.join(', ')}) VALUES (${values.join(', ')});`;
+};
+
+const buildInsertGroup = (table: string, rows: Record<string, unknown>[]): { sql: string; count: number } => {
+  if (!rows.length) {
+    return {
+      sql: `-- No se encontraron registros en la tabla ${table}.`,
+      count: 0,
+    };
+  }
+
+  const statements = rows.map((row) => buildInsertStatement(table, row as Record<string, unknown>));
+  return {
+    sql: statements.join('\n'),
+    count: rows.length,
+  };
+};
 
 export const getFullBackup = async (_req: Request, res: Response) => {
   try {
@@ -199,6 +350,82 @@ export const getIncrementalBackup = async (req: Request, res: Response) => {
       success: false,
       error: 'Error procesando backup incremental',
       details: error instanceof Error ? error.message : 'Error desconocido'
+    });
+  }
+};
+
+export const getSchemaSqlDump = async (_req: Request, res: Response) => {
+  try {
+    const content = await readSchemaFile();
+    const tables = extractTableSnippets(content);
+    const inserts = extractInsertStatements(content);
+    const triggers = extractTriggerSnippets(content);
+    const functions = extractFunctionSnippets(content);
+
+    return res.json({
+      success: true,
+      generatedAt: new Date().toISOString(),
+      tables,
+      inserts,
+      triggers,
+      functions,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error desconocido al procesar el esquema SQL.';
+    logger.error('Error generando el volcado de esquema SQL:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'No se pudo generar el esquema SQL',
+      details: message,
+    });
+  }
+};
+
+export const getIncrementalSqlDump = async (_req: Request, res: Response) => {
+  try {
+    const tables: { key: IncrementalTableKey; table: string; orderBy?: string }[] = [
+      { key: 'insumo', table: 'insumo', orderBy: 'id_insumo' },
+      { key: 'venta', table: 'venta', orderBy: 'fecha_venta' },
+      { key: 'gasto_operativo', table: 'gasto_operativo', orderBy: 'fecha_gasto' },
+    ];
+
+    const queries = await Promise.all(
+      tables.map(async ({ table, orderBy }) => {
+        const query = orderBy
+          ? supabase.from(table).select('*').order(orderBy, { ascending: true })
+          : supabase.from(table).select('*');
+        const { data, error } = await query;
+        if (error) {
+          throw new Error(`Error al obtener datos de ${table}: ${error.message}`);
+        }
+        return { table, rows: data ?? [] };
+      })
+    );
+
+    const result: Record<IncrementalTableKey, { sql: string; count: number }> = {
+      insumo: { sql: '', count: 0 },
+      venta: { sql: '', count: 0 },
+      gasto_operativo: { sql: '', count: 0 },
+    };
+
+    queries.forEach(({ table, rows }) => {
+      const key = tables.find((item) => item.table === table)?.key;
+      if (!key) return;
+      result[key] = buildInsertGroup(table, rows as Record<string, unknown>[]);
+    });
+
+    return res.json({
+      success: true,
+      generatedAt: new Date().toISOString(),
+      tables: result,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error desconocido al generar SQL incremental';
+    logger.error('Error generando inserts incrementales:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'No se pudo generar el SQL incremental',
+      details: message,
     });
   }
 };

@@ -1,6 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { FaClock, FaTruck, FaCreditCard, FaUserFriends, FaMapMarkerAlt } from 'react-icons/fa';
 import './Home.css';
+
+type SlideStyle = CSSProperties & {
+  '--btn-primary': string;
+  '--btn-secondary': string;
+  '--btn-primary-text': string;
+  '--btn-secondary-text': string;
+};
 
 const Home = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -72,24 +79,25 @@ const Home = () => {
       {/* Hero Section */}
       <section className="hero">
         <div className="hero-carousel">
-          {slides.map((slide, index) => (
-            <div
-              key={index}
-              className={`hero-slide ${index === currentSlide ? 'active' : ''}`}
-              style={{
-                backgroundImage: `url(${slide.image})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-                backgroundColor: slide.colors.background,
-                backgroundBlendMode: 'soft-light',
-                // === CSS variables por slide ===
-                // (evita inline en los <a> y permite que el hover gane siempre)
-                ['--btn-primary' as any]: slide.colors.primary,
-                ['--btn-secondary' as any]: slide.colors.secondary,
-                ['--btn-primary-text' as any]: slide.colors.primaryText,
-                ['--btn-secondary-text' as any]: slide.colors.secondaryText
-              }}
-            >
+          {slides.map((slide, index) => {
+            const slideStyles: SlideStyle = {
+              backgroundImage: `url(${slide.image})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              backgroundColor: slide.colors.background,
+              backgroundBlendMode: 'soft-light',
+              '--btn-primary': slide.colors.primary,
+              '--btn-secondary': slide.colors.secondary,
+              '--btn-primary-text': slide.colors.primaryText,
+              '--btn-secondary-text': slide.colors.secondaryText
+            };
+
+            return (
+              <div
+                key={index}
+                className={`hero-slide ${index === currentSlide ? 'active' : ''}`}
+                style={slideStyles}
+              >
               <div className="hero-content">
                 <h1 className="hero-title">{slide.title}</h1>
                 <p className="hero-subtitle">{slide.subtitle}</p>
@@ -102,8 +110,9 @@ const Home = () => {
                   </a>
                 </div>
               </div>
-            </div>
-          ))}
+              </div>
+            );
+          })}
         </div>
       </section>
 

@@ -1455,7 +1455,24 @@ DECLARE
     v_datos_anteriores JSONB;
     v_datos_nuevos JSONB;
     v_nombre_auditoria VARCHAR(100);
+    v_detalle auditoria_detalle%ROWTYPE;
+    v_tipo_categoria VARCHAR(20);
+    v_stock_actual DECIMAL(10,2);
+    v_diferencia NUMERIC(12,4);
+    v_diferencia_abs NUMERIC(12,4);
+    v_costo_promedio DECIMAL(10,2);
+    v_movimiento_entrada VARCHAR(20);
+    v_id_lote INTEGER;
+    v_cantidad_restante NUMERIC(12,4);
+    v_a_retirar NUMERIC(12,4);
+    v_lote RECORD;
+    v_descripcion TEXT;
+    v_etiqueta_auditoria TEXT;
 BEGIN
+    IF p_conteo_fisico IS NOT NULL AND p_conteo_fisico < 0 THEN
+        RAISE EXCEPTION 'El conteo físico no puede ser negativo';
+    END IF;
+
     SELECT nombre_auditoria INTO v_nombre_auditoria
     FROM auditoria_inventario
     WHERE id_auditoria = p_id_auditoria;
@@ -1464,9 +1481,20 @@ BEGIN
     FROM auditoria_detalle ad
     WHERE ad.id_auditoria = p_id_auditoria AND ad.id_insumo = p_id_insumo;
 
+    SELECT * INTO v_detalle
+    FROM auditoria_detalle
+    WHERE id_auditoria = p_id_auditoria AND id_insumo = p_id_insumo
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Detalle de auditoría no encontrado para auditoría % y insumo %', p_id_auditoria, p_id_insumo;
+    END IF;
+
+    v_tipo_categoria := COALESCE(v_detalle.tipo_categoria, 'operativo');
+
     UPDATE auditoria_detalle
     SET
-        conteo_fisico = p_conteo_fisico,
+        conteo_fisico = CASE WHEN p_conteo_fisico IS NULL THEN NULL ELSE ROUND(p_conteo_fisico::numeric, 2) END,
         causa_ajuste = p_causa_ajuste,
         notas = p_notas
     WHERE id_auditoria = p_id_auditoria AND id_insumo = p_id_insumo;
@@ -1474,6 +1502,127 @@ BEGIN
     SELECT row_to_json(ad) INTO v_datos_nuevos
     FROM auditoria_detalle ad
     WHERE ad.id_auditoria = p_id_auditoria AND ad.id_insumo = p_id_insumo;
+
+    IF p_conteo_fisico IS NOT NULL THEN
+        SELECT COALESCE(SUM(cantidad_actual), 0)
+        INTO v_stock_actual
+        FROM lote_insumo
+        WHERE id_insumo = p_id_insumo;
+
+        v_diferencia := ROUND(p_conteo_fisico - v_stock_actual, 4);
+
+        IF v_diferencia <> 0 THEN
+            v_diferencia_abs := ABS(v_diferencia);
+            SELECT COALESCE(costo_promedio, 0)
+            INTO v_costo_promedio
+            FROM insumo
+            WHERE id_insumo = p_id_insumo;
+
+            v_etiqueta_auditoria := COALESCE(v_nombre_auditoria, 'Auditoría ' || p_id_auditoria::TEXT);
+
+            IF v_diferencia > 0 THEN
+                v_movimiento_entrada := CASE WHEN v_tipo_categoria = 'perpetuo' THEN 'ajuste_perpetuo' ELSE 'ajuste_operativo' END;
+
+                SELECT id_lote
+                INTO v_id_lote
+                FROM lote_insumo
+                WHERE id_insumo = p_id_insumo
+                ORDER BY fecha_vencimiento NULLS LAST, id_lote DESC
+                LIMIT 1;
+
+                IF v_id_lote IS NULL THEN
+                    INSERT INTO lote_insumo (
+                        id_insumo, fecha_vencimiento, cantidad_inicial, cantidad_actual, costo_unitario, ubicacion
+                    ) VALUES (
+                        p_id_insumo, NULL, ROUND(v_diferencia_abs::numeric, 2), ROUND(v_diferencia_abs::numeric, 2), v_costo_promedio, 'Ajuste Auditoría'
+                    ) RETURNING id_lote INTO v_id_lote;
+                ELSE
+                    UPDATE lote_insumo
+                    SET cantidad_actual = cantidad_actual + ROUND(v_diferencia_abs::numeric, 2)
+                    WHERE id_lote = v_id_lote;
+                END IF;
+
+                v_descripcion :=
+                    'Ajuste auditoría (' || v_tipo_categoria || ') - Conteo físico mayor. Diferencia: ' ||
+                    TO_CHAR(ROUND(v_diferencia_abs::numeric, 2), 'FM999999990.00');
+                IF p_causa_ajuste IS NOT NULL THEN
+                    v_descripcion := v_descripcion || ' - Causa: ' || p_causa_ajuste;
+                END IF;
+
+                INSERT INTO movimiento_inventario (
+                    id_insumo,
+                    id_lote,
+                    tipo_movimiento,
+                    cantidad,
+                    id_perfil,
+                    id_referencia,
+                    descripcion,
+                    costo_unitario_momento
+                ) VALUES (
+                    p_id_insumo,
+                    v_id_lote,
+                    v_movimiento_entrada,
+                    ROUND(v_diferencia_abs::numeric, 2),
+                    p_id_perfil,
+                    p_id_auditoria,
+                    v_descripcion || ' - ' || v_etiqueta_auditoria,
+                    v_costo_promedio
+                );
+
+            ELSE
+                v_cantidad_restante := v_diferencia_abs;
+
+                FOR v_lote IN (
+                    SELECT id_lote, cantidad_actual
+                    FROM lote_insumo
+                    WHERE id_insumo = p_id_insumo
+                    ORDER BY fecha_vencimiento ASC NULLS FIRST, id_lote
+                ) LOOP
+                    EXIT WHEN v_cantidad_restante <= 0;
+                    v_a_retirar := LEAST(v_lote.cantidad_actual, v_cantidad_restante);
+
+                    IF v_a_retirar > 0 THEN
+                        UPDATE lote_insumo
+                        SET cantidad_actual = cantidad_actual - ROUND(v_a_retirar::numeric, 2)
+                        WHERE id_lote = v_lote.id_lote;
+
+                        v_descripcion :=
+                            'Ajuste auditoría (' || v_tipo_categoria || ') - Conteo físico menor. Diferencia parcial: ' ||
+                            TO_CHAR(ROUND(v_a_retirar::numeric, 2), 'FM999999990.00');
+                        IF p_causa_ajuste IS NOT NULL THEN
+                            v_descripcion := v_descripcion || ' - Causa: ' || p_causa_ajuste;
+                        END IF;
+
+                        INSERT INTO movimiento_inventario (
+                            id_insumo,
+                            id_lote,
+                            tipo_movimiento,
+                            cantidad,
+                            id_perfil,
+                            id_referencia,
+                            descripcion,
+                            costo_unitario_momento
+                        ) VALUES (
+                            p_id_insumo,
+                            v_lote.id_lote,
+                            'salida_ajuste',
+                            ROUND(v_a_retirar::numeric, 2),
+                            p_id_perfil,
+                            p_id_auditoria,
+                            v_descripcion || ' - ' || v_etiqueta_auditoria,
+                            v_costo_promedio
+                        );
+
+                        v_cantidad_restante := v_cantidad_restante - v_a_retirar;
+                    END IF;
+                END LOOP;
+
+                IF v_cantidad_restante > 0.0001 THEN
+                    RAISE NOTICE 'Ajuste por auditoría dejó un remanente de % para el insumo %', v_cantidad_restante, p_id_insumo;
+                END IF;
+            END IF;
+        END IF;
+    END IF;
 
     INSERT INTO bitacora_auditoria (
         id_auditoria, nombre_auditoria, accion, id_perfil, descripcion,
@@ -1785,6 +1934,16 @@ BEGIN
         FROM auditoria_detalle ad
         WHERE ad.id_auditoria = p_id_auditoria AND ad.diferencia != 0
     LOOP
+        IF EXISTS (
+            SELECT 1
+            FROM movimiento_inventario mi
+            WHERE mi.id_insumo = v_detalle.id_insumo
+              AND mi.id_referencia = p_id_auditoria
+              AND mi.tipo_movimiento IN ('entrada_ajuste', 'salida_ajuste', 'ajuste_perpetuo', 'ajuste_operativo')
+        ) THEN
+            CONTINUE;
+        END IF;
+
         -- Determinar tipo de movimiento: entrada_ajuste si hay más de lo esperado, salida_ajuste si hay menos
         IF v_detalle.diferencia > 0 THEN
             v_tipo_movimiento := 'entrada_ajuste';

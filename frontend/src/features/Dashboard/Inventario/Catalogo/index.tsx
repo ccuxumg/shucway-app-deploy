@@ -22,6 +22,8 @@ type TipoInsumo = "Perpetuo" | "Operativo";
 type EstadoStock = "OK" | "Stock Bajo" | "Crítico" | "Vacío" | "Sobre stock";
 type UnidadMedida = "caneca" | "frasco" | "galón" | "garrafon" | "lata" | "libra" | "manojo" | "paquete" | "sobre" | "unidad";
 
+const UBICACIONES_FIJAS = ["Bodega", "Casa", "Refrigerador", "Nevera", "Congelador", "Estantería"] as const;
+
 type Fila = {
   id: string;
   nombre: string;
@@ -254,15 +256,15 @@ export default function Catalogo() {
               tipo = "Perpetuo";
             }
             // Si no contiene ninguna, queda como "Operativo" por defecto
-
           }
-        }        const nombreCategoria = categoriaObj?.nombre ?? '—';
+        }
+        const nombreCategoria = categoriaObj?.nombre ?? '—';
 
         // Stock: usa 0 si no tienes stock_actual
         const stockLotes = Number(i.stock_actual ?? 0);
         const stockMinimo = Number(i.stock_minimo ?? 0);
         const stockMaximo = Number(i.stock_maximo ?? 0);
-        
+
         // Calcular estado basado en stock actual, mínimo y máximo
         let estado: EstadoStock = "OK";
         if (stockLotes === 0) {
@@ -276,6 +278,14 @@ export default function Catalogo() {
         }
 
         const proveedorNombre = proveedoresBD.find(p => p.id_proveedor === i.id_proveedor_principal)?.nombre_empresa;
+        const ubicacionValue = typeof i.ubicacion === 'string' && i.ubicacion.trim() !== '' ? i.ubicacion : '';
+        const imagenUrl = typeof i.insumo_url === 'string' && i.insumo_url.trim() !== '' ? i.insumo_url : undefined;
+        const descripcionPresentacion = typeof i.descripcion_presentacion === 'string' && i.descripcion_presentacion.trim() !== ''
+          ? i.descripcion_presentacion
+          : undefined;
+        const fechaVencimiento = typeof i.fecha_vencimiento === 'string' && i.fecha_vencimiento.trim() !== ''
+          ? i.fecha_vencimiento
+          : undefined;
 
         return {
           id: String(i.id_insumo),
@@ -283,7 +293,7 @@ export default function Catalogo() {
           tipo,
           stockCantidad: stockLotes,
           unidad: (i.unidad_base as UnidadMedida) || "unidad",
-          ubicacion: i.ubicacion || '—',
+          ubicacion: ubicacionValue,
           estado,
           ultimaActualizacion: i.fecha_registro || i.fecha_creacion || new Date().toISOString(),
           categoria: nombreCategoria,
@@ -292,13 +302,13 @@ export default function Catalogo() {
           costo: i.costo_promedio ? Number(i.costo_promedio) : undefined,
           activo: Boolean(i.activo ?? true),
           automatica: false,
-          imagen: undefined, // No generar URLs de imágenes inexistentes
+          imagen: imagenUrl,
           categoriaId: i.id_categoria,
           proveedorId: i.id_proveedor_principal,
-          fecha_vencimiento: i.fecha_vencimiento || undefined,
+          fecha_vencimiento: fechaVencimiento,
           stock_minimo: i.stock_minimo ? Number(i.stock_minimo) : undefined,
           stock_maximo: i.stock_maximo ? Number(i.stock_maximo) : undefined,
-          descripcion_presentacion: i.descripcion_presentacion || "",
+          descripcion_presentacion: descripcionPresentacion || "",
         } as Fila;
       });
       console.log('Insumos mapeados:', mapped.length, 'primer insumo:', mapped[0]);
@@ -368,7 +378,7 @@ export default function Catalogo() {
     tipo: "Operativo",
     stockCantidad: 0,
     unidad: "unidad",
-    ubicacion: "—",
+    ubicacion: UBICACIONES_FIJAS[0],
     estado: "OK",
     ultimaActualizacion: new Date().toISOString(),
     categoria: "",
@@ -377,6 +387,7 @@ export default function Catalogo() {
     costo: undefined,
     activo: true,
     automatica: false,
+    imagen: undefined,
     fecha_vencimiento: undefined,
     stock_minimo: undefined,
     stock_maximo: undefined,
@@ -385,6 +396,14 @@ export default function Catalogo() {
   const [form, setForm] = useState<Fila>(blankForm);
   // Errores por campo para mostrar mensajes inline en el formulario
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const ubicacionesMenu = useMemo(() => {
+    const base: string[] = [...UBICACIONES_FIJAS];
+    if (form.ubicacion && !base.includes(form.ubicacion)) {
+      base.push(form.ubicacion);
+    }
+    return base;
+  }, [form.ubicacion]);
 
 
   // Debounce búsqueda
@@ -480,7 +499,7 @@ export default function Catalogo() {
         tipo: (insumoDetails.categoria_insumo?.tipo_categoria === 'perpetuo' ? 'Perpetuo' : 'Operativo') as TipoInsumo,
         unidad: insumoDetails.unidad_base || 'unidad',
         stockCantidad: lote.cantidad_actual || 0,
-        ubicacion: lote.ubicacion || '',
+        ubicacion: lote.ubicacion || row.ubicacion || '',
         estado: 'OK' as EstadoStock, // Se calculará después
         ultimaActualizacion: insumoDetails.fecha_registro,
         categoria: insumoDetails.categoria_insumo?.nombre || '',
@@ -489,7 +508,7 @@ export default function Catalogo() {
         costo: insumoDetails.costo_promedio || 0,
         activo: insumoDetails.activo,
         automatica: false,
-        imagen: undefined,
+        imagen: insumoDetails.insumo_url || row.imagen || undefined,
         categoriaId: insumoDetails.id_categoria,
         proveedorId: presentacion.id_proveedor || insumoDetails.id_proveedor_principal,
         fecha_vencimiento: lote.fecha_vencimiento || '',
@@ -593,13 +612,15 @@ export default function Catalogo() {
       costo_promedio: form.costo || 0,
       stock_minimo: form.stock_minimo ?? 0,
       stock_maximo: form.stock_maximo ?? 0,
-      descripcion_presentacion: form.descripcion || "",
-      ubicacion: form.ubicacion || "Bodega Principal",
+      descripcion_presentacion: form.descripcion_presentacion || "",
+      ubicacion: form.ubicacion && form.ubicacion.trim() !== "" ? form.ubicacion : UBICACIONES_FIJAS[0],
     };
 
     // Agregar campos opcionales solo si tienen valor
     if (form.categoriaId != null) payload.id_categoria = form.categoriaId;
     if (form.proveedorId != null) payload.id_proveedor_principal = form.proveedorId;
+    if (form.fecha_vencimiento) payload.fecha_vencimiento = form.fecha_vencimiento;
+    if (form.imagen && form.imagen.trim() !== "") payload.insumo_url = form.imagen;
 
     (async () => {
       setLoading(true);
@@ -852,7 +873,7 @@ export default function Catalogo() {
                   <td className="px-4 py-3 align-top">{r.tipo}</td>
                   <td className="px-4 py-3 align-top">{formatStock(r.stockCantidad)}</td>
                   <td className="px-4 py-3 align-top">{r.unidad}</td>
-                  <td className="px-4 py-3 align-top">{r.ubicacion}</td>
+                  <td className="px-4 py-3 align-top">{r.ubicacion || "—"}</td>
                   <td className="px-4 py-3 align-top"><EstadoPill estado={r.estado} /></td>
                   <td className="px-4 py-3 align-top">{formatDateHuman(r.ultimaActualizacion)}</td>
                   <td className="px-4 py-3 align-top">
@@ -1068,30 +1089,37 @@ export default function Catalogo() {
                           onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (!file) return;
-                            const ext = file.name.split('.').pop();
-                            const fileName = `insumo-${form.id}-${Date.now()}.${ext}`;
-                            console.debug('producto file diagnostics:', {
+                            const ext = file.name.includes('.') ? file.name.split('.').pop() : undefined;
+                            const sanitizedExt = (ext || 'bin').toLowerCase();
+                            const bucket = 'insumo_img';
+                            const folder = form.id ? `insumo/${form.id}` : 'insumo/tmp';
+                            const uniqueSuffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+                            const fileName = `${folder}/${uniqueSuffix}.${sanitizedExt}`;
+                            console.debug('insumo file diagnostics:', {
                               name: file.name,
                               type: file.type,
                               size: file.size,
                               constructor: file?.constructor?.name,
                               toString: Object.prototype.toString.call(file),
                               isFile: file instanceof File,
-                              isBlob: file instanceof Blob
+                              isBlob: file instanceof Blob,
+                              bucket,
+                              folder,
+                              fileName,
                             });
 
                             // Read as ArrayBuffer and upload a Blob to ensure binary content
                             const arrayBuffer = await file.arrayBuffer();
                             const blob = new Blob([arrayBuffer], { type: file.type || 'application/octet-stream' });
-                            const { data, error } = await supabase.storage.from('producto-img').upload(fileName, blob, { upsert: true, contentType: file.type });
+                            const { data, error } = await supabase.storage.from(bucket).upload(fileName, blob, { upsert: true, contentType: file.type });
                             if (error) {
-                              console.error('Error subiendo imagen insumo:', error);
+                              console.error('Error subiendo imagen insumo:', error, { bucket, fileName });
                               message.error('Error subiendo imagen: ' + (error?.message || String(error)));
                               return;
                             }
                             const uploadedPath = data?.path || fileName;
-                            const publicUrl = supabase.storage.from('producto-img').getPublicUrl(uploadedPath).data.publicUrl;
-                            console.debug('producto-img upload:', { fileName, uploadedPath, publicUrl, data });
+                            const publicUrl = supabase.storage.from(bucket).getPublicUrl(uploadedPath).data.publicUrl;
+                            console.debug('insumo_img upload:', { fileName, uploadedPath, publicUrl, data });
                             setFormField('imagen', publicUrl);
                           }}
                           className="block"
@@ -1146,14 +1174,17 @@ export default function Catalogo() {
 
                     <div>
                       <label className="block text-xs font-semibold text-gray-600 mb-1" htmlFor="ubicacion">Ubicación</label>
-                      <input
+                      <select
                         id="ubicacion"
-                        type="text"
                         value={form.ubicacion ?? ""}
                         onChange={(e) => setFormField("ubicacion", e.target.value)}
-                        placeholder="Ej: Bodega Principal, Estante A-3, etc."
                         className="w-full h-11 rounded-lg border border-gray-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                      />
+                      >
+                        <option value="">Selecciona una ubicación</option>
+                        {ubicacionesMenu.map((ubicacion) => (
+                          <option key={ubicacion} value={ubicacion}>{ubicacion}</option>
+                        ))}
+                      </select>
                     </div>
 
                     <div>
@@ -1261,9 +1292,17 @@ export default function Catalogo() {
                   {/* Header con imagen y badges */}
                   <div className="flex flex-col lg:flex-row gap-6">
                     <div className="flex-shrink-0">
-                      <div className="h-32 w-32 bg-gradient-to-br from-blue-50 to-indigo-100 rounded-xl flex items-center justify-center text-gray-400 border border-gray-200">
-                        <span className="text-4xl">📦</span>
-                      </div>
+                      {detail.imagen ? (
+                        <img
+                          src={detail.imagen}
+                          alt={detail.nombre || "Imagen de insumo"}
+                          className="h-32 w-32 rounded-xl border border-gray-200 object-cover"
+                        />
+                      ) : (
+                        <div className="h-32 w-32 bg-gradient-to-br from-blue-50 to-indigo-100 rounded-xl flex items-center justify-center text-gray-400 border border-gray-200">
+                          <span className="text-4xl">📦</span>
+                        </div>
+                      )}
                     </div>
                     <div className="flex-1 space-y-3">
                       <div className="flex flex-wrap items-center gap-3">

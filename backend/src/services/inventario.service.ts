@@ -25,6 +25,7 @@ interface CatalogoQueryResult {
   fecha_registro: Date;
   id_categoria: number;
   id_proveedor_principal?: number;
+  insumo_url?: string;
   categoria_insumo: Array<{
     tipo_categoria: 'perpetuo' | 'operativo';
     nombre: string;
@@ -32,6 +33,7 @@ interface CatalogoQueryResult {
   lote_insumo: Array<{
     cantidad_actual: number;
     ubicacion?: string;
+    fecha_vencimiento?: string;
   }>;
   insumo_presentacion?: Array<{
     id_proveedor?: number;
@@ -867,7 +869,8 @@ export class InventarioService {
       tipo_insumo: insumo.categoria_insumo?.tipo_categoria || 'operativo',
       stock_actual: Array.isArray(insumo.lote_insumo)
         ? insumo.lote_insumo.reduce((sum: number, lote: { cantidad_actual: number }) => sum + (lote.cantidad_actual || 0), 0)
-        : 0
+        : 0,
+      insumo_url: insumo.insumo_url
     }));
 
     return insumosConStock;
@@ -936,7 +939,7 @@ export class InventarioService {
         cantidad_inicial: 0,
         cantidad_actual: 0,
         costo_unitario: dto.costo_promedio || 0,
-        ubicacion: ubicacion || 'Bodega Principal'
+        ubicacion: ubicacion || 'Bodega'
       };
 
       // Solo agregar fecha_vencimiento si se proporcionó
@@ -1040,7 +1043,7 @@ export class InventarioService {
             cantidad_inicial: 0,
             cantidad_actual: 0,
             costo_unitario: data.costo_promedio || 0,
-            ubicacion: ubicacion || 'Bodega Principal'
+            ubicacion: ubicacion || 'Bodega'
           });
 
         if (loteCreateError) {
@@ -1122,8 +1125,10 @@ export class InventarioService {
         activo,
         fecha_registro,
         id_categoria,
+        id_proveedor_principal,
+        insumo_url,
         categoria_insumo:categoria_insumo(nombre, tipo_categoria),
-        lote_insumo:lote_insumo(cantidad_actual, ubicacion),
+        lote_insumo:lote_insumo(cantidad_actual, ubicacion, fecha_vencimiento),
         insumo_presentacion(id_proveedor, descripcion_presentacion, es_principal, activo)
       `)
       .order('nombre_insumo', { ascending: true });
@@ -1145,6 +1150,12 @@ export class InventarioService {
         .filter(ubicacion => ubicacion && ubicacion.trim() !== '');
       const ubicacion = ubicaciones.length > 0 ? [...new Set(ubicaciones)].join(', ') : undefined;
 
+      // Determinar fecha de vencimiento más próxima disponible
+      const fecha_vencimiento = lotes
+        .map(lote => lote.fecha_vencimiento)
+        .filter((fecha): fecha is string => Boolean(fecha))
+        .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
+
       // Si no hay categoría, asigna tipo 'perpetuo' y nombre '—'
       let categoriaObj: { nombre: string; tipo_categoria: 'perpetuo' | 'operativo' };
       if (Array.isArray(item.categoria_insumo) && item.categoria_insumo.length > 0) {
@@ -1159,6 +1170,7 @@ export class InventarioService {
 
       // Obtener proveedor principal SIEMPRE de las presentaciones activas
       let id_proveedor_principal = undefined;
+      let descripcion_presentacion = undefined;
       if (Array.isArray(item.insumo_presentacion) && item.insumo_presentacion.length > 0) {
         // Buscar la presentación principal (es_principal = true)
         let presentacionPrincipal = item.insumo_presentacion.find(p => p.es_principal && p.activo);
@@ -1170,6 +1182,7 @@ export class InventarioService {
         
         if (presentacionPrincipal) {
           id_proveedor_principal = presentacionPrincipal.id_proveedor;
+          descripcion_presentacion = presentacionPrincipal.descripcion_presentacion;
         }
       }
       
@@ -1192,6 +1205,9 @@ export class InventarioService {
         id_proveedor_principal,
         categoria: categoriaObj,
         ubicacion,
+        descripcion_presentacion,
+        insumo_url: item.insumo_url || undefined,
+        fecha_vencimiento,
       };
     });
     return result;
@@ -1549,6 +1565,7 @@ export class InventarioService {
         fecha_registro,
         id_categoria,
         id_proveedor_principal,
+        insumo_url,
         categoria_insumo:categoria_insumo(nombre, tipo_categoria)
       `)
       .eq('id_insumo', idInsumo)

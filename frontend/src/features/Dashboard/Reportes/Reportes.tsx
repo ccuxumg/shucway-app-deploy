@@ -1,7 +1,18 @@
 // src/features/Dashboard/Reportes/Reportes.tsx
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import {
+  BarChart3,
+  FileSpreadsheet,
+  FileText,
+  PieChart as PieChartIcon,
+  PiggyBank,
+  ShoppingBag,
+  TrendingUp,
+  Wallet,
+  Receipt,
+} from "lucide-react";
 import {
   ResponsiveContainer,
   PieChart,
@@ -16,10 +27,13 @@ import {
   YAxis,
 } from "recharts";
 import reportesService, { ProductoReporte } from "../../../api/reportesService";
+import type { LucideIcon } from "lucide-react";
+import "./Reportes.styles.css";
 
 /* ========================= Helpers & tipos ========================= */
 type FiltroCategoria = string;
 type FiltroMetodo = "Todos" | "Efectivo" | "Tarjeta" | "Transferencia";
+type ChartTab = "distribution" | "productos";
 
 // Para formatear dinero
 const q = (n: number) =>
@@ -37,6 +51,7 @@ const Reportes: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [categoriasDisponibles, setCategoriasDisponibles] = useState<string[]>([]);
   const [chartsReady, setChartsReady] = useState(false);
+  const [chartsTab, setChartsTab] = useState<ChartTab>("distribution");
 
   /* ---------- Filtros GLOBALes (afectan KPIs + Tabla) ---------- */
   type Periodo = "hoy" | "ayer" | "30d" | "rango";
@@ -47,6 +62,9 @@ const Reportes: React.FC = () => {
   const [catGlobal, setCatGlobal] = useState<FiltroCategoria>("Todas");
   const [metodoGlobal, setMetodoGlobal] = useState<FiltroMetodo>("Todos");
   const [search, setSearch] = useState<string>("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchHighlight, setSearchHighlight] = useState<number>(-1);
+  const searchContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Específicos de tarjetas de estrategia
   const [topVendidosFiltro, setTopVendidosFiltro] = useState<FiltroCategoria>("Todas");
@@ -63,6 +81,74 @@ const Reportes: React.FC = () => {
   const [productosData, setProductosData] = useState<ProductoReporte[]>([]);
   const [pieCategoria, setPieCategoria] = useState<{name: string, value: number}[]>([]);
   const [pieMetodo, setPieMetodo] = useState<{name: string, value: number}[]>([]);
+
+  const categoriaOpciones = useMemo(() => Array.from(new Set(["Todas", ...categoriasDisponibles])) as FiltroCategoria[], [categoriasDisponibles]);
+
+  const totalUnidadesVendidas = useMemo(() => {
+    return productosData.reduce((sum, item) => sum + (item.unidades || 0), 0);
+  }, [productosData]);
+
+  const kpiCards = useMemo(() => {
+    const base: Array<{
+      key: string;
+      label: string;
+      icon: LucideIcon;
+      accent: string;
+      background: string;
+      value: string;
+    }> = [
+      {
+        key: "ventaTotal",
+        label: "Venta Total",
+        icon: TrendingUp,
+        accent: "#047857",
+        background: "#ecfdf3",
+        value: q(kpis.ventaTotal),
+      },
+      {
+        key: "costoVentas",
+        label: "Costo de Ventas",
+        icon: ShoppingBag,
+        accent: "#1d4ed8",
+        background: "#eff6ff",
+        value: q(kpis.cogsTotal),
+      },
+      {
+        key: "gananciaBruta",
+        label: "Ganancia Bruta",
+        icon: PiggyBank,
+        accent: "#7f1d1d",
+        background: "#fef2f2",
+        value: q(kpis.gananciaBruta),
+      },
+      {
+        key: "gastosOperativos",
+        label: "Gastos Operativos",
+        icon: Receipt,
+        accent: "#92400e",
+        background: "#fff7ed",
+        value: q(kpis.gastosOperativos),
+      },
+      {
+        key: "cantidadVentas",
+        label: "Cantidad de Ventas",
+        icon: BarChart3,
+        accent: "#312e81",
+        background: "#eef2ff",
+        value: totalUnidadesVendidas.toLocaleString("es-GT"),
+      },
+    ];
+
+    return base;
+  }, [kpis, totalUnidadesVendidas]);
+
+  const chartTabOptions = useMemo(
+    () => [
+      { id: "distribution" as ChartTab, label: "Distribución", description: "Categorías y métodos de pago", icon: PieChartIcon },
+      { id: "productos" as ChartTab, label: "Top Productos", description: "Unidades vendidas y margen", icon: BarChart3 },
+    ],
+    []
+  );
 
   /* ---------- Rango de fechas ---------- */
   const [ini, fin] = useMemo(() => {
@@ -122,8 +208,8 @@ const Reportes: React.FC = () => {
       setProductosData(productosResp);
 
       // Obtener categorías únicas
-      const cats = [...new Set(productosResp.map(p => p.categoria))];
-      setCategoriasDisponibles(['Todas', ...cats]);
+  const cats = [...new Set(productosResp.map(p => p.categoria))];
+  setCategoriasDisponibles(cats);
 
       // Cargar distribuciones para gráficas
       const distCat = await reportesService.obtenerDistribucionCategoria(fechaInicio, fechaFin);
@@ -151,6 +237,17 @@ const Reportes: React.FC = () => {
       setChartsReady(true);
     }, 100);
     return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setSearchOpen(false);
+        setSearchHighlight(-1);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   /* ---------- Tabla agregada por producto ---------- */
@@ -190,6 +287,48 @@ const Reportes: React.FC = () => {
     const start = (pageClamped - 1) * pageSize;
     return tablaOrdenada.slice(start, start + pageSize);
   }, [tablaOrdenada, pageClamped, pageSize]);
+
+  const productoSuggestions = useMemo(() => {
+    const nombres = tablaProductosBase.map((p) => p.producto).filter(Boolean);
+    return Array.from(new Set(nombres));
+  }, [tablaProductosBase]);
+
+  const filteredProductSuggestions = useMemo(() => {
+    if (!productoSuggestions.length) return [];
+    const query = search.trim().toLowerCase();
+    const base = query
+      ? productoSuggestions.filter((name) => name.toLowerCase().includes(query))
+      : productoSuggestions;
+    return base.slice(0, 8);
+  }, [productoSuggestions, search]);
+
+  const handleSelectSuggestion = useCallback((value: string) => {
+    setSearch(value);
+    setSearchOpen(false);
+    setSearchHighlight(-1);
+    setPage(1);
+  }, []);
+
+  const handleSearchKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!filteredProductSuggestions.length) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setSearchOpen(true);
+      setSearchHighlight((prev) => Math.min(prev + 1, filteredProductSuggestions.length - 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setSearchOpen(true);
+      setSearchHighlight((prev) => Math.max(prev - 1, 0));
+    } else if (event.key === "Enter") {
+      if (searchHighlight >= 0 && searchHighlight < filteredProductSuggestions.length) {
+        event.preventDefault();
+        handleSelectSuggestion(filteredProductSuggestions[searchHighlight]);
+      }
+    } else if (event.key === "Escape") {
+      setSearchOpen(false);
+      setSearchHighlight(-1);
+    }
+  }, [filteredProductSuggestions, handleSelectSuggestion, searchHighlight]);
 
   // Top 5 (estrategia) - Usamos los mismos datos agregados pero sin filtros
   const topVendidos = useMemo(() => {
@@ -305,7 +444,7 @@ table{font-size:12px}
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       {/* Header compacto */}
-      <div className="w-full max-w-7xl mx-auto mb-4">
+  <div className="w-full max-w-[1200px] mx-auto mb-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <button
@@ -320,23 +459,39 @@ table{font-size:12px}
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={exportCSV} className="h-10 px-3 rounded-md border bg-white hover:bg-gray-50 text-sm">CSV</button>
-            <button onClick={exportPDF} className="h-10 px-3 rounded-md text-white text-sm" style={{ background:"#10B981" }}>PDF</button>
-            <button onClick={handleGastosOperativos} className="h-10 px-3 rounded-md text-white text-sm" style={{ background:"#064E3B" }}>Gastos Operativos</button>
+            <button
+              onClick={exportCSV}
+              className="btn-ghost"
+            >
+              <FileSpreadsheet size={18} />
+              <span>Descargar CSV</span> 
+            </button>
+            <button
+              onClick={exportPDF}
+              className="btn-success"
+            >
+              <FileText size={18} />
+              <span>Descargar PDF</span>
+            </button>
+            <button
+              onClick={handleGastosOperativos}
+              className="btn-dark"
+            >
+              <Wallet size={18} />
+              <span>Ver Gestión de Gastos Operativos</span>
+            </button>
           </div>
         </div>
 
         {/* Filtros GLOBALes */}
-        <div className="mt-3 bg-white rounded-xl border border-gray-200 p-3">
+        <div className="mt-3 bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-gray-700 mr-1">Periodo:</span>
             {(["hoy","ayer","30d","rango"] as Periodo[]).map(p=>(
               <button
                 key={p}
                 onClick={()=>setPeriodo(p)}
-                className={`px-3 py-1.5 rounded-full text-sm border ${
-                  periodo===p ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-700 hover:bg-gray-50 border-gray-200"
-                }`}
+                className={`tag-tab ${periodo===p ? "is-active" : ""}`}
               >
                 {p==="hoy"?"Hoy":p==="ayer"?"Ayer":p==="30d"?"Últimos 30 días":"Rango"}
               </button>
@@ -344,39 +499,71 @@ table{font-size:12px}
 
             {periodo==="rango" && (
               <div className="flex items-center gap-2 ml-1">
-                <input type="date" value={rangoInicio} onChange={(e)=>setRangoInicio(e.target.value)} className="h-9 rounded-md border border-gray-200 px-2 text-sm" />
+                <input type="date" value={rangoInicio} onChange={(e)=>setRangoInicio(e.target.value)} className="input" />
                 <span className="text-gray-500 text-sm">a</span>
-                <input type="date" value={rangoFin} onChange={(e)=>setRangoFin(e.target.value)} className="h-9 rounded-md border border-gray-200 px-2 text-sm" />
+                <input type="date" value={rangoFin} onChange={(e)=>setRangoFin(e.target.value)} className="input" />
               </div>
             )}
 
             <div className="ml-auto flex items-center gap-2">
               <select 
-                className="h-9 rounded-md border border-gray-200 px-2 text-sm" 
+                className="input" 
                 value={catGlobal} 
                 onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setCatGlobal(e.target.value as FiltroCategoria)}
               >
-                <option value="Todas">Todas</option>
-                {categoriasDisponibles.map(c=><option key={c} value={c}>{c}</option>)}
+                {categoriaOpciones.map(c=><option key={c} value={c}>{c}</option>)}
               </select>
-              <select 
-                className="h-9 rounded-md border border-gray-200 px-2 text-sm" 
-                value={metodoGlobal} 
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setMetodoGlobal(e.target.value as FiltroMetodo)}
-              >
-                <option value="Todos">Todos</option>
-                <option value="Efectivo">Efectivo</option>
-                <option value="Tarjeta">Tarjeta</option>
-              </select>
-              <input
-                value={search}
-                onChange={(e)=>setSearch(e.target.value)}
-                placeholder="Buscar producto…"
-                className="h-9 w-48 rounded-md border border-gray-200 px-2 text-sm"
-              />
+              <div className="search-container" ref={searchContainerRef}>
+                <input
+                  value={search}
+                  onChange={(e)=>{
+                    setSearch(e.target.value);
+                    setPage(1);
+                    setSearchOpen(true);
+                    setSearchHighlight(-1);
+                  }}
+                  onFocus={()=>{
+                    setSearchOpen(true);
+                    setSearchHighlight(-1);
+                  }}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="Buscar producto…"
+                  className="input search-input"
+                />
+                {searchOpen && filteredProductSuggestions.length > 0 && (
+                  <div className="search-suggestions">
+                    {filteredProductSuggestions.map((name, idx) => (
+                      <button
+                        key={name}
+                        type="button"
+                        className={`search-suggestion ${searchHighlight === idx ? "is-active" : ""}`}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          handleSelectSuggestion(name);
+                        }}
+                        onMouseEnter={() => setSearchHighlight(idx)}
+                      >
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {searchOpen && !filteredProductSuggestions.length && (
+                  <div className="search-suggestions empty">
+                    <span>Sin coincidencias</span>
+                  </div>
+                )}
+              </div>
               <button
-                onClick={()=>{ setCatGlobal("Todas"); setMetodoGlobal("Todos"); setSearch(""); }}
-                className="h-9 px-3 rounded-md border bg-white hover:bg-gray-50 text-sm"
+                onClick={()=>{
+                  setCatGlobal("Todas");
+                  setMetodoGlobal("Todos");
+                  setSearch("");
+                  setPage(1);
+                  setSearchOpen(false);
+                  setSearchHighlight(-1);
+                }}
+                className="btn-ghost"
               >
                 Limpiar
               </button>
@@ -387,14 +574,14 @@ table{font-size:12px}
 
       {/* Estado de carga o error */}
       {loading && (
-        <div className="w-full max-w-7xl mx-auto text-center py-12">
+  <div className="w-full max-w-[1200px] mx-auto text-center py-12">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div>
           <p className="mt-4 text-gray-600">Cargando datos...</p>
         </div>
       )}
 
       {error && !loading && (
-        <div className="w-full max-w-7xl mx-auto bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+  <div className="w-full max-w-[1200px] mx-auto bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
           <p className="font-semibold">Error:</p>
           <p>{error}</p>
         </div>
@@ -403,155 +590,176 @@ table{font-size:12px}
       {!loading && !error && (
         <>
       {/* KPIs */}
-      <div className="w-full max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
-        {[
-          { label:"VENTA TOTAL",  value:q(kpis.ventaTotal) },
-          { label:"COSTO DE VENTAS", value:q(kpis.cogsTotal) },
-          { label:"GANANCIA BRUTA", value:q(kpis.gananciaBruta) },
-          { label:"GASTOS OPERATIVOS", value:q(kpis.gastosOperativos) },
-          { label:"GANANCIA NETA", value:q(kpis.gananciaNeta) },
-        ].map((c,i)=>(
-          <div key={i} className="rounded-xl bg-white border border-gray-200 p-6 shadow-sm flex flex-col justify-between">
-            <div className="text-sm tracking-wide text-gray-500 font-semibold">{c.label}</div>
-            <div className="mt-2 text-2xl font-extrabold text-gray-900">{c.value}</div>
-          </div>
+  <div className="w-full max-w-[1200px] mx-auto grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
+        {kpiCards.map((card) => (
+          <motion.div
+            key={card.key}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
+            className="report-card"
+            style={{ background: card.background }}
+          >
+            <div className="report-card__icon" style={{ color: card.accent }}>
+              <card.icon size={22} />
+            </div>
+            <div className="report-card__content">
+              <span className="report-card__label">{card.label}</span>
+              <span className="report-card__value">{card.value}</span>
+            </div>
+          </motion.div>
         ))}
       </div>
 
       {/* Gráficas: Pie Categoría + Pie Método (lado a lado) */}
-      <div className="w-full max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-base font-bold text-gray-800">Distribución por Categoría</h3>
-            <span className="text-xs text-gray-500">{ini.toLocaleDateString("es-GT")} – {fin.toLocaleDateString("es-GT")}</span>
-          </div>
-          <div className="h-[260px] min-h-[260px]">
-            {loading || pieCategoria.length === 0 || !chartsReady ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+  <div className="w-full max-w-[1200px] mx-auto mt-4">
+        <div className="report-tabs">
+          {chartTabOptions.map((option) => (
+            <button
+              key={option.id}
+              onClick={() => setChartsTab(option.id)}
+              className={`report-tab ${chartsTab === option.id ? "is-active" : ""}`}
+            >
+              <option.icon size={18} />
+              <div>
+                <span>{option.label}</span>
+                <small>{option.description}</small>
               </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={260} minWidth={300} minHeight={200} key={`pie-categoria-${pieCategoria.length}`}>
-                <PieChart>
-                  <Pie data={pieCategoria} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
-                    {pieCategoria.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip formatter={(v: number|string, n: string)=>[q(Number(v)), n]} />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </motion.div>
+            </button>
+          ))}
+        </div>
 
-        <motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-base font-bold text-gray-800">Métodos de Pago</h3>
-            <span className="text-xs text-gray-500">{ini.toLocaleDateString("es-GT")} – {fin.toLocaleDateString("es-GT")}</span>
-          </div>
-          <div className="h-[260px] min-h-[260px]">
-            {loading || pieMetodo.length === 0 || !chartsReady ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+        {chartsTab === "distribution" ? (
+          <div className="report-split">
+            <motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} className="report-panel">
+              <header>
+                <h3>Distribución por Categoría</h3>
+                <span>{ini.toLocaleDateString("es-GT")} – {fin.toLocaleDateString("es-GT")}</span>
+              </header>
+              <div className="panel-body">
+                {loading || pieCategoria.length === 0 || !chartsReady ? (
+                  <div className="loading-container">
+                    <div className="loader" />
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={280} minHeight={240}>
+                    <PieChart>
+                      <Pie data={pieCategoria} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
+                        {pieCategoria.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip formatter={(v: number|string, n: string)=>[q(Number(v)), n]} />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
               </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={260} minWidth={300} minHeight={200} key={`pie-metodo-${pieMetodo.length}`}>
-                <PieChart>
-                  <Pie data={pieMetodo} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
-                    {pieMetodo.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip formatter={(v: number|string, n: string)=>[q(Number(v)), n]} />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </motion.div>
-      </div>
+            </motion.div>
 
-      {/* Estrategia: Top 5 más vendidos / Top 5 más rentables */}
-      <div className="w-full max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-5 mt-5">
-        <motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <h3 className="text-base font-bold text-gray-800">Top 5 Productos Más Vendidos (unidades)</h3>
-              <select
-                className="h-8 rounded-md border border-gray-200 px-2 text-sm"
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setTopVendidosFiltro(e.target.value as FiltroCategoria)}
-                value={topVendidosFiltro}
-              >
-                <option value="Todas">Todas</option>
-                {categoriasDisponibles.map(c=><option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="h-[240px] min-h-[240px]">
-            {loading || topVendidos.length === 0 ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+            <motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} className="report-panel">
+              <header>
+                <h3>Métodos de Pago</h3>
+                <span>{ini.toLocaleDateString("es-GT")} – {fin.toLocaleDateString("es-GT")}</span>
+              </header>
+              <div className="panel-body">
+                {loading || pieMetodo.length === 0 || !chartsReady ? (
+                  <div className="loading-container">
+                    <div className="loader" />
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={280} minHeight={240}>
+                    <PieChart>
+                      <Pie data={pieMetodo} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
+                        {pieMetodo.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip formatter={(v: number|string, n: string)=>[q(Number(v)), n]} />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
               </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={240} minWidth={400} minHeight={240}>
-                <BarChart data={topVendidos} margin={{left:10,right:10,top:10,bottom:10}}>
-                  <CartesianGrid stroke="#f3f4f6" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip />
-                  <Bar dataKey="value" fill="#6366F1" radius={[6,6,0,0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
+            </motion.div>
           </div>
-        </motion.div>
+        ) : (
+          <div className="report-split">
+            <motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} className="report-panel">
+              <header>
+                <div className="panel-heading">
+                  <h3>Top 5 Productos Más Vendidos (unidades)</h3>
+                  <select
+                    className="input"
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setTopVendidosFiltro(e.target.value as FiltroCategoria)}
+                    value={topVendidosFiltro}
+                  >
+                    {categoriaOpciones.map(c=><option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </header>
+              <div className="panel-body">
+                {loading || topVendidos.length === 0 ? (
+                  <div className="loading-container">
+                    <div className="loader" />
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={320} minHeight={240}>
+                    <BarChart data={topVendidos} margin={{left:10,right:10,top:10,bottom:10}}>
+                      <CartesianGrid stroke="#f3f4f6" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} />
+                      <Tooltip />
+                      <Bar dataKey="value" fill="#6366F1" radius={[6,6,0,0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </motion.div>
 
-        <motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <h3 className="text-base font-bold text-gray-800">Top 5 Productos Más Rentables (Q)</h3>
-              <select
-                className="h-8 rounded-md border border-gray-200 px-2 text-sm"
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setTopRentablesFiltro(e.target.value as FiltroCategoria)}
-                value={topRentablesFiltro}
-              >
-                <option value="Todas">Todas</option>
-                {categoriasDisponibles.map(c=><option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="h-[240px] min-h-[240px]">
-            {loading || topRentables.length === 0 || !chartsReady ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+            <motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} className="report-panel">
+              <header>
+                <div className="panel-heading">
+                  <h3>Top 5 Productos Más Rentables (Q)</h3>
+                  <select
+                    className="input"
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setTopRentablesFiltro(e.target.value as FiltroCategoria)}
+                    value={topRentablesFiltro}
+                  >
+                    {categoriaOpciones.map(c=><option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </header>
+              <div className="panel-body">
+                {loading || topRentables.length === 0 || !chartsReady ? (
+                  <div className="loading-container">
+                    <div className="loader" />
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={320} minHeight={240}>
+                    <BarChart data={topRentables} margin={{left:10,right:10,top:10,bottom:10}}>
+                      <CartesianGrid stroke="#f3f4f6" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} />
+                      <Tooltip formatter={(v: number | string)=>q(Number(v))} />
+                      <Bar dataKey="value" fill="#10B981" radius={[6,6,0,0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={240} minWidth={400} minHeight={240} key={`bar-rentables-${topRentables.length}`}>
-                <BarChart data={topRentables} margin={{left:10,right:10,top:10,bottom:10}}>
-                  <CartesianGrid stroke="#f3f4f6" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v: number | string)=>q(Number(v))} />
-                  <Bar dataKey="value" fill="#10B981" radius={[6,6,0,0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
+            </motion.div>
           </div>
-        </motion.div>
+        )}
       </div>
 
       {/* Tabla interactiva con orden y paginación */}
-      <div className="w-full max-w-7xl mx-auto mt-5">
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-          <div className="px-4 py-3 border-b flex items-center justify-between">
-            <h3 className="text-base font-bold text-gray-800">Productos (según filtros globales)</h3>
-            <div className="text-xs text-gray-500">
-              {ini.toLocaleDateString("es-GT")} – {fin.toLocaleDateString("es-GT")}
+  <div className="w-full max-w-[1200px] mx-auto mt-6">
+        <div className="report-table">
+          <header>
+            <div>
+              <h3>Productos (según filtros globales)</h3>
+              <span>{ini.toLocaleDateString("es-GT")} – {fin.toLocaleDateString("es-GT")}</span>
             </div>
-          </div>
-
-          <div className="px-4 py-3 flex flex-wrap items-center gap-2">
-            <label className="text-sm text-gray-600">Ordenar por:</label>
-            <select
-              className="h-9 rounded-md border border-gray-200 px-2 text-sm"
+            <div className="table-actions">
+              <label>Ordenar por</label>
+              <select
+              className="input"
               value={sortBy}
               onChange={(e)=>setSortBy(e.target.value as SortKey)}
             >
@@ -563,93 +771,92 @@ table{font-size:12px}
               <option value="gananciaQ">Ganancia</option>
             </select>
             <select
-              className="h-9 rounded-md border border-gray-200 px-2 text-sm"
+              className="input"
               value={sortDir}
               onChange={(e)=>setSortDir(e.target.value as "asc" | "desc")}
             >
               <option value="desc">Desc</option>
               <option value="asc">Asc</option>
             </select>
-
-            <div className="ml-auto flex items-center gap-2">
-              <label className="text-sm text-gray-600">Filas:</label>
+            </div>
+            <div className="table-actions">
+              <label>Filas</label>
               <select
-                className="h-9 rounded-md border border-gray-200 px-2 text-sm"
+                className="input"
                 value={pageSize}
                 onChange={(e)=>{ setPage(1); setPageSize(Number(e.target.value)); }}
               >
                 {[5,8,10,20].map(n=><option key={n} value={n}>{n}</option>)}
               </select>
             </div>
-          </div>
+          </header>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-gray-600">
+          <div className="table-wrapper">
+            <table>
+              <thead>
                 <tr>
-                  <th className="px-3 py-2 text-left">#</th>
-                  <th className="px-3 py-2 text-left">Producto</th>
-                  <th className="px-3 py-2 text-left">Categoría</th>
-                  <th className="px-3 py-2 text-right">Unidades</th>
-                  <th className="px-3 py-2 text-right">Venta</th>
-                  <th className="px-3 py-2 text-right">COGS</th>
-                  <th className="px-3 py-2 text-right">Ganancia</th>
+                  <th>#</th>
+                  <th>Producto</th>
+                  <th>Categoría</th>
+                  <th className="text-right">Unidades</th>
+                  <th className="text-right">Venta</th>
+                  <th className="text-right">COGS</th>
+                  <th className="text-right">Ganancia</th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody>
                 {tablaPaginada.length ? tablaPaginada.map((r,idx)=>(
-                  <tr key={`${r.producto}-${idx}`} className="hover:bg-gray-50">
-                    <td className="px-3 py-2">{(pageClamped-1)*pageSize + idx + 1}</td>
-                    <td className="px-3 py-2">{r.producto}</td>
-                    <td className="px-3 py-2">{r.categoria}</td>
-                    <td className="px-3 py-2 text-right">{r.unidades}</td>
-                    <td className="px-3 py-2 text-right">{q(r.ventaQ)}</td>
-                    <td className="px-3 py-2 text-right">{q(r.cogsQ)}</td>
-                    <td className="px-3 py-2 text-right">{q(r.gananciaQ)}</td>
+                  <tr key={`${r.producto}-${idx}`}>
+                    <td>{(pageClamped-1)*pageSize + idx + 1}</td>
+                    <td>{r.producto}</td>
+                    <td>{r.categoria}</td>
+                    <td className="text-right">{r.unidades}</td>
+                    <td className="text-right">{q(r.ventaQ)}</td>
+                    <td className="text-right">{q(r.cogsQ)}</td>
+                    <td className="text-right">{q(r.gananciaQ)}</td>
                   </tr>
                 )) : (
-                  <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-500">Sin datos para los filtros actuales.</td></tr>
+                  <tr><td colSpan={7} className="empty">Sin datos para los filtros actuales.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
 
-          {/* paginación */}
-          <div className="px-4 py-3 border-t flex items-center justify-between">
-            <div className="text-xs text-gray-500">
+          <footer>
+            <div className="summary">
               Página {pageClamped} de {totalPages} • {tablaOrdenada.length} registros
             </div>
-            <div className="flex items-center gap-2">
+            <div className="pager">
               <button
-                className="px-3 py-1.5 rounded-md border bg-white disabled:opacity-50"
+                className="btn-ghost"
                 onClick={()=>setPage(1)}
                 disabled={pageClamped===1}
               >
                 « Primero
               </button>
               <button
-                className="px-3 py-1.5 rounded-md border bg-white disabled:opacity-50"
+                className="btn-ghost"
                 onClick={()=>setPage(p=>Math.max(1,p-1))}
                 disabled={pageClamped===1}
               >
                 ‹ Prev
               </button>
               <button
-                className="px-3 py-1.5 rounded-md border bg-white disabled:opacity-50"
+                className="btn-ghost"
                 onClick={()=>setPage(p=>Math.min(totalPages,p+1))}
                 disabled={pageClamped===totalPages}
               >
                 Next ›
               </button>
               <button
-                className="px-3 py-1.5 rounded-md border bg-white disabled:opacity-50"
+                className="btn-ghost"
                 onClick={()=>setPage(totalPages)}
                 disabled={pageClamped===totalPages}
               >
                 Última »
               </button>
             </div>
-          </div>
+          </footer>
         </div>
       </div>
 

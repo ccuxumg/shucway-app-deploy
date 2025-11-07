@@ -3,11 +3,12 @@ import { useLocation, useNavigate } from "react-router-dom";
 import "./ticket.css";
 
 type TicketItem = {
-  id: string;
+  id: number | string;
   nombre: string;
   qty: number;
   precio: number;
   mods?: string | null;
+  variante?: string | null;
   subtotal: number;
 };
 
@@ -22,6 +23,7 @@ type TicketData = {
   efectivo: { dineroRecibido: number | null; cambio: number | null } | null;
   transferencia: { referencia: string; banco: string } | null;
   fechaHora: string;
+  notas?: string;
 };
 
 const currency = (q: number) => `Q${q.toFixed(2)}`;
@@ -187,6 +189,18 @@ const TicketVenta: React.FC = () => {
           <span className="tk-value">{fechaStr}</span>
         </div>
 
+        {data?.notas && (
+          <>
+            <div className="tk-sep" />
+            <div className="tk-row">
+              <span className="tk-label">Notas</span>
+            </div>
+            <div className="tk-row">
+              <span className="tk-value">{data.notas}</span>
+            </div>
+          </>
+        )}
+
         {data?.cliente && (
           <div className="tk-row">
             <span className="tk-label">Cliente: </span>
@@ -207,13 +221,17 @@ const TicketVenta: React.FC = () => {
           data.items.map((it, i) => {
             const { minus, plus } = parseMods(it.mods);
             return (
-              <div key={it.id + i} style={{ marginBottom: 6 }}>
+              <div key={`${it.id}-${i}`} style={{ marginBottom: 6 }}>
                 <div className="tk-row">
                   <span className="tk-label">
                     {it.qty} x {it.nombre}
                   </span>
                   <span className="tk-value">{currency(it.subtotal)}</span>
                 </div>
+
+                {it.variante && (
+                  <div style={bulletStyle}>Variante: {it.variante}</div>
+                )}
 
                 {minus.length > 0 && (
                   <div style={bulletStyle}>

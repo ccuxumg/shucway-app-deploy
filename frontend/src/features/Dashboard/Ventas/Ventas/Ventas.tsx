@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { productosService, type Producto, type CategoriaProducto, type ProductoConReceta, type RecetaDetalle } from '@/api/productosService';
+import { productosService, type Producto, type CategoriaProducto, type ProductoConReceta, type ProductoVariante } from '@/api/productosService';
 import { fetchInsumos } from '@/api/inventarioService';
 import CategoriaModal from './CategoriaModal';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -34,44 +34,28 @@ export type Categoria = { id: string; nombre: string };
 export type CartItem = {
   producto: Producto;
   qty: number;
-  mods?: string; // ej: "sin cebolla, sin guacamole | extra Salchicha x1"
-  id_variante?: number; // Para variantes del producto
+  mods?: string; // ej: "sin cebolla, sin guacamole"
+  id_variante?: number;
+  variant?: ProductoVariante | null;
+};
+
+type IngredientOption = {
+  key: string;
+  nombre: string;
+  id_insumo: number;
+  variantId: number | null;
+  esObligatorio: boolean;
 };
 
 /* =========================================================================
-   Datos quemados (solo constantes necesarias)
-   ========================================================================= */
-
-/* =========================================================================
-   Íconos por categoría (usando Lucide React)
-   ========================================================================= */
+  Íconos por categoría (usando Lucide React)
+  ========================================================================= */
 const CATEGORY_ICON: Record<string, React.ReactNode> = {
   shucos: <ShoppingCart className="w-6 h-6" />,
   hamburguesas: <ShoppingCart className="w-6 h-6" />,
   gringas: <ShoppingCart className="w-6 h-6" />,
   papas: <ShoppingCart className="w-6 h-6" />,
   bebidas: <ShoppingCart className="w-6 h-6" />,
-};
-
-/* =========================================================================
-   Ingredientes por producto (para personalización)
-   ========================================================================= */
-const productoIngredientes: Record<string, string[]> = {
-  // Shucos
-  p1: ['Salsa', 'Mayonesa', 'Mostaza', 'Guacamole', 'Repollo', 'Cebolla', 'Ketchup', 'Chile'],
-  p2: ['Salsa', 'Mayonesa', 'Mostaza', 'Guacamole', 'Repollo', 'Cebolla', 'Ketchup', 'Chile'],
-  p3: ['Salsa', 'Mayonesa', 'Mostaza', 'Guacamole', 'Repollo', 'Cebolla', 'Ketchup', 'Chile'],
-  p4: ['Salsa', 'Mayonesa', 'Mostaza', 'Guacamole', 'Repollo', 'Cebolla', 'Ketchup', 'Chile'],
-
-  // Hamburguesas
-  p10: ['Queso', 'Lechuga', 'Tomate', 'Cebolla', 'Pepinillos', 'Salsa', 'Mayonesa'],
-  p11: ['Lechuga', 'Tomate', 'Cebolla', 'Salsa', 'Mayonesa'],
-  p12: ['Doble Queso', 'Lechuga', 'Tomate', 'Cebolla', 'Pepinillos', 'Salsa', 'Mayonesa'],
-
-  // Gringas
-  p20: ['Queso', 'Carne', 'Pollo', 'Salsa', 'Cebolla', 'Guacamole'],
-  p21: ['Queso', 'Carne', 'Salsa', 'Cebolla', 'Guacamole'],
-  p22: ['Queso', 'Adobado', 'Salsa', 'Cebolla', 'Guacamole'],
 };
 
 /* =========================================================================
@@ -95,16 +79,6 @@ const ING_EMOJI: Record<string, string> = {
   Adobado: '🥩',
 };
 
-// Extras disponibles para Shucos
-const EXTRAS_OPCIONES: string[] = ['Salchicha', 'Tocino', 'Longaniza', 'Salami'];
-const EXTRA_EMOJI: Record<string, string> = {
-  Salchicha: '🌭',
-  Tocino: '🥓',
-  Longaniza: '🌭',
-  Salami: '🍖',
-};
-// Shucos que mostrarán la sección de extras
-const SHUCOS_CON_EXTRAS = new Set(['p1', 'p2', 'p3', 'p4']); // Carne, Chorizo, Salchicha, Mixto
 
 /* =========================================================================
    Utilitarios
@@ -136,6 +110,11 @@ function parseMods(mods?: string): { sin: string[]; extras: Record<string, numbe
   }
   return out;
 }
+
+const getUnitPrice = (producto: Producto, variant?: ProductoVariante | null) =>
+  producto.precio_venta + (variant?.precio_variante ?? 0);
+
+const getCartItemUnitPrice = (item: CartItem) => getUnitPrice(item.producto, item.variant ?? null);
 
 /* =========================================================================
    Pill y Card
@@ -267,8 +246,6 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
     itemToDelete: null
   });
   // Cantidades de extras en el customizer
-  const [customExtrasQty, setCustomExtrasQty] = useState<Record<string, number>>({});
-
   // Drawer de pago
   const [openPago, setOpenPago] = useState(false);
   const [metodo, setMetodo] = useState<'efectivo' | 'transferencia'>('efectivo');
@@ -288,6 +265,10 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
   const [customProd, setCustomProd] = useState<Producto | null>(null);
   const [customChecks, setCustomChecks] = useState<Record<string, boolean>>({});
   const [customQty, setCustomQty] = useState<number>(1);
+  const [customDetalle, setCustomDetalle] = useState<ProductoConReceta | null>(null);
+  const [customVariant, setCustomVariant] = useState<ProductoVariante | null>(null);
+  const [ingredientOptions, setIngredientOptions] = useState<IngredientOption[]>([]);
+  const [customLoading, setCustomLoading] = useState(false);
 
   // pago errores
   const [pagoError, setPagoError] = useState<string>('');
@@ -312,7 +293,22 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
   }, [clientSearch, clientes]);
 
   // ——— NUEVO: edición de línea del carrito ———
-  const [editTarget, setEditTarget] = useState<{ id: string; mods?: string } | null>(null);
+  const [editTarget, setEditTarget] = useState<{
+    productoId: number;
+    mods?: string;
+    variantId?: number | null;
+  } | null>(null);
+  const [notasVenta, setNotasVenta] = useState('');
+
+  const buildIngredientKey = (idInsumo: number, variantId: number | null) =>
+    `${idInsumo}-${variantId ?? 'base'}`;
+
+  const normalizeText = (value: string) =>
+    value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase();
   // ---------------------------------------------------------------
 
   // Búsqueda/Filtrado
@@ -329,23 +325,36 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
   /* ============================================================
      Carrito
      ============================================================ */
-  const addToCart = (prod: Producto, mods?: string, qty: number = 1, idVariante?: number) => {
+  const addToCart = (
+    prod: Producto,
+    mods?: string,
+    qty: number = 1,
+    variant?: ProductoVariante | null
+  ) => {
+    const variantId = variant?.id_variante;
     setCarrito((prev) => {
-      const idx = prev.findIndex((c) => c.producto.id_producto === prod.id_producto && (c.mods || '') === (mods || '') && c.id_variante === idVariante);
+      const idx = prev.findIndex(
+        (c) =>
+          c.producto.id_producto === prod.id_producto &&
+          (c.mods || '') === (mods || '') &&
+          (c.id_variante ?? null) === (variantId ?? null)
+      );
       if (idx >= 0) {
         const copy = [...prev];
         copy[idx] = { ...copy[idx], qty: copy[idx].qty + qty };
         return copy;
       }
-      return [...prev, { producto: prod, qty, mods, id_variante: idVariante }];
+      return [...prev, { producto: prod, qty, mods, id_variante: variantId ?? undefined, variant: variant ?? null }];
     });
   };
 
-  const setQty = (id: number, mods: string | undefined, qty: number, idVariante?: number) => {
+  const setQty = (id: number, mods: string | undefined, qty: number, idVariante?: number | null) => {
     setCarrito((prev) =>
       prev
         .map((c) =>
-          c.producto.id_producto === id && (c.mods || '') === (mods || '') && c.id_variante === idVariante
+          c.producto.id_producto === id &&
+          (c.mods || '') === (mods || '') &&
+          (c.id_variante ?? null) === (idVariante ?? null)
             ? { ...c, qty: Math.max(0, qty) }
             : c
         )
@@ -354,7 +363,12 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
   };
 
   const removeItem = (id: number, mods?: string, idVariante?: number) => {
-    const itemToDelete = carrito.find((c) => c.producto.id_producto === id && (c.mods || '') === (mods || '') && c.id_variante === idVariante);
+    const itemToDelete = carrito.find(
+      (c) =>
+        c.producto.id_producto === id &&
+        (c.mods || '') === (mods || '') &&
+        (c.id_variante ?? null) === (idVariante ?? null)
+    );
     if (itemToDelete) {
       setDeleteConfirmModal({
         isOpen: true,
@@ -366,7 +380,16 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
   const confirmRemoveItem = () => {
     if (deleteConfirmModal.itemToDelete) {
       const { producto, mods, id_variante } = deleteConfirmModal.itemToDelete;
-      setCarrito((prev) => prev.filter((c) => !(c.producto.id_producto === producto.id_producto && (c.mods || '') === (mods || '') && c.id_variante === id_variante)));
+      setCarrito((prev) =>
+        prev.filter(
+          (c) =>
+            !(
+              c.producto.id_producto === producto.id_producto &&
+              (c.mods || '') === (mods || '') &&
+              (c.id_variante ?? null) === (id_variante ?? null)
+            )
+        )
+      );
       addNotification({
         type: 'success',
         title: 'Producto eliminado',
@@ -381,116 +404,203 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
     setDeleteConfirmModal({ isOpen: false, itemToDelete: null });
   };
 
-  const limpiar = () => setCarrito([]);
+  const limpiar = () => {
+    setCarrito([]);
+    setNotasVenta('');
+  };
 
   const total = useMemo(
-    () => carrito.reduce((acc, it) => acc + it.producto.precio_venta * it.qty, 0),
+    () => carrito.reduce((acc, it) => acc + getCartItemUnitPrice(it) * it.qty, 0),
     [carrito]
   );
 
   /* ============================================================
      Personalización
      ============================================================ */
-  const catPersonalizable = new Set(['shucos', 'hamburguesas', 'gringas']);
+  const hydrateIngredientOptions = (
+    detalle: ProductoConReceta,
+    variant: ProductoVariante | null,
+    modsParsed?: ReturnType<typeof parseMods>,
+    previousChecks?: Record<string, boolean>
+  ) => {
+    const variantId = variant?.id_variante ?? null;
+    const relevant = detalle.receta.filter(
+      (linea) => linea.id_variante == null || linea.id_variante === variantId
+    );
 
-  const openCustomizer = (prod: Producto) => {
-    // modo "nuevo"
-    setEditTarget(null);
-
-    if (!catPersonalizable.has(prod.categoria?.nombre_categoria.toLowerCase() || '')) {
-      addToCart(prod);
-      return;
-    }
-    setCustomProd(prod);
-
-    // Por ahora, usar ingredientes quemados basados en el nombre del producto
-    // TODO: Implementar sistema de ingredientes dinámico desde backend
-    const ingrs = productoIngredientes[prod.nombre_producto] || [];
-    const initialChecks: Record<string, boolean> = {};
-    ingrs.forEach((i) => (initialChecks[i] = true));
-    setCustomChecks(initialChecks);
-
-    // TODO: Implementar extras dinámicos desde backend
-    if (SHUCOS_CON_EXTRAS.has(prod.nombre_producto)) {
-      const initExtras: Record<string, number> = {};
-      EXTRAS_OPCIONES.forEach((n) => (initExtras[n] = 0));
-      setCustomExtrasQty(initExtras);
-    } else {
-      setCustomExtrasQty({});
+    const omitidos = new Set<string>();
+    if (modsParsed?.sin?.length) {
+      modsParsed.sin.forEach((item) => omitidos.add(normalizeText(item)));
     }
 
-    setCustomQty(1);
-    setOpenCustom(true);
+    const options: IngredientOption[] = relevant.map((linea) => {
+      const nombre = (() => {
+        const insumo = insumos.find((i) => i.id_insumo === linea.id_insumo);
+        return insumo ? insumo.nombre_insumo : `Insumo ${linea.id_insumo}`;
+      })();
+
+      return {
+        key: buildIngredientKey(linea.id_insumo, linea.id_variante ?? null),
+        nombre,
+        id_insumo: linea.id_insumo,
+        variantId: linea.id_variante ?? null,
+        esObligatorio: linea.es_obligatorio ?? true,
+      };
+    });
+
+    const checks: Record<string, boolean> = {};
+    for (const option of options) {
+      if (option.esObligatorio) {
+        checks[option.key] = true;
+        continue;
+      }
+
+      if (modsParsed) {
+        checks[option.key] = !omitidos.has(normalizeText(option.nombre));
+      } else if (previousChecks && option.key in previousChecks) {
+        checks[option.key] = previousChecks[option.key];
+      } else {
+        checks[option.key] = true;
+      }
+    }
+
+    return { options, checks };
   };
 
-  // —— NUEVO: abrir personalizador para EDITAR una línea del carrito ——
-  const openEditFromCart = (item: CartItem) => {
-    setEditTarget({ id: item.producto.id_producto.toString(), mods: item.mods });
-
-    const prod = item.producto;
+  const openCustomizer = async (prod: Producto, itemToEdit?: CartItem) => {
+    const qtyToUse = itemToEdit?.qty ?? 1;
+    setOpenCustom(false);
     setCustomProd(prod);
+    setCustomQty(qtyToUse);
+    setEditTarget(
+      itemToEdit
+        ? {
+            productoId: itemToEdit.producto.id_producto,
+            mods: itemToEdit.mods,
+            variantId: itemToEdit.id_variante ?? null,
+          }
+        : null
+    );
+    setCustomChecks({});
+    setIngredientOptions([]);
+    setCustomDetalle(null);
+    setCustomVariant(null);
+    setCustomLoading(true);
 
-    // checks
-    const ingrs = productoIngredientes[prod.nombre_producto] || [];
-    const checks: Record<string, boolean> = {};
-    ingrs.forEach(i => checks[i] = true);
+    try {
+      const detalle = await productosService.getProductoConReceta(prod.id_producto);
 
-    const parsed = parseMods(item.mods);
-    parsed.sin.forEach(s => { if (s in checks) checks[s] = false; });
-    setCustomChecks(checks);
+      const variantesActivas = (detalle.variantes ?? []).filter((v) => v.estado === 'activo');
+      const selectedVariant = itemToEdit?.variant
+        ? variantesActivas.find((v) => v.id_variante === itemToEdit.variant?.id_variante) ?? null
+        : variantesActivas.length === 1
+        ? variantesActivas[0]
+        : null;
 
-    // extras
-    if (SHUCOS_CON_EXTRAS.has(prod.nombre_producto)) {
-      const init: Record<string, number> = {};
-      EXTRAS_OPCIONES.forEach(n => init[n] = 0);
-      Object.entries(parsed.extras).forEach(([k, v]) => {
-        if (k in init) init[k] = v;
+      const parsedMods = parseMods(itemToEdit?.mods);
+      const { options, checks } = hydrateIngredientOptions(detalle, selectedVariant ?? null, parsedMods);
+      const hasCustomOptions = options.length > 0 || variantesActivas.length > 0;
+
+      if (!hasCustomOptions) {
+        setCustomLoading(false);
+        if (!itemToEdit) {
+          addToCart(prod, undefined, qtyToUse, null);
+        } else {
+          addNotification({
+            type: 'info',
+            title: 'Sin opciones',
+            message: 'Este producto no tiene ingredientes ni variantes para personalizar.',
+            duration: 2500,
+          });
+        }
+        return;
+      }
+
+      setCustomDetalle(detalle);
+      setCustomVariant(selectedVariant ?? null);
+      setIngredientOptions(options);
+      setCustomChecks(checks);
+      setCustomLoading(false);
+      setOpenCustom(true);
+    } catch (error) {
+      console.error('Error cargando receta del producto:', error);
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: 'No se pudo cargar la receta del producto. Intenta de nuevo.',
       });
-      setCustomExtrasQty(init);
-    } else {
-      setCustomExtrasQty({});
+      setCustomLoading(false);
+      setOpenCustom(false);
     }
+  };
 
-    setCustomQty(item.qty);
-    setOpenCustom(true);
+  const handleVariantSelect = (variant: ProductoVariante | null) => {
+    if (!customDetalle) return;
+
+    setCustomVariant(variant);
+    const { options, checks } = hydrateIngredientOptions(
+      customDetalle,
+      variant,
+      undefined,
+      customChecks
+    );
+    setIngredientOptions(options);
+    setCustomChecks(checks);
   };
 
   const confirmCustomizer = () => {
     if (!customProd) return;
 
-    // 1) Omitidos
-    const allIngr = Object.keys(customChecks);
-    const omitidos = allIngr.filter((k) => !customChecks[k]);
-    const modsSin = omitidos.length ? 'sin ' + omitidos.join(', sin ') : undefined;
+    const omitidos = ingredientOptions
+      .filter((option) => !option.esObligatorio && !customChecks[option.key])
+      .map((option) => option.nombre);
+    const modsFinal = omitidos.length ? `sin ${omitidos.join(', sin ')}` : undefined;
 
-    // 2) Extras
-    const extrasList = Object.entries(customExtrasQty)
-      .filter(([, n]) => n > 0)
-      .map(([k, n]) => `${k} x${n}`);
-    const modsExtras = extrasList.length ? 'extra ' + extrasList.join(', extra ') : undefined;
+    const variantToUse = customVariant ?? null;
+    const variantId = variantToUse?.id_variante ?? null;
 
-    // 3) Unir
-    const modsFinal = [modsSin, modsExtras].filter(Boolean).join(' | ');
-
-    // Si estamos editando, reemplaza la línea; si no, agrega
     if (editTarget) {
-      setCarrito(prev => {
+      setCarrito((prev) => {
         const withoutOld = prev.filter(
-          c => !(c.producto.id_producto.toString() === editTarget.id && (c.mods || '') === (editTarget.mods || ''))
+          (c) =>
+            !(
+              c.producto.id_producto === editTarget.productoId &&
+              (c.mods || '') === (editTarget.mods || '') &&
+              (c.id_variante ?? null) === (editTarget.variantId ?? null)
+            )
         );
-        // fusionar si ya existe una igual
-        const keyMatch = (c: CartItem) => c.producto.id_producto === customProd.id_producto && (c.mods || '') === (modsFinal || '');
-        const idx = withoutOld.findIndex(keyMatch);
-        if (idx >= 0) {
+
+        const existingIdx = withoutOld.findIndex(
+          (c) =>
+            c.producto.id_producto === customProd.id_producto &&
+            (c.mods || '') === (modsFinal || '') &&
+            (c.id_variante ?? null) === (variantId ?? null)
+        );
+
+        if (existingIdx >= 0) {
           const copy = [...withoutOld];
-          copy[idx] = { ...copy[idx], qty: copy[idx].qty + customQty };
+          copy[existingIdx] = {
+            ...copy[existingIdx],
+            qty: copy[existingIdx].qty + customQty,
+            variant: variantToUse,
+          };
           return copy;
         }
-        return [...withoutOld, { producto: customProd, qty: customQty, mods: modsFinal || undefined }];
+
+        return [
+          ...withoutOld,
+          {
+            producto: customProd,
+            qty: customQty,
+            mods: modsFinal,
+            id_variante: variantId ?? undefined,
+            variant: variantToUse,
+          } as CartItem,
+        ];
       });
       setEditTarget(null);
     } else {
-      addToCart(customProd, modsFinal || undefined, customQty);
+      addToCart(customProd, modsFinal, customQty, variantToUse);
     }
 
     setOpenCustom(false);
@@ -744,6 +854,9 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
      ============================================================ */
   const irAPago = () => {
     if (!carrito.length) return addNotification({ type: 'warning', title: 'Carrito vacío', message: 'Agrega productos a la orden' });
+    if (!clienteSeleccionado) {
+      return addNotification({ type: 'warning', title: 'Selecciona un cliente', message: 'Debes elegir un cliente antes de continuar al pago.' });
+    }
     setPagoError('');
     setCashInvalid(false);
     setTransfInvalid(false);
@@ -752,6 +865,10 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
 
   const confirmarPago = async () => {
     if (!carrito.length) return addNotification({ type: 'warning', title: 'Carrito vacío', message: 'Tu carrito está vacío.' });
+    if (!clienteSeleccionado) {
+      addNotification({ type: 'warning', title: 'Selecciona un cliente', message: 'Debes elegir un cliente antes de confirmar el pago.' });
+      return;
+    }
 
     if (metodo === 'transferencia' && (!referencia.trim() || !banco.trim())) {
       setPagoError('Ingresa número de referencia y banco de origen.');
@@ -778,13 +895,14 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
     try {
       // Crear el payload para la venta
       const ventaData: CreateVentaDTO = {
-        id_cliente: clienteSeleccionado?.id_cliente,
+        id_cliente: clienteSeleccionado.id_cliente,
         tipo_pago: metodo === 'efectivo' ? 'Cash' : metodo === 'transferencia' ? 'Transferencia' : 'Paggo',
+        notas: notasVenta.trim() ? notasVenta.trim() : undefined,
         detalles: carrito.map((item) => ({
           id_producto: item.producto.id_producto,
           id_variante: item.id_variante,
           cantidad: item.qty,
-          precio_unitario: item.producto.precio_venta,
+          precio_unitario: getCartItemUnitPrice(item),
           descuento: 0, // Por ahora no hay descuentos
           es_canje_puntos: false,
           puntos_canjeados: 0,
@@ -809,16 +927,18 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
         items: carrito.map((it) => ({
           id: it.producto.id_producto,
           nombre: it.producto.nombre_producto,
+          variante: it.variant?.nombre_variante ?? null,
           qty: it.qty,
-          precio: it.producto.precio_venta,
+          precio: getCartItemUnitPrice(it),
           mods: it.mods || null,
-          subtotal: it.producto.precio_venta * it.qty,
+          subtotal: getCartItemUnitPrice(it) * it.qty,
         })),
         total,
         metodo, // 'efectivo' | 'transferencia'
         efectivo: metodo === 'efectivo' ? { dineroRecibido: recibido, cambio: cambioLocal } : null,
         transferencia: metodo === 'transferencia' ? { referencia, banco } : null,
         fechaHora: new Date().toISOString(),
+        notas: notasVenta.trim() || undefined,
       };
 
       try {
@@ -835,6 +955,7 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
       setReferencia('');
       setBanco('');
       setDineroRecibido('');
+    setNotasVenta('');
       setOpenPago(false);
 
       // Navegar directamente (el toast se muestra en Ticket)
@@ -859,10 +980,7 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
       .filter(Boolean);
   };
 
-  // Estado para el drawer de receta
-  const [openReceta, setOpenReceta] = useState(false);
-  const [recetaProducto, setRecetaProducto] = useState<ProductoConReceta | null>(null);
-  const [loadingReceta, setLoadingReceta] = useState(false);
+  // Catálogo de insumos para nombrar ingredientes en el POS
   const [insumos, setInsumos] = useState<Insumo[]>([]);
 
   // Cargar insumos al montar el componente (solo una vez)
@@ -878,51 +996,7 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
     cargarInsumos();
   }, []);
 
-  // Handler para abrir el drawer de receta
-  const handleOpenReceta = async (id_producto: number) => {
-    setLoadingReceta(true);
-    setOpenReceta(true);
-    try {
-      const prod = await productosService.getProductoConReceta(id_producto);
-      setRecetaProducto(prod);
-    } catch {
-      setRecetaProducto(null);
-    } finally {
-      setLoadingReceta(false);
-    }
-  };
-          {/* Drawer: Receta del producto */}
-          <DrawerRight
-            open={openReceta}
-            onClose={() => setOpenReceta(false)}
-            title={recetaProducto ? `Receta: ${recetaProducto.nombre_producto}` : 'Receta'}
-            widthClass="w-full sm:w-[420px]"
-          >
-            {loadingReceta ? (
-              <div className="p-8 flex items-center justify-center text-lg text-gray-500">
-                Cargando receta...
-              </div>
-            ) : (
-              <div className="p-6 space-y-4">
-                <div className="font-semibold text-lg text-gray-800 mb-2">Ingredientes:</div>
-                {recetaProducto && recetaProducto.receta && recetaProducto.receta.length > 0 ? (
-                  <ul className="space-y-2">
-                    {recetaProducto.receta.map((r: RecetaDetalle, idx: number) => {
-                      const insumo = insumos.find((i) => i.id_insumo === r.id_insumo);
-                      return (
-                        <li key={r.id_insumo + '-' + idx} className="flex items-center gap-3 text-[15px]">
-                          <span className="font-medium text-gray-700">{insumo ? insumo.nombre_insumo : `ID ${r.id_insumo}`}</span>
-                          <span className="text-gray-500">{r.cantidad_requerida} {r.unidad_base}</span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : (
-                  <div className="text-gray-500">No hay receta registrada para este producto.</div>
-                )}
-              </div>
-            )}
-          </DrawerRight>
+  
 
   return (
     <div className="min-h-screen bg-[#f7f8fa]">
@@ -1033,31 +1107,13 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.18, delay: idx * 0.015 }}
                         className="group bg-white rounded-2xl border border-gray-100 hover:border-emerald-200 shadow-sm hover:shadow-md transition overflow-hidden text-left relative cursor-pointer"
-                        onClick={e => {
-                          // Si el click fue en el ícono de editar, no agregar al carrito
-                          if ((e.target as HTMLElement).closest('.btn-edit-receta')) return;
-                          openCustomizer(p);
-                        }}
+                        onClick={() => void openCustomizer(p)}
                       >
                         <div className="aspect-[4/3] bg-gray-50 flex items-center justify-center text-gray-400 relative">
                           <span className="leading-none text-[100px] xl:text-[130px]">
                             {CATEGORY_ICON[p.id_categoria ?? ''] ?? '🍔'}
                           </span>
-                          {/* Ícono de ver receta (ojo) */}
-                          <button
-                            className="btn-edit-receta absolute top-2 right-2 opacity-0 group-hover:opacity-100 bg-white border border-gray-200 rounded-full p-2 shadow hover:bg-emerald-50 transition"
-                            title="Ver receta"
-                            onClick={e => {
-                              e.stopPropagation();
-                              handleOpenReceta(p.id_producto);
-                            }}
-                          >
-                            {/* Ícono de ojo */}
-                            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M1.5 12s4-7.5 10.5-7.5S22.5 12 22.5 12s-4 7.5-10.5 7.5S1.5 12 1.5 12z" />
-                              <circle cx="12" cy="12" r="3" />
-                            </svg>
-                          </button>
+                          
                         </div>
                         <div className="p-3">
                           <div className="font-semibold text-gray-800 group-hover:text-emerald-700 leading-snug break-words line-clamp-2 text-[14px]">
@@ -1125,13 +1181,26 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
                     </div>
                   </div>
 
+                  {/* Notas de la orden */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">Notas de la orden</label>
+                    <textarea
+                      value={notasVenta}
+                      onChange={(e) => setNotasVenta(e.target.value)}
+                      placeholder="Ej. Entregar sin bolsa, agregar servilletas extra..."
+                      rows={3}
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-200 resize-none"
+                    />
+                  </div>
+
                   {/* Lista de ítems */}
                   <div className="divide-y border-y rounded-lg overflow-hidden">
                     {carrito.map((it) => {
                       const modsList = toModsList(it.mods);
+                      const itemUnitPrice = getCartItemUnitPrice(it);
                       return (
                         <div
-                          key={it.producto.id_producto + (it.mods || '')}
+                          key={`${it.producto.id_producto}-${it.id_variante ?? 'base'}-${it.mods || ''}`}
                           className="py-5 px-4 flex items-start gap-4 hover:bg-gray-50"
                         >
                           <div className="w-14 h-14 rounded-md bg-gray-100 grid place-content-center text-2xl">
@@ -1143,6 +1212,12 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
                               {it.producto.nombre_producto}
                             </div>
 
+                            {it.variant && (
+                              <div className="mt-1 text-[13px] text-emerald-600 font-medium">
+                                Variante: {it.variant.nombre_variante}
+                              </div>
+                            )}
+
                             {modsList.length > 0 && (
                               <ul className="mt-1.5 pl-5 list-disc text-[13px] leading-5 text-gray-700 space-y-1">
                                 {modsList.map((m) => <li key={m}>sin {m}</li>)}
@@ -1150,7 +1225,7 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
                             )}
 
                             <div className="mt-2 text-[13px] text-gray-600">
-                              {currency(it.producto.precio_venta)}
+                              {currency(itemUnitPrice)}
                             </div>
                           </div>
 
@@ -1173,13 +1248,13 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
                           </div>
 
                           <div className="w-28 text-right font-semibold text-lg">
-                            {currency(it.producto.precio_venta * it.qty)}
+                            {currency(itemUnitPrice * it.qty)}
                           </div>
 
                           {/* NUEVO: Editar línea */}
                           <button
                             className="text-emerald-600 hover:text-emerald-700 ml-1 p-2 rounded hover:bg-emerald-50"
-                            onClick={() => openEditFromCart(it)}
+                            onClick={() => void openCustomizer(it.producto, it)}
                             title="Editar"
                             aria-label="Editar"
                           >
@@ -1258,8 +1333,13 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {carrito.map((it, i) => (
-                        <tr key={it.producto.id_producto + (it.mods || '') + i} className={i % 2 ? 'bg-white' : 'bg-gray-50/50'}>
+                      {carrito.map((it, i) => {
+                        const unitPrice = getCartItemUnitPrice(it);
+                        return (
+                          <tr
+                            key={`${it.producto.id_producto}-${it.id_variante ?? 'base'}-${it.mods || ''}-${i}`}
+                            className={i % 2 ? 'bg-white' : 'bg-gray-50/50'}
+                          >
                           <td className="px-5 py-3.5">
                             <div className="flex items-center gap-3">
                               <div className="h-10 w-10 rounded-md bg-gray-100 grid place-content-center">
@@ -1267,29 +1347,33 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
                               </div>
                               <div>
                                 <div className="font-medium text-gray-800 text-[15px]">{it.producto.nombre_producto}</div>
+                                  {it.variant && (
+                                    <div className="text-sm text-emerald-600">Variante: {it.variant.nombre_variante}</div>
+                                  )}
                                 {it.mods && <div className="text-sm text-gray-500">{it.mods}</div>}
                               </div>
                             </div>
                           </td>
-                          <td className="px-5 py-3.5 text-gray-700 text-[15px]">{currency(it.producto.precio_venta)}</td>
+                          <td className="px-5 py-3.5 text-gray-700 text-[15px]">{currency(unitPrice)}</td>
                           <td className="px-5 py-3.5">
                             <div className="inline-flex items-center rounded-lg border border-gray-200 px-3 h-10 select-none bg-white text-[15px]">
                               {it.qty}
                             </div>
                           </td>
                           <td className="px-5 py-3.5 font-semibold text-gray-900 text-[16px]">
-                            {currency(it.producto.precio_venta * it.qty)}
+                            {currency(unitPrice * it.qty)}
                           </td>
                           <td className="px-5 py-3.5">
                             <button
-                              onClick={() => removeItem(it.producto.id_producto, it.mods)}
+                              onClick={() => removeItem(it.producto.id_producto, it.mods, it.id_variante)}
                               className="text-gray-500 hover:text-emerald-600 text-[15px]"
                             >
                               Eliminar
                             </button>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                       {carrito.length === 0 && (
                         <tr>
                           <td colSpan={5} className="px-5 py-12 text-center text-gray-500 text-[15px]">
@@ -1438,7 +1522,11 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
             title={customProd ? `${customProd.nombre_producto}` : 'Personalizar'}
             widthClass="w-full sm:w-[525px]"
           >
-            {customProd && (
+            {customLoading ? (
+              <div className="p-8 flex items-center justify-center text-lg text-gray-500">
+                Cargando opciones...
+              </div>
+            ) : customProd ? (
               <div className="p-5 space-y-6 text-[15px]">
                 {/* Header del producto */}
                 <div className="flex items-center gap-4">
@@ -1447,55 +1535,47 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
                   </div>
                   <div>
                     <div className="font-semibold text-gray-900 text-base">{customProd.nombre_producto}</div>
-                    <div className="text-[15px] text-gray-500">{currency(customProd.precio_venta)}</div>
+                    <div className="text-[15px] text-gray-500">
+                      {currency(getUnitPrice(customProd, customVariant ?? null))}
+                    </div>
                   </div>
                 </div>
 
-                {/* EXTRAS (solo shucos p1..p4) */}
-                {SHUCOS_CON_EXTRAS.has(customProd.nombre_producto) && (
+                {/* Variantes */}
+                {(customDetalle?.variantes?.filter((v) => v.estado === 'activo').length ?? 0) > 0 && (
                   <div className="space-y-3">
-                    <div className="text-[15px] font-medium text-gray-800">Agrega extras</div>
-                    <div className="space-y-2">
-                      {EXTRAS_OPCIONES.map((k) => (
-                        <div
-                          key={k}
-                          className="flex items-center justify-between rounded-xl border border-gray-200 p-3 bg-white"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="text-2xl leading-none">{EXTRA_EMOJI[k] ?? '🍖'}</span>
-                            <span className="text-[15px] text-gray-800">{k}</span>
-                          </div>
-                          <div className="inline-flex items-center gap-2">
-                            <button
-                              onClick={() =>
-                                setCustomExtrasQty((prev) => ({
-                                  ...prev,
-                                  [k]: Math.max(0, (prev[k] || 0) - 1),
-                                }))
-                              }
-                              className="h-9 w-9 rounded bg-gray-100 hover:bg-gray-200"
-                              aria-label={`Quitar ${k}`}
-                            >
-                              –
-                            </button>
-                            <div className="min-w-[2rem] text-center text-[15px]">
-                              {customExtrasQty[k] || 0}
-                            </div>
-                            <button
-                              onClick={() =>
-                                setCustomExtrasQty((prev) => ({
-                                  ...prev,
-                                  [k]: (prev[k] || 0) + 1,
-                                }))
-                              }
-                              className="h-9 w-9 rounded bg-gray-100 hover:bg-gray-200"
-                              aria-label={`Agregar ${k}`}
-                            >
-                              +
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                    <div className="text-[15px] font-medium text-gray-800">Selecciona una variante</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <button
+                        onClick={() => handleVariantSelect(null)}
+                        className={`h-12 rounded-lg border px-4 font-semibold transition ${
+                          customVariant == null
+                            ? 'border-emerald-300 bg-emerald-50 text-emerald-700 shadow-inner'
+                            : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        Receta base
+                      </button>
+                      {customDetalle?.variantes
+                        ?.filter((v) => v.estado === 'activo')
+                        .map((variant) => (
+                          <button
+                            key={variant.id_variante}
+                            onClick={() => handleVariantSelect(variant)}
+                            className={`h-12 rounded-lg border px-4 font-semibold transition text-left ${
+                              customVariant?.id_variante === variant.id_variante
+                                ? 'border-emerald-300 bg-emerald-50 text-emerald-700 shadow-inner'
+                                : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            <div>{variant.nombre_variante}</div>
+                            {(variant.precio_variante ?? 0) !== 0 && (
+                              <div className="text-sm font-normal text-emerald-600">
+                                {variant.precio_variante > 0 ? '+' : ''}{currency(variant.precio_variante)}
+                              </div>
+                            )}
+                          </button>
+                        ))}
                     </div>
                   </div>
                 )}
@@ -1506,33 +1586,45 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                  {Object.keys(customChecks).map((k) => {
-                    const checked = customChecks[k];
+                  {ingredientOptions.map((option) => {
+                    const checked = customChecks[option.key] ?? true;
+                    const isRequired = option.esObligatorio;
                     return (
                       <label
-                        key={k}
+                        key={option.key}
                         className={`relative flex flex-col items-center gap-3 p-5 rounded-2xl border transition cursor-pointer select-none ${
                           checked ? 'border-gray-200 hover:shadow-sm' : 'border-rose-200 bg-rose-50/60'
                         }`}
                       >
                         <div className={`text-6xl leading-none ${checked ? '' : 'opacity-40'}`}>
-                          {ING_EMOJI[k] ?? '🍽️'}
+                          {ING_EMOJI[option.nombre] ?? '🍽️'}
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={(e) => setCustomChecks((prev) => ({ ...prev, [k]: e.target.checked }))}
-                          />
-                          <span className="text-[15px] text-gray-800">{k}</span>
+                        <div className="flex flex-col items-center gap-1">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={isRequired}
+                              onChange={(e) =>
+                                setCustomChecks((prev) => ({ ...prev, [option.key]: e.target.checked }))
+                              }
+                            />
+                            <span className="text-[15px] text-gray-800 text-center">{option.nombre}</span>
+                          </label>
+                          {isRequired && (
+                            <span className="text-[12px] text-emerald-600 font-medium">Requerido</span>
+                          )}
+                          {!isRequired && option.variantId && (
+                            <span className="text-[12px] text-gray-500">Solo en variante</span>
+                          )}
                         </div>
 
                         {!checked && <div className="pointer-events-none absolute inset-0 rounded-2xl bg-rose-100/30" />}
                       </label>
                     );
                   })}
-                  {Object.keys(customChecks).length === 0 && (
+                  {ingredientOptions.length === 0 && (
                     <div className="col-span-full text-[15px] text-gray-500">
                       Este producto no tiene ingredientes configurables.
                     </div>
@@ -1577,6 +1669,8 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
                   </button>
                 </div>
               </div>
+            ) : (
+              <div className="p-8 text-center text-gray-500">Selecciona un producto para personalizar.</div>
             )}
           </DrawerRight>
 

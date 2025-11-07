@@ -3,6 +3,7 @@ import React, { Suspense } from "react";
 import { Route, Routes } from "react-router-dom";
 const Dashboard = React.lazy(() => import("../views/Dashboard"));
 const Login = React.lazy(() => import("../views/Login"));
+const InitialRedirect = React.lazy(() => import("../views/InitialRedirect"));
 const Usuarios = React.lazy(() => import("../features/Dashboard/Administracion"));
 const GestionRoles = React.lazy(() => import("../features/Dashboard/Administracion/GestionRoles"));
 const Configuracion = React.lazy(() => import("../features/Dashboard/Configuracion/Configuracion"));
@@ -196,6 +197,10 @@ const protectedRoutes: IRoute[] = [
 
 // Rutas públicas
 const publicRoutes: IRoute[] = [
+  {
+    path: "/",
+    element: InitialRedirect,
+  },
   {
     path: "/login",
     element: Login,

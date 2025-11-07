@@ -39,7 +39,7 @@ const tables: Record<string, TableMeta> = {
   detalle_venta: { pk: 'id_detalle', foreignKeys: { id_venta: 'venta', id_producto: 'producto', id_variante: 'producto_variante' } },
 
   categoria_gasto: { pk: 'id_categoria', labelFields: ['nombre'] },
-  gasto_operativo: { pk: 'id_gasto', foreignKeys: { id_categoria: 'categoria_gasto', id_perfil: 'perfil_usuario', id_proveedor: 'proveedor' }, labelFields: ['numero_gasto'], autoCreated: ['fecha_gasto'] },
+  gasto_operativo: { pk: 'id_gasto', labelFields: ['numero_gasto'], autoCreated: ['fecha_gasto', 'numero_gasto', 'fecha_creacion'] },
   deposito_banco: { pk: 'id_deposito', foreignKeys: { id_perfil: 'perfil_usuario' }, autoCreated: ['fecha_deposito'] },
 
   arqueo_caja: { pk: 'id_arqueo', foreignKeys: { id_cajero: 'perfil_usuario' }, autoCreated: ['fecha_arqueo'] },

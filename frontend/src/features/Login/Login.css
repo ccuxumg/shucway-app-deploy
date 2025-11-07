@@ -242,17 +242,27 @@
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+
 .help-link {
   color: var(--primary-green);
   cursor: pointer;
   text-decoration: underline;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
+  background: none;
+  border: none;
+  font: inherit;
+  padding: 0;
 }
 
 .help-link:hover {
   color: var(--dark-green);
   transform: translateY(-1px);
+}
+
+.help-link:focus-visible {
+  outline: 2px solid var(--primary-green);
+  outline-offset: 2px;
 }
 
 .help-link::after {
@@ -268,6 +278,150 @@
 
 .help-link:hover::after {
   width: 100%;
+}
+
+.support-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 2rem;
+}
+
+.support-modal {
+  background: #fff;
+  border-radius: 1.5rem;
+  width: min(900px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 45px rgba(15, 118, 110, 0.25);
+  position: relative;
+  padding: 3rem;
+}
+
+.support-modal-close {
+  position: absolute;
+  top: 1.5rem;
+  right: 1.5rem;
+  border: none;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1.4rem;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.support-modal-close:hover {
+  transform: scale(1.08);
+  box-shadow: 0 8px 20px rgba(239, 68, 68, 0.2);
+}
+
+.support-modal-header {
+  text-align: center;
+  margin-bottom: 2.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.support-modal-logo {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+}
+
+.support-modal-header h2 {
+  font-size: 2.2rem;
+  color: #0f172a;
+  margin: 0;
+}
+
+.support-modal-header p {
+  color: #475569;
+  max-width: 520px;
+  font-size: 1.4rem;
+}
+
+.support-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+
+.support-card {
+  border: 1px solid rgba(37, 99, 235, 0.15);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.8), rgba(219, 234, 254, 0.9));
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.support-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 18px 35px rgba(37, 99, 235, 0.25);
+}
+
+.support-card-header {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.support-card-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 9999px;
+  background: #fff;
+  padding: 0.5rem;
+  object-fit: contain;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
+}
+
+.support-card-header h3 {
+  font-size: 1.6rem;
+  color: #0f172a;
+  margin: 0;
+}
+
+.support-card-header p {
+  font-size: 1.2rem;
+  color: #475569;
+  margin: 0.2rem 0 0;
+}
+
+.support-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  font-size: 1.4rem;
+  color: #0f172a;
+}
+
+.support-card-label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+  color: #1d4ed8;
+}
+
+.support-card-link {
+  color: #0f172a;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.support-card-link:hover {
+  color: #2563eb;
 }
 
 /* Floating food animations */
@@ -413,6 +567,14 @@
 
   .floating-food {
     font-size: 2.5rem;
+  }
+
+  .support-modal {
+    padding: 2rem;
+  }
+
+  .support-modal-grid {
+    grid-template-columns: 1fr;
   }
 }
 

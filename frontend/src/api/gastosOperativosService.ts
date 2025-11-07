@@ -1,66 +1,57 @@
 import { api } from './apiClient';
 
 /* =============== Tipos =============== */
-export interface CategoriaGasto {
-  id_categoria: number;
-  nombre: string;
-  descripcion?: string;
-  tipo_gasto?: 'operativo' | 'inversion';
-}
+export type CategoriaGasto =
+  | 'Gastos de Personal'
+  | 'Servicios Fijos (Mensuales)'
+  | 'Insumos Operativos'
+  | 'Gastos de Transporte'
+  | 'Mantenimiento y Reemplazos';
 
-export interface PerfilMin {
-  id_perfil: number;
-  primer_nombre: string;
-  primer_apellido: string;
-}
-
-export interface Proveedor {
-  id_proveedor: number;
-  nombre_empresa: string;
-}
+export type FrecuenciaGasto = 'quincenal' | 'mensual';
 
 export interface GastoOperativo {
   id_gasto: number;
-  numero_gasto?: string;
+  numero_gasto: string;
   fecha_gasto: string;
-  nombre_gasto?: string;
-  detalle?: string;
+  fecha_creacion: string;
+  nombre_gasto: string;
+  categoria_gasto: CategoriaGasto;
+  detalle: string;
+  frecuencia: FrecuenciaGasto;
   monto: number;
-  frecuencia?: 'semanal' | 'quincenal' | 'mensual';
-  fecha_creacion?: string;
-  id_categoria?: number;
-  tipo_movimiento?: 'compra' | 'gasto' | 'inversion';
-  id_proveedor?: number | null;
-  id_perfil?: number;
-  comprobante_url?: string | null;
-  categoria_gasto?: CategoriaGasto;
-  perfil_usuario?: PerfilMin;
-  proveedor?: Proveedor;
+  estado: 'activo' | 'desactivado';
 }
 
 export interface CreateGastoDTO {
-  numero_gasto: string;
-  fecha_gasto: string;
-  id_categoria: number;
   nombre_gasto: string;
+  categoria_gasto: CategoriaGasto;
   detalle: string;
+  frecuencia: FrecuenciaGasto;
   monto: number;
-  frecuencia: 'semanal' | 'quincenal' | 'mensual';
-  tipo_movimiento?: 'compra' | 'gasto' | 'inversion';
-  id_proveedor?: number | null;
-  comprobante_url?: string | null;
+  estado?: 'activo' | 'desactivado';
 }
 
+export type UpdateGastoDTO = Partial<CreateGastoDTO>;
+
 export interface ResumenGastos {
-  total_gastos: number;
-  cantidad_registros: number;
-  promedio_gasto: number;
-  gastos: GastoOperativo[];
+  total_registros: number;
+  total_base: number;
+  total_ajustado: number;
+  total_quincenal: number;
+  total_mensual: number;
+  count_quincenal: number;
+  count_mensual: number;
+  promedio_mensual: number;
+}
+
+export interface CategoriaCatalogoItem {
+  value: CategoriaGasto;
+  nombre: CategoriaGasto;
 }
 
 /* =============== Service =============== */
 const gastosOperativosService = {
-  // GET: Listar todos los gastos
   async getGastos(): Promise<GastoOperativo[]> {
     try {
       const response = await api.get('/gastos-operativos');
@@ -71,7 +62,6 @@ const gastosOperativosService = {
     }
   },
 
-  // GET: Obtener gasto por ID
   async getGastoById(id: number): Promise<GastoOperativo> {
     try {
       const response = await api.get(`/gastos-operativos/${id}`);
@@ -82,7 +72,6 @@ const gastosOperativosService = {
     }
   },
 
-  // GET: Filtrar por rango de fechas
   async getGastosPorFechas(fechaInicio: string, fechaFin: string): Promise<GastoOperativo[]> {
     try {
       const response = await api.get('/gastos-operativos/fechas', {
@@ -95,11 +84,10 @@ const gastosOperativosService = {
     }
   },
 
-  // GET: Filtrar por categoría
-  async getGastosPorCategoria(categoriaId: number): Promise<GastoOperativo[]> {
+  async getGastosPorCategoria(categoria: CategoriaGasto): Promise<GastoOperativo[]> {
     try {
       const response = await api.get('/gastos-operativos/categoria', {
-        params: { categoriaId },
+        params: { categoria },
       });
       return response.data || [];
     } catch (error) {
@@ -108,7 +96,6 @@ const gastosOperativosService = {
     }
   },
 
-  // POST: Crear nuevo gasto
   async createGasto(gasto: CreateGastoDTO): Promise<GastoOperativo> {
     try {
       const response = await api.post('/gastos-operativos', gasto);
@@ -119,8 +106,7 @@ const gastosOperativosService = {
     }
   },
 
-  // PUT: Actualizar gasto
-  async updateGasto(id: number, gasto: Partial<CreateGastoDTO>): Promise<GastoOperativo> {
+  async updateGasto(id: number, gasto: UpdateGastoDTO): Promise<GastoOperativo> {
     try {
       const response = await api.put(`/gastos-operativos/${id}`, gasto);
       return response.data;
@@ -130,7 +116,6 @@ const gastosOperativosService = {
     }
   },
 
-  // DELETE: Eliminar gasto
   async deleteGasto(id: number): Promise<void> {
     try {
       await api.delete(`/gastos-operativos/${id}`);
@@ -140,7 +125,6 @@ const gastosOperativosService = {
     }
   },
 
-  // GET: Resumen/estadísticas de gastos
   async getResumenGastos(fechaInicio?: string, fechaFin?: string): Promise<ResumenGastos> {
     try {
       const params = fechaInicio && fechaFin ? { fechaInicio, fechaFin } : {};
@@ -148,6 +132,16 @@ const gastosOperativosService = {
       return response.data;
     } catch (error) {
       console.error('Error fetching resumen gastos:', error);
+      throw error;
+    }
+  },
+
+  async getCategorias(): Promise<CategoriaCatalogoItem[]> {
+    try {
+      const response = await api.get('/gastos-operativos/categorias');
+      return response.data || [];
+    } catch (error) {
+      console.error('Error fetching catálogo de categorías de gasto:', error);
       throw error;
     }
   },

@@ -1,23 +1,32 @@
 import { Request, Response } from 'express';
 import { supabase } from '../config/database';
+import { CategoriaGasto } from '../types/finanzas.types';
+
+const CATEGORIAS_VALIDAS: CategoriaGasto[] = [
+  'Gastos de Personal',
+  'Servicios Fijos (Mensuales)',
+  'Insumos Operativos',
+  'Gastos de Transporte',
+  'Mantenimiento y Reemplazos',
+];
+
+const FRECUENCIAS_VALIDAS = ['quincenal', 'mensual'] as const;
+type FrecuenciaValida = (typeof FRECUENCIAS_VALIDAS)[number];
+
+const GASTO_FIELDS = 'id_gasto, numero_gasto, fecha_gasto, fecha_creacion, nombre_gasto, categoria_gasto, detalle, frecuencia, monto, estado';
+
+const isCategoriaValida = (valor: unknown): valor is CategoriaGasto =>
+  typeof valor === 'string' && CATEGORIAS_VALIDAS.includes(valor as CategoriaGasto);
+
+const isFrecuenciaValida = (valor: unknown): valor is FrecuenciaValida =>
+  typeof valor === 'string' && FRECUENCIAS_VALIDAS.includes(valor as FrecuenciaValida);
 
 /* ============ GET: Listar todos los gastos operativos ============ */
 export const getGastosOperativos = async (_req: Request, res: Response) => {
   try {
     const { data, error } = await supabase
       .from('gasto_operativo')
-      .select(`
-        id_gasto,
-        numero_gasto,
-        fecha_gasto,
-        detalle,
-        monto,
-        id_categoria,
-        tipo_movimiento,
-        id_proveedor,
-        id_perfil,
-        comprobante_url
-      `)
+      .select(GASTO_FIELDS)
       .order('fecha_gasto', { ascending: false });
 
     if (error) {
@@ -39,25 +48,11 @@ export const getGastoById = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { data, error } = await supabase
       .from('gasto_operativo')
-      .select(`
-        id_gasto,
-        numero_gasto,
-        fecha_gasto,
-        detalle,
-        monto,
-        id_categoria,
-        tipo_movimiento,
-        id_proveedor,
-        id_perfil,
-        comprobante_url,
-        categoria_gasto:id_categoria(id_categoria, nombre, tipo_gasto),
-        perfil_usuario:id_perfil(id_perfil, primer_nombre, primer_apellido),
-        proveedor:id_proveedor(id_proveedor, nombre_empresa)
-      `)
+      .select(GASTO_FIELDS)
       .eq('id_gasto', id)
       .single();
 
-    if (error) {
+    if (error || !data) {
       console.error('Error fetching gasto:', error);
       res.status(404).json({ error: 'Gasto operativo no encontrado' });
       return;
@@ -82,23 +77,9 @@ export const getGastoPorFechas = async (req: Request, res: Response) => {
 
     const { data, error } = await supabase
       .from('gasto_operativo')
-      .select(`
-        id_gasto,
-        numero_gasto,
-        fecha_gasto,
-        detalle,
-        monto,
-        id_categoria,
-        tipo_movimiento,
-        id_proveedor,
-        id_perfil,
-        comprobante_url,
-        categoria_gasto:id_categoria(id_categoria, nombre, tipo_gasto),
-        perfil_usuario:id_perfil(id_perfil, primer_nombre, primer_apellido),
-        proveedor:id_proveedor(id_proveedor, nombre_empresa)
-      `)
-      .gte('fecha_gasto', fechaInicio)
-      .lte('fecha_gasto', fechaFin)
+      .select(GASTO_FIELDS)
+      .gte('fecha_gasto', fechaInicio as string)
+      .lte('fecha_gasto', fechaFin as string)
       .order('fecha_gasto', { ascending: false });
 
     if (error) {
@@ -117,31 +98,17 @@ export const getGastoPorFechas = async (req: Request, res: Response) => {
 /* ============ GET: Obtener gastos por categoría ============ */
 export const getGastoPorCategoria = async (req: Request, res: Response) => {
   try {
-    const { categoriaId } = req.query;
+    const categoriaQuery = (req.query.categoria || req.query.categoriaId) as string | undefined;
 
-    if (!categoriaId) {
-      res.status(400).json({ error: 'Debe proporcionar categoriaId' });
+    if (!categoriaQuery || !isCategoriaValida(categoriaQuery)) {
+      res.status(400).json({ error: 'Debe proporcionar una categoría válida' });
       return;
     }
 
     const { data, error } = await supabase
       .from('gasto_operativo')
-      .select(`
-        id_gasto,
-        numero_gasto,
-        fecha_gasto,
-        detalle,
-        monto,
-        id_categoria,
-        tipo_movimiento,
-        id_proveedor,
-        id_perfil,
-        comprobante_url,
-        categoria_gasto:id_categoria(id_categoria, nombre, tipo_gasto),
-        perfil_usuario:id_perfil(id_perfil, primer_nombre, primer_apellido),
-        proveedor:id_proveedor(id_proveedor, nombre_empresa)
-      `)
-      .eq('id_categoria', categoriaId)
+      .select(GASTO_FIELDS)
+      .eq('categoria_gasto', categoriaQuery)
       .order('fecha_gasto', { ascending: false });
 
     if (error) {
@@ -160,30 +127,27 @@ export const getGastoPorCategoria = async (req: Request, res: Response) => {
 /* ============ POST: Crear nuevo gasto operativo ============ */
 export const createGasto = async (req: Request, res: Response) => {
   try {
-    const { numero_gasto, fecha_gasto, id_categoria, detalle, monto, tipo_movimiento, id_proveedor, comprobante_url } = req.body;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const id_perfil = (req as any).user?.id_perfil;
+    const { nombre_gasto, categoria_gasto, detalle, frecuencia, monto, estado } = req.body;
+    console.log('🟢 CREATE - Estado recibido:', estado);
 
-    // Validaciones básicas
-    if (!numero_gasto || !fecha_gasto || !id_categoria || !detalle || !monto) {
+    if (!nombre_gasto || !categoria_gasto || !detalle || !frecuencia || monto === undefined) {
       res.status(400).json({ error: 'Faltan campos requeridos' });
       return;
     }
 
-    if (monto <= 0) {
-      res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+    if (!isCategoriaValida(categoria_gasto)) {
+      res.status(400).json({ error: 'Categoría inválida' });
       return;
     }
 
-    // Verificar que el número de gasto sea único
-    const { data: existingGasto } = await supabase
-      .from('gasto_operativo')
-      .select('id_gasto')
-      .eq('numero_gasto', numero_gasto)
-      .single();
+    if (!isFrecuenciaValida(frecuencia)) {
+      res.status(400).json({ error: 'Frecuencia inválida' });
+      return;
+    }
 
-    if (existingGasto) {
-      res.status(409).json({ error: 'El número de gasto ya existe' });
+    const montoNumerico = Number(monto);
+    if (Number.isNaN(montoNumerico) || montoNumerico <= 0) {
+      res.status(400).json({ error: 'El monto debe ser un número mayor a 0' });
       return;
     }
 
@@ -191,32 +155,16 @@ export const createGasto = async (req: Request, res: Response) => {
       .from('gasto_operativo')
       .insert([
         {
-          numero_gasto: numero_gasto.trim(),
-          fecha_gasto,
-          id_categoria: parseInt(id_categoria),
+          nombre_gasto: nombre_gasto.trim(),
+          categoria_gasto,
           detalle: detalle.trim(),
-          monto: parseFloat(monto),
-          tipo_movimiento: tipo_movimiento || 'gasto',
-          id_proveedor: id_proveedor ? parseInt(id_proveedor) : null,
-          id_perfil,
-          comprobante_url: comprobante_url || null,
+          frecuencia,
+          monto: montoNumerico,
+          estado: estado || 'activo',
         },
       ])
-      .select(`
-        id_gasto,
-        numero_gasto,
-        fecha_gasto,
-        detalle,
-        monto,
-        id_categoria,
-        tipo_movimiento,
-        id_proveedor,
-        id_perfil,
-        comprobante_url,
-        categoria_gasto:id_categoria(id_categoria, nombre, tipo_gasto),
-        perfil_usuario:id_perfil(id_perfil, primer_nombre, primer_apellido),
-        proveedor:id_proveedor(id_proveedor, nombre_empresa)
-      `);
+      .select(GASTO_FIELDS)
+      .single();
 
     if (error) {
       console.error('Error creating gasto:', error);
@@ -224,7 +172,7 @@ export const createGasto = async (req: Request, res: Response) => {
       return;
     }
 
-    res.status(201).json(data?.[0]);
+    res.status(201).json(data);
   } catch (err) {
     console.error('Error in createGasto:', err);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -235,45 +183,63 @@ export const createGasto = async (req: Request, res: Response) => {
 export const updateGasto = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { numero_gasto, fecha_gasto, id_categoria, detalle, monto, tipo_movimiento, id_proveedor, comprobante_url } = req.body;
+    const { nombre_gasto, categoria_gasto, detalle, frecuencia, monto, estado } = req.body;
+    console.log('🔵 UPDATE - Estado recibido:', estado, 'para ID:', id);
 
-    // Validaciones básicas
-    if (monto && monto <= 0) {
-      res.status(400).json({ error: 'El monto debe ser mayor a 0' });
-      return;
+    const updateData: Record<string, unknown> = {};
+
+    if (nombre_gasto) {
+      updateData.nombre_gasto = String(nombre_gasto).trim();
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const updateData: any = {};
+    if (categoria_gasto !== undefined) {
+      if (!isCategoriaValida(categoria_gasto)) {
+        res.status(400).json({ error: 'Categoría inválida' });
+        return;
+      }
+      updateData.categoria_gasto = categoria_gasto;
+    }
 
-    if (numero_gasto) updateData.numero_gasto = numero_gasto.trim();
-    if (fecha_gasto) updateData.fecha_gasto = fecha_gasto;
-    if (id_categoria) updateData.id_categoria = parseInt(id_categoria);
-    if (detalle) updateData.detalle = detalle.trim();
-    if (monto) updateData.monto = parseFloat(monto);
-    if (tipo_movimiento) updateData.tipo_movimiento = tipo_movimiento;
-    if (id_proveedor !== undefined) updateData.id_proveedor = id_proveedor ? parseInt(id_proveedor) : null;
-    if (comprobante_url !== undefined) updateData.comprobante_url = comprobante_url || null;
+    if (detalle) {
+      updateData.detalle = String(detalle).trim();
+    }
+
+    if (frecuencia !== undefined) {
+      if (!isFrecuenciaValida(frecuencia)) {
+        res.status(400).json({ error: 'Frecuencia inválida' });
+        return;
+      }
+      updateData.frecuencia = frecuencia;
+    }
+
+    if (monto !== undefined) {
+      const montoNumerico = Number(monto);
+      if (Number.isNaN(montoNumerico) || montoNumerico <= 0) {
+        res.status(400).json({ error: 'El monto debe ser un número mayor a 0' });
+        return;
+      }
+      updateData.monto = montoNumerico;
+    }
+
+    if (estado !== undefined) {
+      if (estado !== 'activo' && estado !== 'desactivado') {
+        res.status(400).json({ error: 'Estado inválido. Debe ser "activo" o "desactivado"' });
+        return;
+      }
+      updateData.estado = estado;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      res.status(400).json({ error: 'No se proporcionaron campos para actualizar' });
+      return;
+    }
 
     const { data, error } = await supabase
       .from('gasto_operativo')
       .update(updateData)
       .eq('id_gasto', id)
-      .select(`
-        id_gasto,
-        numero_gasto,
-        fecha_gasto,
-        detalle,
-        monto,
-        id_categoria,
-        tipo_movimiento,
-        id_proveedor,
-        id_perfil,
-        comprobante_url,
-        categoria_gasto:id_categoria(id_categoria, nombre, tipo_gasto),
-        perfil_usuario:id_perfil(id_perfil, primer_nombre, primer_apellido),
-        proveedor:id_proveedor(id_proveedor, nombre_empresa)
-      `);
+      .select(GASTO_FIELDS)
+      .single();
 
     if (error) {
       console.error('Error updating gasto:', error);
@@ -281,12 +247,12 @@ export const updateGasto = async (req: Request, res: Response) => {
       return;
     }
 
-    if (!data || data.length === 0) {
+    if (!data) {
       res.status(404).json({ error: 'Gasto operativo no encontrado' });
       return;
     }
 
-    res.json(data[0]);
+    res.json(data);
   } catch (err) {
     console.error('Error in updateGasto:', err);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -323,12 +289,12 @@ export const getResumenGastos = async (req: Request, res: Response) => {
 
     let query = supabase
       .from('gasto_operativo')
-      .select('*');
+      .select(GASTO_FIELDS);
 
     if (fechaInicio && fechaFin) {
       query = query
-        .gte('fecha_gasto', fechaInicio)
-        .lte('fecha_gasto', fechaFin);
+        .gte('fecha_gasto', fechaInicio as string)
+        .lte('fecha_gasto', fechaFin as string);
     }
 
     const { data, error } = await query;
@@ -340,13 +306,40 @@ export const getResumenGastos = async (req: Request, res: Response) => {
     }
 
     const gastos = data || [];
-    const totalGastos = gastos.reduce((sum, g) => sum + (Number(g.monto) || 0), 0);
+
+    let totalBase = 0;
+    let totalAjustado = 0;
+    let totalQuincenal = 0;
+    let totalMensual = 0;
+    let countQuincenal = 0;
+    let countMensual = 0;
+
+    gastos.forEach((gasto) => {
+      const monto = Number(gasto.monto) || 0;
+      totalBase += monto;
+
+      if (gasto.frecuencia === 'quincenal') {
+        totalAjustado += monto * 2;
+        totalQuincenal += monto;
+        countQuincenal += 1;
+      } else {
+        totalAjustado += monto;
+        totalMensual += monto;
+        countMensual += 1;
+      }
+    });
+
+    const promedioMensual = gastos.length > 0 ? totalAjustado / gastos.length : 0;
 
     res.json({
-      total_gastos: totalGastos,
-      cantidad_registros: gastos.length,
-      promedio_gasto: gastos.length > 0 ? totalGastos / gastos.length : 0,
-      gastos: gastos,
+      total_registros: gastos.length,
+      total_base: totalBase,
+      total_ajustado: totalAjustado,
+      total_quincenal: totalQuincenal,
+      total_mensual: totalMensual,
+      count_quincenal: countQuincenal,
+      count_mensual: countMensual,
+      promedio_mensual: promedioMensual,
     });
   } catch (err) {
     console.error('Error in getResumenGastos:', err);
@@ -354,32 +347,8 @@ export const getResumenGastos = async (req: Request, res: Response) => {
   }
 };
 
-/* ============ GET: Obtener categorías de gastos ============ */
-export const getCategoriasGasto = async (req: Request, res: Response) => {
-  try {
-    const { activos } = req.query;
-
-    let query = supabase
-      .from('categoria_gasto')
-      .select('id_categoria, nombre, descripcion, tipo_gasto')
-      .order('nombre', { ascending: true });
-
-    // Si se solicita solo activos, filtrar por activo = true
-    if (activos === '1') {
-      query = query.eq('activo', true);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error('Error fetching categorias de gasto:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
-      return;
-    }
-
-    res.json(data || []);
-  } catch (err) {
-    console.error('Error in getCategoriasGasto:', err);
-    res.status(500).json({ error: 'Error interno del servidor' });
-  }
+/* ============ GET: Obtener catálogo de categorías ================= */
+export const getCategoriasGasto = (_req: Request, res: Response) => {
+  const payload = CATEGORIAS_VALIDAS.map((nombre) => ({ nombre, value: nombre }));
+  res.json(payload);
 };

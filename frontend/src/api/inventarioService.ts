@@ -83,7 +83,17 @@ export const fetchOrdenesCompra = async () => {
 
 export const fetchInsumos = async () => {
   const response = await api.get("/inventario/insumos");
-  return response.data;
+  const payload = response.data;
+
+  if (payload && Array.isArray(payload.data)) {
+    return payload.data;
+  }
+
+  if (payload && Array.isArray(payload)) {
+    return payload;
+  }
+
+  return [];
 };
 
 // CRUD Órdenes de Compra

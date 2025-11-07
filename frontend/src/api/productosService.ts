@@ -39,9 +39,11 @@ export interface ProductoVariante {
 export interface RecetaDetalle {
   id_receta: number;
   id_producto: number;
+  id_variante?: number | null;
   id_insumo: number;
   cantidad_requerida: number;
   unidad_base: string;
+  es_obligatorio?: boolean;
 }
 
 export interface ProductoConReceta extends Producto {

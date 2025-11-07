@@ -657,10 +657,10 @@ INSERT INTO arqueo_caja (id_arqueo, fecha_arqueo, id_cajero, total_sistema, esta
 (1, CURRENT_DATE, 1, 100.00, 'abierto');
 
 -- Insertar algunas ventas de ejemplo (completas)
-INSERT INTO venta (id_venta, fecha_venta, id_cliente, tipo_pago, id_cajero) VALUES
-(1, CURRENT_TIMESTAMP, 1, 'Cash', 1),
-(2, CURRENT_TIMESTAMP, 2, 'Cash', 1),
-(3, CURRENT_TIMESTAMP, 3, 'Transferencia', 1);
+INSERT INTO venta (id_venta, fecha_venta, id_cliente, tipo_pago, estado, id_cajero) VALUES
+(1, CURRENT_TIMESTAMP, 1, 'Cash', 'confirmada', 1),
+(2, CURRENT_TIMESTAMP, 2, 'Cash', 'confirmada', 1),
+(3, CURRENT_TIMESTAMP, 3, 'Transferencia', 'confirmada', 1);
 
 -- Insertar detalles de venta (se calcularán precios automáticamente)
 INSERT INTO detalle_venta (id_detalle, id_venta, id_producto, cantidad, precio_unitario) VALUES

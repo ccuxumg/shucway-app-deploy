@@ -133,9 +133,9 @@ export class VentasService {
 
   /**
    * Crear venta con detalles
-   * Esta función crea la venta y sus detalles, luego llama a las funciones PL/pgSQL:
-   * - fn_descontar_inventario_venta: Descuenta inventario operativo
-   * - fn_acumular_puntos_venta: Se ejecuta automáticamente por trigger cuando estado='confirmada'
+   * Esta función crea la venta y sus detalles, luego confirma la venta para que los triggers PL/pgSQL hagan su trabajo:
+   * - fn_descontar_inventario_venta: Descuenta inventario operativo cuando estado cambia a 'confirmada'
+   * - fn_acumular_puntos_venta: Se ejecuta automáticamente por trigger al mismo cambio de estado
    */
   async createVenta(dto: CreateVentaDTO, idCajero: number): Promise<VentaCompleta> {
     // 1. Crear venta principal (estado 'pendiente' por defecto)
@@ -175,10 +175,9 @@ export class VentasService {
       await supabase.from('venta').delete().eq('id_venta', venta.id_venta);
       throw new Error(`Error al crear detalles de venta: ${detallesError.message}`);
     }
-
     // 3. Confirmar venta (cambia estado a 'confirmada')
     // Esto dispara:
-    // - fn_descontar_inventario_venta (manual)
+    // - fn_descontar_inventario_venta (trigger en PostgreSQL)
     // - fn_acumular_puntos_venta (trigger automático)
     const { error: confirmarError } = await supabase
       .from('venta')
@@ -189,18 +188,7 @@ export class VentasService {
       throw new Error(`Error al confirmar venta: ${confirmarError.message}`);
     }
 
-    // 4. Descontar inventario usando función PL/pgSQL
-    const { error: inventarioError } = await supabase.rpc('fn_descontar_inventario_venta', {
-      p_id_venta: venta.id_venta,
-      p_id_perfil: idCajero,
-    });
-
-    if (inventarioError) {
-      console.error(`Error al descontar inventario: ${inventarioError.message}`);
-      // No lanzar error, solo log (la venta ya está creada)
-    }
-
-    // 5. Manejar canje de puntos si existe
+    // 4. Manejar canje de puntos si existe
     if (dto.puntos_usados && dto.puntos_usados > 0 && dto.id_cliente) {
       const { error: canjeError } = await supabase.rpc('fn_canjear_puntos', {
         p_id_cliente: dto.id_cliente,
@@ -214,7 +202,7 @@ export class VentasService {
       }
     }
 
-    // 6. Retornar venta completa
+    // 5. Retornar venta completa
     const ventaCompleta = await this.getVentaCompleta(venta.id_venta);
     if (!ventaCompleta) {
       throw new Error('Error al obtener venta creada');

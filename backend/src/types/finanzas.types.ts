@@ -2,21 +2,24 @@
 // 📦 TIPOS DE FINANZAS
 // ================================================================
 
-export interface CategoriaGasto {
-  id_categoria: number;
-  nombre_categoria: string;
-  descripcion?: string;
-}
+export type CategoriaGasto =
+  | 'Gastos de Personal'
+  | 'Servicios Fijos (Mensuales)'
+  | 'Insumos Operativos'
+  | 'Gastos de Transporte'
+  | 'Mantenimiento y Reemplazos';
 
 export interface GastoOperativo {
   id_gasto: number;
-  id_categoria: number;
-  descripcion: string;
+  numero_gasto: string;
+  nombre_gasto: string;
+  categoria_gasto: CategoriaGasto;
+  detalle: string;
+  frecuencia: 'quincenal' | 'mensual';
   monto: number;
+  estado: 'activo' | 'desactivado';
   fecha_gasto: Date;
-  id_responsable?: number;
-  metodo_pago: 'efectivo' | 'transferencia' | 'cheque';
-  comprobante_url?: string;
+  fecha_creacion: Date;
 }
 
 export interface DepositoBanco {
@@ -50,12 +53,12 @@ export interface CreateCategoriaGastoDTO {
 }
 
 export interface CreateGastoDTO {
-  id_categoria: number;
-  descripcion: string;
+  nombre_gasto: string;
+  categoria_gasto: CategoriaGasto;
+  detalle: string;
+  frecuencia: 'quincenal' | 'mensual';
   monto: number;
-  fecha_gasto?: string;
-  metodo_pago: 'efectivo' | 'transferencia' | 'cheque';
-  comprobante_url?: string;
+  estado?: 'activo' | 'desactivado'; // Opcional, default 'activo'
 }
 
 export interface CreateDepositoDTO {

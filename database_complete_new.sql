@@ -258,6 +258,7 @@ CREATE TABLE producto (
 CREATE TABLE producto_variante (
     id_variante SERIAL PRIMARY KEY,
     id_producto INTEGER NOT NULL REFERENCES producto(id_producto) ON DELETE CASCADE,
+    id_insumo INTEGER REFERENCES insumo(id_insumo),
     nombre_variante VARCHAR(100) NOT NULL,
     costo_variante DECIMAL(10,2) DEFAULT 0, 
     precio_variante DECIMAL(10,2) DEFAULT 0, 
@@ -269,12 +270,13 @@ CREATE TABLE producto_variante (
 CREATE TABLE receta_detalle (
     id_receta SERIAL PRIMARY KEY,
     id_producto INTEGER NOT NULL REFERENCES producto(id_producto) ON DELETE CASCADE,
+    id_variante INTEGER REFERENCES producto_variante(id_variante),
     id_insumo INTEGER NOT NULL REFERENCES insumo(id_insumo) ON DELETE RESTRICT,
     cantidad_requerida DECIMAL(10,3) NOT NULL,
     unidad_base VARCHAR(20),
     es_obligatorio BOOLEAN DEFAULT TRUE,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(id_producto, id_insumo)
+    UNIQUE(id_producto, id_insumo, id_variante)
 );
 
 -- Trigger para actualizar unidad_base automáticamente en receta_detalle
@@ -297,7 +299,8 @@ CREATE TABLE venta (
     id_venta SERIAL PRIMARY KEY, 
     fecha_venta TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     id_cliente INTEGER REFERENCES cliente(id_cliente),
-    tipo_pago VARCHAR(20) DEFAULT 'Cash' CHECK (tipo_pago IN ('Cash', 'Transferencia')),
+    tipo_pago VARCHAR(20) DEFAULT 'Cash' CHECK (tipo_pago IN ('Cash', 'Transferencia', 'Paggo', 'Tarjeta')),
+    estado VARCHAR(20) DEFAULT 'pendiente' CHECK (estado IN ('pendiente', 'confirmada', 'completada', 'cancelada')),
     total_venta DECIMAL(12,2) DEFAULT 0,
     total_costo DECIMAL(12,2) DEFAULT 0,
     ganancia DECIMAL(12,2) GENERATED ALWAYS AS (total_venta - total_costo) STORED,
@@ -335,16 +338,25 @@ CREATE TABLE categoria_gasto (
 
 CREATE TABLE gasto_operativo (
     id_gasto SERIAL PRIMARY KEY,
-    numero_gasto VARCHAR(20) UNIQUE,
-    fecha_gasto DATE DEFAULT CURRENT_DATE,
-    id_categoria INTEGER REFERENCES categoria_gasto(id_categoria),
-    detalle TEXT NOT NULL, 
-    monto DECIMAL(12,2) NOT NULL,
-    id_perfil INTEGER REFERENCES perfil_usuario(id_perfil),
-    id_proveedor INTEGER REFERENCES proveedor(id_proveedor),
-    comprobante_url VARCHAR(255),
-    tipo_movimiento VARCHAR(20) DEFAULT 'compra' CHECK (tipo_movimiento IN ('compra', 'gasto', 'inversion'))
+    numero_gasto VARCHAR(20) GENERATED ALWAYS AS ('GAST-' || LPAD(id_gasto::TEXT, 6, '0')) STORED,
+    fecha_gasto DATE NOT NULL DEFAULT CURRENT_DATE,
+    fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    nombre_gasto VARCHAR(120) NOT NULL,
+    categoria_gasto VARCHAR(80) NOT NULL CHECK (categoria_gasto IN (
+        'Gastos de Personal',
+        'Servicios Fijos (Mensuales)',
+        'Insumos Operativos',
+        'Gastos de Transporte',
+        'Mantenimiento y Reemplazos'
+    )),
+    detalle TEXT NOT NULL,
+    frecuencia VARCHAR(15) NOT NULL CHECK (frecuencia IN ('quincenal', 'mensual')),
+    monto DECIMAL(12,2) NOT NULL CHECK (monto > 0),
+    CONSTRAINT uq_gasto_operativo_num UNIQUE (numero_gasto)
 );
+
+CREATE INDEX IF NOT EXISTS idx_gasto_operativo_categoria ON gasto_operativo(categoria_gasto);
+CREATE INDEX IF NOT EXISTS idx_gasto_operativo_frecuencia ON gasto_operativo(frecuencia);
 
 CREATE TABLE deposito_banco (
     id_deposito SERIAL PRIMARY KEY,
@@ -590,7 +602,7 @@ BEGIN
         SELECT 
             dv.cantidad AS cantidad_vendida,
             rd.id_insumo, 
-            rd.cantidad_requerida AS cantidad_recipta,
+            rd.cantidad_requerida AS cantidad_receta,
             ci.tipo_categoria,
             i.costo_promedio,
             i.nombre_insumo
@@ -599,9 +611,10 @@ BEGIN
         JOIN insumo i ON rd.id_insumo = i.id_insumo
         JOIN categoria_insumo ci ON i.id_categoria = ci.id_categoria
         WHERE dv.id_venta = p_id_venta
-        AND ci.tipo_categoria = 'perpetuo'  -- CAMBIO: Solo descontar insumos perpetuos
+        AND (rd.id_variante IS NULL OR rd.id_variante = dv.id_variante)
+        AND ci.tipo_categoria = 'perpetuo'  -- Solo descontar insumos perpetuos
     LOOP
-        v_cantidad_a_descontar := v_detalle.cantidad_vendida * v_detalle.cantidad_recipta;
+        v_cantidad_a_descontar := v_detalle.cantidad_vendida * v_detalle.cantidad_receta;
         v_costo_actual := v_detalle.costo_promedio;
         
         INSERT INTO movimiento_inventario (id_insumo, tipo_movimiento, cantidad, id_perfil, id_referencia, descripcion, costo_unitario_momento)
@@ -684,20 +697,21 @@ AFTER INSERT OR UPDATE OR DELETE ON detalle_venta
 FOR EACH ROW
 EXECUTE FUNCTION fn_actualizar_totales_venta();
 
--- Trigger para descontar inventario en venta (ahora sin estado, se ejecuta al insertar)
+-- Trigger para descontar inventario cuando la venta se confirma
 CREATE OR REPLACE FUNCTION trg_descontar_inventario_venta()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- Descontar inventario al crear la venta
-    PERFORM fn_descontar_inventario_venta(NEW.id_venta, NEW.id_cajero);
-    
+    IF TG_OP = 'UPDATE' AND NEW.estado = 'confirmada' AND COALESCE(OLD.estado, '') <> 'confirmada' THEN
+        PERFORM fn_descontar_inventario_venta(NEW.id_venta, NEW.id_cajero);
+    END IF;
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 DROP TRIGGER IF EXISTS trg_descontar_inventario_venta ON venta;
 CREATE TRIGGER trg_descontar_inventario_venta
-AFTER INSERT ON venta
+AFTER UPDATE OF estado ON venta
 FOR EACH ROW
 EXECUTE FUNCTION trg_descontar_inventario_venta();
 
@@ -707,14 +721,11 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_nombre_cliente VARCHAR(100);
 BEGIN
-    -- Solo para transferencias
-    IF NEW.tipo_pago = 'Transferencia' THEN
-        -- Obtener nombre del cliente
+    IF TG_OP = 'UPDATE' AND NEW.tipo_pago = 'Transferencia' AND NEW.estado = 'confirmada' AND COALESCE(OLD.estado, '') <> 'confirmada' THEN
         SELECT nombre INTO v_nombre_cliente
         FROM cliente
         WHERE id_cliente = NEW.id_cliente;
 
-        -- Insertar en deposito_banco (los datos adicionales deben venir del frontend o ser null por ahora)
         INSERT INTO deposito_banco (
             descripcion,
             tipo_pago,
@@ -729,8 +740,8 @@ BEGIN
             NEW.total_venta,
             NEW.id_cajero,
             v_nombre_cliente,
-            NULL, -- numero_referencia debe venir del frontend
-            NULL  -- nombre_banco debe venir del frontend
+            NULL,
+            NULL
         );
     END IF;
     
@@ -740,7 +751,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 DROP TRIGGER IF EXISTS trg_insertar_deposito_transferencia ON venta;
 CREATE TRIGGER trg_insertar_deposito_transferencia
-AFTER INSERT ON venta
+AFTER UPDATE OF estado ON venta
 FOR EACH ROW
 EXECUTE FUNCTION trg_insertar_deposito_transferencia();
 

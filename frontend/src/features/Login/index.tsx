@@ -1,6 +1,6 @@
 import logo from "/img/logo.png";
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { handleLogin } from "../../api/handleLogin";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
@@ -8,9 +8,43 @@ import { useAuth } from "../../hooks/useAuth";
 
 import './Login.css';
 
+const SUPPORT_TEAM = [
+  {
+    name: 'Andrea Sofia Chafolla Mendez',
+    carne: '5090-22-216',
+    phone: '+502 3052 6004',
+    email: 'andrea@shucway.com',
+  },
+  {
+    name: 'Carmi Emileny Cuxum Gonzalez',
+    carne: '5090-22-3686',
+    phone: '+502 3031 8249',
+    email: 'carmi@shucway.com',
+  },
+  {
+    name: 'Josué Daniel Figueroa Herrera',
+    carne: '5090-22-36',
+    phone: '+502 5625 2922',
+    email: 'josue@shucway.com',
+  },
+  {
+    name: 'Dilan René Escobar Rodríguez',
+    carne: '5090-22-1010',
+    phone: '+502 5748 1467',
+    email: 'dilan@shucway.com',
+  },
+  {
+    name: 'Bartola Angelica Grave Barrera',
+    carne: '5090-22-7985',
+    phone: '+502 3652 9993',
+    email: 'bartola@shucway.com',
+  },
+];
+
 const Login = () => {
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const navigate = useNavigate();
   const { refreshUser } = useAuth();
   const {
@@ -46,6 +80,32 @@ const Login = () => {
       // En caso de excepción, también reactivar botón y limpiar campos.
       setIsLoading(false);
       reset({ identifier: '', password: '' });
+    }
+  };
+
+  useEffect(() => {
+    if (!isSupportModalOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsSupportModalOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isSupportModalOpen]);
+
+  const openSupportModal = () => setIsSupportModalOpen(true);
+  const closeSupportModal = () => setIsSupportModalOpen(false);
+
+  const handleOverlayClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.target === event.currentTarget) {
+      closeSupportModal();
     }
   };
 
@@ -153,7 +213,16 @@ const Login = () => {
             </form>
 
             <div className="help-text">
-              <p>¿Problemas para ingresar? <span className="help-link">Contacta al administrador</span></p>
+              <p>
+                ¿Problemas para ingresar?{' '}
+                <button
+                  type="button"
+                  className="help-link"
+                  onClick={openSupportModal}
+                >
+                  Contacta al administrador
+                </button>
+              </p>
             </div>
           </div>
         </div>
@@ -174,6 +243,70 @@ const Login = () => {
           <div className="fading-text text-4">Reportes y Estadísticas Detalladas</div>
         </div>
       </div>
+
+      {isSupportModalOpen && (
+        <div
+          className="support-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="support-modal-title"
+          onClick={handleOverlayClick}
+        >
+          <div className="support-modal">
+            <button
+              type="button"
+              className="support-modal-close"
+              onClick={closeSupportModal}
+              aria-label="Cerrar"
+            >
+              ✕
+            </button>
+
+            <div className="support-modal-header">
+              <img
+                src="/image/other/logo-umg.png"
+                alt="Logo Universidad Mariano Gálvez"
+                className="support-modal-logo"
+              />
+              <h2 id="support-modal-title">Equipo de soporte</h2>
+              <p>Comunícate con cualquiera de nuestros integrantes para recibir ayuda inmediata.</p>
+            </div>
+
+            <div className="support-modal-grid">
+              {SUPPORT_TEAM.map((member) => (
+                <div key={member.carne} className="support-card">
+                  <div className="support-card-header">
+                    <img
+                      src="/image/other/logo-umg.png"
+                      alt="Logo UMG"
+                      className="support-card-logo"
+                    />
+                    <div>
+                      <h3>{member.name}</h3>
+                      <p>Carné: {member.carne}</p>
+                    </div>
+                  </div>
+
+                  <div className="support-card-body">
+                    <div>
+                      <span className="support-card-label">Teléfono:</span>
+                      <a href={`tel:${member.phone}`} className="support-card-link">
+                        {member.phone}
+                      </a>
+                    </div>
+                    <div>
+                      <span className="support-card-label">Correo:</span>
+                      <a href={`mailto:${member.email}`} className="support-card-link">
+                        {member.email}
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

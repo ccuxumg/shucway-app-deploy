@@ -5,6 +5,8 @@ import { PiEyeBold, PiTrashBold, PiSpinnerBold, PiFloppyDiskBold, PiPlusBold, Pi
 import { message, notification } from 'antd';
 import { fetchProveedores, fetchOrdenesCompra, createOrdenCompra, createDetalleOrdenCompra, updateOrdenCompra, deleteOrdenCompra, createRecepcionMercaderia, getRecepcionesMercaderia, getOrdenCompraById } from "../../../../api/inventarioService";
 import { getProfile } from '../../../../api/authService';
+import { useAuth } from "../../../../hooks/useAuth";
+import { PermissionLevel } from "../../../../constants/permissions";
 
 /* =============== Tipos API =============== */
 type ProveedorAPI = {
@@ -603,6 +605,15 @@ export default function IngresoCompra(): JSX.Element {
 
   // Hook de navegación
   const navigate = useNavigate();
+  const { roleLevel } = useAuth();
+  const canManageCompras = (roleLevel ?? 0) >= PermissionLevel.ADMINISTRADOR;
+  const ensureCanManageCompras = useCallback(() => {
+    if (!canManageCompras) {
+      message.warning('No tienes permisos para gestionar compras.');
+      return false;
+    }
+    return true;
+  }, [canManageCompras]);
 
   // Drawer proveedor
   const [openProvDrawer, setOpenProvDrawer] = useState(false);
@@ -727,10 +738,15 @@ export default function IngresoCompra(): JSX.Element {
   /* ---- Acciones Proveedores ---- */
   const openViewProvider = (p: Proveedor) => { setProvDetail(p); setOpenProvDrawer(true); };
   const deleteProvider = (p: Proveedor) => {
+    if (!ensureCanManageCompras()) return;
     setDeleteProviderModal({ open: true, provider: p });
   };
 
   const confirmDeleteProvider = useCallback(() => {
+    if (!ensureCanManageCompras()) {
+      setDeleteProviderModal({ open: false, provider: null });
+      return;
+    }
     if (!deleteProviderModal.provider) return;
     (async () => {
       try {
@@ -752,15 +768,25 @@ export default function IngresoCompra(): JSX.Element {
         message.error(`No se pudo eliminar el proveedor: ${msg}`);
       }
     })();
-  }, [deleteProviderModal.provider]);
+  }, [deleteProviderModal.provider, ensureCanManageCompras]);
 
   /* ---- Acciones Órdenes ---- */
-  const openEditOrder = (r: Orden) => { setDetail(r); setReadOnly(false); setOpenDrawer(true); };
+  const openEditOrder = (r: Orden) => {
+    if (!ensureCanManageCompras()) return;
+    setDetail(r);
+    setReadOnly(false);
+    setOpenDrawer(true);
+  };
   const deleteOrder = (r: Orden) => {
+    if (!ensureCanManageCompras()) return;
     setDeleteOrderModal({ open: true, order: r });
   };
 
   const confirmDeleteOrder = useCallback(async () => {
+    if (!ensureCanManageCompras()) {
+      setDeleteOrderModal({ open: false, order: null });
+      return;
+    }
     if (!deleteOrderModal.order) return;
     
     try {
@@ -790,11 +816,12 @@ export default function IngresoCompra(): JSX.Element {
         message.error(`Error al eliminar la orden: ${errorMessage}`);
       }
     }
-  }, [deleteOrderModal.order]);
+  }, [deleteOrderModal.order, ensureCanManageCompras]);
 
   /* ---- Función para guardar proveedor ---- */
   // Función para guardar/editar proveedor con integración backend
   const handleProveedorSubmit = async () => {
+    if (!ensureCanManageCompras()) return;
     try {
       // Validación de teléfono: debe tener 4 u 8 dígitos si se ingresa
       const telefonoLimpio = provFormData.telefono?.replace(/\D/g, "") || "";
@@ -891,7 +918,12 @@ export default function IngresoCompra(): JSX.Element {
   };
 
   /* ---- Helpers Drawer Órdenes ---- */
-  const openNewOrder  = () => { setDetail(null); setReadOnly(false); setOpenDrawer(true); };
+  const openNewOrder  = () => {
+    if (!ensureCanManageCompras()) return;
+    setDetail(null);
+    setReadOnly(false);
+    setOpenDrawer(true);
+  };
   const openViewOrder = (r: Orden) => { setDetail(r);  setReadOnly(true);  setOpenDrawer(true); };
   const openRecepcionMercaderia = () => {
     navigate('/inventario/recepcion-mercaderia');
@@ -940,27 +972,30 @@ export default function IngresoCompra(): JSX.Element {
             <p className="text-sm text-gray-500">Administra proveedores (ver detalles e insumos relacionados).</p>
           </div>
           <div className="flex items-center gap-3">
-            <button 
-              onClick={() => { 
-                setProvFormData({
-                  nombre: "",
-                  contacto: null,
-                  telefono: null,
-                  correo: null,
-                  direccion: null,
-                  activo: true,
-                  es_preferido: false,
-                  dias_entrega: null,
-                  tiempo_entrega_promedio: null,
-                  metodo_entrega: null,
-                });
-                setOpenProvFormDrawer(true); 
-              }}
-              className="px-4 py-2 rounded-md text-white font-medium"
-              style={{ backgroundColor: '#12443d', border: '1px solid #12443d' }}
-            >
-              + Crear Proveedor
-            </button>
+            {canManageCompras && (
+              <button 
+                onClick={() => { 
+                  if (!ensureCanManageCompras()) return;
+                  setProvFormData({
+                    nombre: "",
+                    contacto: null,
+                    telefono: null,
+                    correo: null,
+                    direccion: null,
+                    activo: true,
+                    es_preferido: false,
+                    dias_entrega: null,
+                    tiempo_entrega_promedio: null,
+                    metodo_entrega: null,
+                  });
+                  setOpenProvFormDrawer(true); 
+                }}
+                className="px-4 py-2 rounded-md text-white font-medium"
+                style={{ backgroundColor: '#12443d', border: '1px solid #12443d' }}
+              >
+                + Crear Proveedor
+              </button>
+            )}
           </div>
         </div>
 
@@ -1028,25 +1063,30 @@ export default function IngresoCompra(): JSX.Element {
                     <td className="px-4 py-3.5">
                       <div className="flex items-center justify-end gap-1.5">
                         <IconBtn title="Ver" onClick={() => openViewProvider(p)}><PiEyeBold /></IconBtn>
-                        <IconBtn title="Editar" onClick={() => {
-                          setProvFormData({
-                            id_proveedor: p.id_proveedor,
-                            nombre: p.nombre,
-                            contacto: p.contacto || null,
-                            telefono: p.telefono || null,
-                            correo: p.correo || null,
-                            direccion: p.direccion || null,
-                            activo: p.activo,
-                            es_preferido: p.es_preferido,
-                            dias_entrega: p.dias_entrega || null,
-                            tiempo_entrega_promedio: p.tiempo_entrega_promedio || null,
-                            metodo_entrega: p.metodo_entrega || null,
-                          });
-                          setOpenProvFormDrawer(true);
-                        }} style={{ color: '#7c3aed' }}>
-                          <PiPencilSimpleBold />
-                        </IconBtn>
-                        <IconBtn title="Eliminar" onClick={() => deleteProvider(p)}><PiTrashBold className="text-rose-600" /></IconBtn>
+                        {canManageCompras && (
+                          <>
+                            <IconBtn title="Editar" onClick={() => {
+                              if (!ensureCanManageCompras()) return;
+                              setProvFormData({
+                                id_proveedor: p.id_proveedor,
+                                nombre: p.nombre,
+                                contacto: p.contacto || null,
+                                telefono: p.telefono || null,
+                                correo: p.correo || null,
+                                direccion: p.direccion || null,
+                                activo: p.activo,
+                                es_preferido: p.es_preferido,
+                                dias_entrega: p.dias_entrega || null,
+                                tiempo_entrega_promedio: p.tiempo_entrega_promedio || null,
+                                metodo_entrega: p.metodo_entrega || null,
+                              });
+                              setOpenProvFormDrawer(true);
+                            }} style={{ color: '#7c3aed' }}>
+                              <PiPencilSimpleBold />
+                            </IconBtn>
+                            <IconBtn title="Eliminar" onClick={() => deleteProvider(p)}><PiTrashBold className="text-rose-600" /></IconBtn>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1081,12 +1121,14 @@ export default function IngresoCompra(): JSX.Element {
             <p className="text-sm text-gray-500">Historial y alta de órdenes.</p>
           </div>
           <div className="flex gap-3">
-            <button
-              onClick={openNewOrder}
-              className="h-11 rounded-xl bg-emerald-600 px-4 text-base font-semibold text-white hover:bg-emerald-700 flex items-center gap-2"
-            >
-              <PiPlusBold /> Nueva Orden
-            </button>
+            {canManageCompras && (
+              <button
+                onClick={openNewOrder}
+                className="h-11 rounded-xl bg-emerald-600 px-4 text-base font-semibold text-white hover:bg-emerald-700 flex items-center gap-2"
+              >
+                <PiPlusBold /> Nueva Orden
+              </button>
+            )}
             <button
               onClick={openRecepcionMercaderia}
               className="h-11 rounded-xl px-4 text-base font-semibold text-white hover:opacity-90 flex items-center gap-2"
@@ -1169,12 +1211,14 @@ export default function IngresoCompra(): JSX.Element {
                       <td className="px-5 py-4">
                         <div className="flex items-center justify-end gap-1.5">
                           <IconBtn title="Ver" onClick={() => openViewOrder(r)}><PiEyeBold /></IconBtn>
-                          {r.estado !== 'recibida' && (
+                            {canManageCompras && r.estado !== 'recibida' && (
                             <IconBtn title="Editar" onClick={() => openEditOrder(r)} style={{ color: '#7c3aed' }}>
                               <PiPencilSimpleBold />
                             </IconBtn>
                           )}
-                          <IconBtn title="Eliminar" onClick={() => deleteOrder(r)}><PiTrashBold className="text-rose-600" /></IconBtn>
+                            {canManageCompras && (
+                              <IconBtn title="Eliminar" onClick={() => deleteOrder(r)}><PiTrashBold className="text-rose-600" /></IconBtn>
+                            )}
                         </div>
                       </td>
                     </tr>

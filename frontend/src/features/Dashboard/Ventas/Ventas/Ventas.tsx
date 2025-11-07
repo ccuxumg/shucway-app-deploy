@@ -1,16 +1,23 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import axios from 'axios';
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { productosService, type Producto, type CategoriaProducto, type ProductoConReceta, type ProductoVariante } from '@/api/productosService';
-import { fetchInsumos } from '@/api/inventarioService';
+import { fetchInsumos, getStockActual } from '@/api/inventarioService';
 import CategoriaModal from './CategoriaModal';
 import { useNotifications } from '@/hooks/useNotifications';
 import { NotificationContainer } from '@/components/NotificationContainer';
-import { Trash2, X, Check, Edit3, Minus, Plus, ShoppingCart } from 'lucide-react';
+import { useAuth } from '../../../../hooks/useAuth';
+import { PermissionLevel } from '../../../../constants/permissions';
+import { Trash2, X, Check, Edit3, Minus, Plus, ShoppingCart, UserX } from 'lucide-react';
 
 type Insumo = {
   id_insumo: number;
   nombre_insumo: string;
+  insumo_url?: string | null;
+  imagen?: string | null;
+  imagen_url?: string | null;
+  stock_actual?: number | null;
   // Puedes agregar más campos si es necesario
 };
 
@@ -45,6 +52,9 @@ type IngredientOption = {
   id_insumo: number;
   variantId: number | null;
   esObligatorio: boolean;
+  imagenUrl?: string;
+  cantidadRequerida: number;
+  stockActual?: number;
 };
 
 /* =========================================================================
@@ -174,6 +184,20 @@ const DrawerRight: React.FC<
 const Ventas: React.FC<{ onBack?: () => void }> = () => {
   const navigate = useNavigate();
   const { notifications, addNotification, removeNotification } = useNotifications();
+  const { roleLevel } = useAuth();
+  const canManageCategorias = (roleLevel ?? 0) >= PermissionLevel.ADMINISTRADOR;
+
+  const ensureCanManageCategorias = useCallback(() => {
+    if (!canManageCategorias) {
+      addNotification({
+        type: 'warning',
+        title: 'Acceso restringido',
+        message: 'No tienes permisos para administrar categorías.',
+      });
+      return false;
+    }
+    return true;
+  }, [canManageCategorias, addNotification]);
 
   // Estados para datos del backend
   const [categorias, setCategorias] = useState<CategoriaDisplay[]>([]);
@@ -181,6 +205,8 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [brokenProductImages, setBrokenProductImages] = useState<Set<number>>(new Set());
+  const [brokenIngredientImages, setBrokenIngredientImages] = useState<Set<string>>(new Set());
 
   // Filtros
   const [catActiva, setCatActiva] = useState<number | 'all'>('all');
@@ -311,6 +337,74 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
       .toLowerCase();
   // ---------------------------------------------------------------
 
+  const extractStockValue = (payload: unknown): number | null => {
+    if (payload == null) return null;
+    if (typeof payload === 'number') {
+      return Number.isFinite(payload) ? payload : null;
+    }
+    if (typeof payload === 'string') {
+      const numeric = Number(payload);
+      return Number.isFinite(numeric) ? numeric : null;
+    }
+    if (typeof payload === 'object') {
+      const source = payload as Record<string, unknown>;
+      const candidateKeys = ['data', 'stock', 'stock_actual', 'cantidad', 'cantidad_actual', 'total', 'total_stock'];
+      for (const key of candidateKeys) {
+        if (Object.prototype.hasOwnProperty.call(source, key)) {
+          const value = source[key];
+          if (typeof value === 'number') {
+            return Number.isFinite(value) ? value : null;
+          }
+          if (typeof value === 'string') {
+            const numeric = Number(value);
+            if (Number.isFinite(numeric)) {
+              return numeric;
+            }
+          }
+        }
+      }
+      for (const key of candidateKeys) {
+        if (Object.prototype.hasOwnProperty.call(source, key)) {
+          const nested = source[key];
+          if (nested && typeof nested === 'object' && nested !== payload) {
+            const value = extractStockValue(nested);
+            if (value != null) {
+              return value;
+            }
+          }
+        }
+      }
+    }
+    return null;
+  };
+
+  const getCategoryIcon = useCallback(
+    (idCategoria?: number): React.ReactNode => {
+      const categoria = categorias.find(
+        (cat) => typeof cat.id_categoria === 'number' && cat.id_categoria === idCategoria
+      );
+      const key = categoria?.nombre_categoria?.toLowerCase();
+      return (key && CATEGORY_ICON[key]) ?? '🍔';
+    },
+    [categorias]
+  );
+
+  const handleProductImageError = useCallback((productId: number) => {
+    setBrokenProductImages((prev) => {
+      const next = new Set(prev);
+      next.add(productId);
+      return next;
+    });
+  }, []);
+
+  const handleIngredientImageError = useCallback((key: string) => {
+    setBrokenIngredientImages((prev) => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  }, []);
+
   // Búsqueda/Filtrado
   const filtrados = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -434,10 +528,11 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
     }
 
     const options: IngredientOption[] = relevant.map((linea) => {
-      const nombre = (() => {
-        const insumo = insumos.find((i) => i.id_insumo === linea.id_insumo);
-        return insumo ? insumo.nombre_insumo : `Insumo ${linea.id_insumo}`;
-      })();
+      const insumo = insumos.find((i) => i.id_insumo === linea.id_insumo);
+      const nombre = insumo ? insumo.nombre_insumo : `Insumo ${linea.id_insumo}`;
+      const imagenUrl = insumo?.insumo_url || insumo?.imagen || insumo?.imagen_url || undefined;
+      const stockActual = typeof insumo?.stock_actual === 'number' ? insumo.stock_actual : undefined;
+      const cantidadRequerida = Number(linea.cantidad_requerida ?? 0);
 
       return {
         key: buildIngredientKey(linea.id_insumo, linea.id_variante ?? null),
@@ -445,6 +540,9 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
         id_insumo: linea.id_insumo,
         variantId: linea.id_variante ?? null,
         esObligatorio: linea.es_obligatorio ?? true,
+        imagenUrl,
+        stockActual,
+        cantidadRequerida,
       };
     });
 
@@ -551,6 +649,33 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
   const confirmCustomizer = () => {
     if (!customProd) return;
 
+    const faltantes = ingredientOptions.filter((option) => {
+      const seleccionado = option.esObligatorio || (customChecks[option.key] ?? true);
+      if (!seleccionado) return false;
+      if (option.stockActual == null) return false;
+      const requerido = option.cantidadRequerida * customQty;
+      return option.stockActual < requerido;
+    });
+
+    if (faltantes.length > 0) {
+      const detalle = faltantes
+        .slice(0, 3)
+        .map((option) => {
+          const requerido = (option.cantidadRequerida * customQty).toFixed(3);
+          const disponible = option.stockActual?.toFixed(3) ?? '0';
+          return `${option.nombre}: requiere ${requerido}, disponible ${disponible}`;
+        })
+        .join('\n');
+
+      addNotification({
+        type: 'error',
+        title: 'Stock insuficiente',
+        message: `No es posible preparar este producto con el stock actual.\n${detalle}`,
+        duration: 5000,
+      });
+      return;
+    }
+
     const omitidos = ingredientOptions
       .filter((option) => !option.esObligatorio && !customChecks[option.key])
       .map((option) => option.nombre);
@@ -610,6 +735,9 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
      Modales menores
      ============================================================ */
   const handleOpenCategoriaModal = (mode: 'create' | 'edit' = 'create', categoria?: CategoriaProducto) => {
+    if (!ensureCanManageCategorias()) {
+      return;
+    }
     setCategoriaModal({
       isOpen: true,
       mode,
@@ -626,6 +754,10 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
   };
 
   const handleSaveCategoria = async (categoriaData: Omit<CategoriaProducto, 'id_categoria'>) => {
+    if (!ensureCanManageCategorias()) {
+      return;
+    }
+
     try {
       if (categoriaModal.mode === 'create') {
         // Crear nueva categoría
@@ -849,6 +981,28 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
     }
   };
 
+  const editarClienteSeleccionado = () => {
+    if (!clienteSeleccionado) return;
+    handleEditarCliente(clienteSeleccionado);
+    setOpenCliente(true);
+  };
+
+  const limpiarClienteSeleccionado = () => {
+    if (!clienteSeleccionado) return;
+    setClienteSeleccionado(null);
+    setClienteEditando(null);
+    setClienteAEliminar(null);
+    setClientModo('registrados');
+    setNitMode('CF');
+    setNitValue('');
+    addNotification({
+      type: 'info',
+      title: 'Cliente removido',
+      message: 'Se quitó el cliente de la orden actual.',
+      duration: 2500,
+    });
+  };
+
   /* ============================================================
      Pago
      ============================================================ */
@@ -861,6 +1015,107 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
     setCashInvalid(false);
     setTransfInvalid(false);
     setOpenPago(true);
+  };
+
+  const validarStockCarrito = async (): Promise<boolean> => {
+    if (!carrito.length) {
+      return true;
+    }
+
+    const stockDisponible = new Map<number, number>();
+    insumos.forEach((insumo) => {
+      if (typeof insumo?.stock_actual === 'number') {
+        stockDisponible.set(insumo.id_insumo, Number(insumo.stock_actual));
+      }
+    });
+
+    const recetasCache = new Map<number, ProductoConReceta>();
+    const faltantes: Array<{ nombre: string; requerido: number; disponible: number }> = [];
+
+    for (const item of carrito) {
+      let detalle = recetasCache.get(item.producto.id_producto);
+      if (!detalle) {
+        try {
+          detalle = await productosService.getProductoConReceta(item.producto.id_producto);
+          recetasCache.set(item.producto.id_producto, detalle);
+        } catch (error) {
+          console.error('Error obteniendo receta para validar stock:', error);
+          continue;
+        }
+      }
+
+      const variantId = item.id_variante ?? null;
+      const lineas = (detalle.receta ?? []).filter(
+        (linea) => linea.id_variante == null || linea.id_variante === variantId
+      );
+
+      const parsedMods = parseMods(item.mods);
+      const omitidosSet = new Set(parsedMods.sin.map(normalizeText));
+
+      for (const linea of lineas) {
+        const esObligatorio = linea.es_obligatorio !== false;
+        const insumo = insumos.find((i) => i.id_insumo === linea.id_insumo);
+        const nombre = insumo?.nombre_insumo ?? `Insumo ${linea.id_insumo}`;
+        const seleccionado = esObligatorio || !omitidosSet.has(normalizeText(nombre));
+        if (!seleccionado) continue;
+
+        const requerido = Number(linea.cantidad_requerida ?? 0) * item.qty;
+        if (requerido <= 0) continue;
+
+        let disponibleInicial = stockDisponible.has(linea.id_insumo)
+          ? stockDisponible.get(linea.id_insumo)!
+          : typeof insumo?.stock_actual === 'number'
+            ? insumo.stock_actual
+            : undefined;
+
+        if (disponibleInicial == null) {
+          try {
+            const respuestaStock = await getStockActual(linea.id_insumo);
+            const stockObtenido = extractStockValue(respuestaStock);
+            if (stockObtenido != null) {
+              disponibleInicial = stockObtenido;
+              stockDisponible.set(linea.id_insumo, stockObtenido);
+            }
+          } catch (error) {
+            console.error(`Error obteniendo stock para insumo ${linea.id_insumo}:`, error);
+          }
+        }
+
+        if (disponibleInicial == null) {
+          // Si no hay datos de stock, permitir que la validación del backend actúe
+          continue;
+        }
+
+        if (disponibleInicial < requerido) {
+          faltantes.push({
+            nombre,
+            requerido,
+            disponible: disponibleInicial,
+          });
+        } else {
+          const restante = Number((disponibleInicial - requerido).toFixed(3));
+          stockDisponible.set(linea.id_insumo, restante);
+        }
+      }
+    }
+
+    if (faltantes.length > 0) {
+      const detalle = faltantes
+        .slice(0, 3)
+        .map((f) => `${f.nombre}: requiere ${f.requerido.toFixed(3)}, disponible ${f.disponible.toFixed(3)}`)
+        .join('\n');
+
+      addNotification({
+        type: 'error',
+        title: 'Stock insuficiente',
+        message: `No hay inventario suficiente para completar la venta.\n${detalle}`,
+        duration: 5000,
+      });
+
+      return false;
+    }
+
+    return true;
   };
 
   const confirmarPago = async () => {
@@ -893,6 +1148,11 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
     }
 
     try {
+      const stockOk = await validarStockCarrito();
+      if (!stockOk) {
+        return;
+      }
+
       // Crear el payload para la venta
       const ventaData: CreateVentaDTO = {
         id_cliente: clienteSeleccionado.id_cliente,
@@ -947,6 +1207,13 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
         console.warn('No se pudo guardar el ticket en sessionStorage:', error);
       }
 
+      addNotification({
+        type: 'success',
+        title: 'Venta confirmada',
+        message: 'La venta se registró exitosamente. Generando ticket...',
+        duration: 3000,
+      });
+
       // Reset y cierre del drawer
       setOrdenN((n) => n + 1);
       limpiar();
@@ -955,14 +1222,50 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
       setReferencia('');
       setBanco('');
       setDineroRecibido('');
-    setNotasVenta('');
+      setNotasVenta('');
       setOpenPago(false);
 
       // Navegar directamente (el toast se muestra en Ticket)
       navigate('/ventas/ticketventa', { state: ticketData });
     } catch (error) {
       console.error('Error creando la venta:', error);
-      addNotification({ type: 'error', title: 'Error', message: 'Error al procesar la venta. Inténtalo de nuevo.' });
+
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        const apiMessage =
+          (error.response?.data?.message as string | undefined) ??
+          (error.response?.data?.error as string | undefined) ??
+          error.message;
+
+        if (status === 403 && (apiMessage?.toLowerCase().includes('caja') ?? true)) {
+          const reason = apiMessage ?? 'Debes abrir la caja antes de registrar ventas.';
+          addNotification({
+            type: 'warning',
+            title: 'Caja cerrada',
+            message: reason,
+            duration: 5000,
+          });
+          setOpenPago(false);
+          navigate('/ventas/cierre-caja', {
+            state: { requireOpenCaja: true, reason },
+          });
+          return;
+        }
+
+        const message = apiMessage ?? 'Error al procesar la venta. Inténtalo de nuevo.';
+        addNotification({ type: 'error', title: 'Error al crear venta', message, duration: 4000 });
+        return;
+      }
+
+      const fallbackMessage =
+        error instanceof Error ? error.message : 'Error al procesar la venta. Inténtalo de nuevo.';
+
+      addNotification({
+        type: 'error',
+        title: 'Error al crear venta',
+        message: fallbackMessage,
+        duration: 4000,
+      });
     }
   };
 
@@ -1058,12 +1361,14 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
                     <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35m0 0A7.5 7.5 0 104.5 4.5a7.5 7.5 0 0012.15 12.15z" /></svg>
                   </span>
                 </div>
-                <button
-                  onClick={() => handleOpenCategoriaModal('create')}
-                  className="h-12 px-5 rounded-xl text-base font-semibold bg-emerald-600 text-white hover:bg-emerald-700 shadow"
-                >
-                  + Categoría
-                </button>
+                {canManageCategorias && (
+                  <button
+                    onClick={() => handleOpenCategoriaModal('create')}
+                    className="h-12 px-5 rounded-xl text-base font-semibold bg-emerald-600 text-white hover:bg-emerald-700 shadow"
+                  >
+                    + Categoría
+                  </button>
+                )}
               </div>
             </motion.div>
 
@@ -1099,35 +1404,48 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
                 {/* Contenedor con scroll SOLO en 'Todos' */}
                 <div className={catActiva === 'all' ? 'max-h-[70vh] overflow-y-auto pr-1' : ''}>
                   <div className={`grid grid-cols-2 md:grid-cols-3 2xl:grid-cols-4 gap-5 lg:gap-6`}>
-                    {filtrados.map((p, idx) => (
-                      <motion.div
-                        key={p.id_producto}
-                        whileHover={{ y: -2, scale: 1.01 }}
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.18, delay: idx * 0.015 }}
-                        className="group bg-white rounded-2xl border border-gray-100 hover:border-emerald-200 shadow-sm hover:shadow-md transition overflow-hidden text-left relative cursor-pointer"
-                        onClick={() => void openCustomizer(p)}
-                      >
-                        <div className="aspect-[4/3] bg-gray-50 flex items-center justify-center text-gray-400 relative">
-                          <span className="leading-none text-[100px] xl:text-[130px]">
-                            {CATEGORY_ICON[p.id_categoria ?? ''] ?? '🍔'}
-                          </span>
-                          
-                        </div>
-                        <div className="p-3">
-                          <div className="font-semibold text-gray-800 group-hover:text-emerald-700 leading-snug break-words line-clamp-2 text-[14px]">
-                            {p.nombre_producto}
+                    {filtrados.map((p, idx) => {
+                      const showProductImage = Boolean(p.imagen_url) && !brokenProductImages.has(p.id_producto);
+                      const categoryIcon = getCategoryIcon(p.id_categoria);
+                      return (
+                        <motion.div
+                          key={p.id_producto}
+                          whileHover={{ y: -2, scale: 1.01 }}
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.18, delay: idx * 0.015 }}
+                          className="group bg-white rounded-2xl border border-gray-100 hover:border-emerald-200 shadow-sm hover:shadow-md transition overflow-hidden text-left relative cursor-pointer"
+                          onClick={() => void openCustomizer(p)}
+                        >
+                          <div className="aspect-[4/3] bg-gray-50 flex items-center justify-center text-gray-400 relative overflow-hidden">
+                            {showProductImage ? (
+                              <img
+                                src={p.imagen_url}
+                                alt={p.nombre_producto}
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                                onError={() => handleProductImageError(p.id_producto)}
+                              />
+                            ) : (
+                              <span className="leading-none text-[100px] xl:text-[130px]">
+                                {categoryIcon}
+                              </span>
+                            )}
                           </div>
-                          <div className="mt-1 text-[13px] text-gray-500">
-                            {categorias.find((c) => c.id_categoria === p.id_categoria)?.nombre_categoria}
+                          <div className="p-3">
+                            <div className="font-semibold text-gray-800 group-hover:text-emerald-700 leading-snug break-words line-clamp-2 text-[14px]">
+                              {p.nombre_producto}
+                            </div>
+                            <div className="mt-1 text-[13px] text-gray-500">
+                              {categorias.find((c) => c.id_categoria === p.id_categoria)?.nombre_categoria}
+                            </div>
+                            <div className="mt-2 font-extrabold text-emerald-700 text-[18px]">
+                              {currency(p.precio_venta)}
+                            </div>
                           </div>
-                          <div className="mt-2 font-extrabold text-emerald-700 text-[18px]">
-                            {currency(p.precio_venta)}
-                          </div>
-                        </div>
-                      </motion.div>
-                    ))}
+                        </motion.div>
+                      );
+                    })}
 
                     {filtrados.length === 0 && (
                       <div className="col-span-full text-center text-gray-500 py-10">
@@ -1161,12 +1479,36 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
                   </div>
 
                   <div className="mb-4 text-[14px] text-gray-700">
-                    <span className="font-semibold text-gray-900">Cliente: </span>
-                    {clienteSeleccionado ? (
-                      <span>{clienteSeleccionado.nombre} · {clienteSeleccionado.telefono || 'Sin teléfono'}</span>
-                    ) : (
-                      <span className="italic text-gray-400">(sin cliente)</span>
-                    )}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-gray-900">Cliente:</span>
+                      {clienteSeleccionado ? (
+                        <>
+                          <span className="text-gray-700">
+                            {clienteSeleccionado.nombre} · {clienteSeleccionado.telefono || 'Sin teléfono'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={editarClienteSeleccionado}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 transition"
+                            title="Editar cliente"
+                            aria-label="Editar cliente"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={limpiarClienteSeleccionado}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-red-50 hover:text-red-600 transition"
+                            title="Quitar cliente"
+                            aria-label="Quitar cliente"
+                          >
+                            <UserX className="w-4 h-4" />
+                          </button>
+                        </>
+                      ) : (
+                        <span className="italic text-gray-400">(sin cliente)</span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Recuento CAJA / BANCO */}
@@ -1589,15 +1931,42 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
                   {ingredientOptions.map((option) => {
                     const checked = customChecks[option.key] ?? true;
                     const isRequired = option.esObligatorio;
+                    const showIngredientImage = Boolean(option.imagenUrl) && !brokenIngredientImages.has(option.key);
+                    const isSelected = isRequired || checked;
+                    const stockActual = option.stockActual ?? null;
+                    const requerido = option.cantidadRequerida * customQty;
+                    const tieneStock = !isSelected || stockActual == null || stockActual >= requerido;
                     return (
                       <label
                         key={option.key}
                         className={`relative flex flex-col items-center gap-3 p-5 rounded-2xl border transition cursor-pointer select-none ${
-                          checked ? 'border-gray-200 hover:shadow-sm' : 'border-rose-200 bg-rose-50/60'
+                          isSelected && !tieneStock
+                            ? 'border-rose-400 bg-rose-50/70'
+                            : checked
+                              ? 'border-gray-200 hover:shadow-sm'
+                              : 'border-rose-200 bg-rose-50/60'
                         }`}
                       >
-                        <div className={`text-6xl leading-none ${checked ? '' : 'opacity-40'}`}>
-                          {ING_EMOJI[option.nombre] ?? '🍽️'}
+                        <div className={`h-24 w-24 rounded-2xl border ${
+                          isSelected && !tieneStock
+                            ? 'border-rose-400'
+                            : checked
+                              ? 'border-gray-200'
+                              : 'border-rose-200/70'
+                        } overflow-hidden flex items-center justify-center bg-white`}>
+                          {showIngredientImage ? (
+                            <img
+                              src={option.imagenUrl}
+                              alt={option.nombre}
+                              className={`h-full w-full object-cover ${checked ? '' : 'opacity-40'}`}
+                              loading="lazy"
+                              onError={() => handleIngredientImageError(option.key)}
+                            />
+                          ) : (
+                            <span className={`text-4xl leading-none ${checked ? '' : 'opacity-40'}`}>
+                              {ING_EMOJI[option.nombre] ?? '🍽️'}
+                            </span>
+                          )}
                         </div>
 
                         <div className="flex flex-col items-center gap-1">
@@ -1612,6 +1981,21 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
                             />
                             <span className="text-[15px] text-gray-800 text-center">{option.nombre}</span>
                           </label>
+                          <span
+                            className={`text-[12px] font-medium ${
+                              !isSelected || stockActual == null
+                                ? 'text-gray-500'
+                                : tieneStock
+                                  ? 'text-emerald-600'
+                                  : 'text-red-600'
+                            }`}
+                          >
+                            {stockActual == null
+                              ? 'Stock: N/D'
+                              : tieneStock
+                                ? `Stock: ${stockActual.toFixed(3)} (requiere ${requerido.toFixed(3)})`
+                                : `Sin stock suficiente (requiere ${requerido.toFixed(3)}, hay ${stockActual.toFixed(3)})`}
+                          </span>
                           {isRequired && (
                             <span className="text-[12px] text-emerald-600 font-medium">Requerido</span>
                           )}

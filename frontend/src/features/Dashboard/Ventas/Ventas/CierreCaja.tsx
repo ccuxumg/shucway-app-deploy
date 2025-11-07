@@ -1,9 +1,10 @@
 // src/features/Dashboard/Ventas/Ventas/CierreCaja.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { FaMoneyBillWave, FaMoneyCheckAlt, FaBoxOpen } from "react-icons/fa";
 import { MdPointOfSale } from "react-icons/md";
+import { cajaService, type CajaSesion } from "../../../../api/cajaService";
 
 /* ================= Paleta ================= */
 const primary = "#00B074";
@@ -52,14 +53,14 @@ function SalesCard({
         <FaBoxOpen size={20} className="text-gray-800" />
       </div>
       <h4 className="text-sm font-semibold text-gray-700 tracking-wide">
-        VENTAS DEL DÍA
+        VENTAS DEL D??A
       </h4>
       <div className="mt-2 grid grid-cols-[1fr_auto] gap-x-6 pt-7">
         <div className="text-gray-500">Total de ventas:</div>
         <div className="text-right font-semibold tabular-nums text-gray-800">
           {currency(total)}
         </div>
-        <div className="text-gray-500">Número de ventas:</div>
+        <div className="text-gray-500">N??mero de ventas:</div>
         <div className="text-right font-semibold tabular-nums text-gray-800">
           {count}
         </div>
@@ -88,7 +89,7 @@ function PaymentsCard({
         <MdPointOfSale size={22} className="text-emerald-900" />
       </div>
       <h4 className="text-sm font-semibold text-gray-700 tracking-wide">
-        PAGOS DEL DÍA
+        PAGOS DEL D??A
       </h4>
       <div className="mt-2 grid grid-cols-[1fr_auto] gap-x-6 pt-7">
         <div className="text-gray-500">Efectivo contado</div>
@@ -108,56 +109,46 @@ function PaymentsCard({
   );
 }
 
-/* =============================== Página =============================== */
+/* =============================== P??gina =============================== */
 const CierreCaja: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const formRef = useRef<HTMLDivElement | null>(null);
 
-  /* -------- Guardián local (sin roles/BD) -------- */
+  const [sesionCaja, setSesionCaja] = useState<CajaSesion | null>(null);
+
   const [guardChecking, setGuardChecking] = useState(true);
   const [mustOpen, setMustOpen] = useState(false);
   const [aperturaMonto, setAperturaMonto] = useState<string>("");
   const [aperturaLoading, setAperturaLoading] = useState(false);
   const [aperturaError, setAperturaError] = useState<string | null>(null);
+  const [guardReason, setGuardReason] = useState<string | null>(null);
+  const [cerrando, setCerrando] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [modalOk, setModalOk] = useState<string | null>(null);
 
   useEffect(() => {
-    const opened = localStorage.getItem("sesion_caja_abierta") === "1";
-    const mi = Number(localStorage.getItem("sesion_caja_monto_inicial") ?? "NaN");
-    setMustOpen(!opened || !Number.isFinite(mi));
-    setGuardChecking(false);
-  }, []);
-
-  const handleIniciarCaja = () => {
-    setAperturaError(null);
-    const val = Number(String(aperturaMonto).replace(",", "."));
-    if (!Number.isFinite(val) || val < 0) {
-      setAperturaError("Ingresa un monto válido (mayor o igual a 0).");
+    const state = location.state as { requireOpenCaja?: boolean; reason?: string } | undefined;
+    if (!state) {
       return;
     }
-    setAperturaLoading(true);
-    try {
-      localStorage.setItem("sesion_caja_abierta", "1");
-      localStorage.setItem("sesion_caja_monto_inicial", String(val));
-      localStorage.setItem("sesion_caja_fecha_apertura", new Date().toISOString());
-      setMustOpen(false);
-      setToast(`Caja abierta con ${currency(val)}`);
-      setTimeout(() => setToast(null), 3000);
-    } finally {
-      setAperturaLoading(false);
+
+    setAperturaError(null);
+
+    if (state.requireOpenCaja) {
+      setMustOpen(true);
+      setGuardReason(state.reason ?? null);
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else if (state.reason) {
+      setGuardReason(state.reason);
     }
-  };
 
-  const resetSesionCaja = () => {
-    ["sesion_caja_abierta", "sesion_caja_monto_inicial", "sesion_caja_fecha_apertura"].forEach(
-      (k) => localStorage.removeItem(k)
-    );
-    setMustOpen(true);
-  };
+    navigate(location.pathname, { replace: true, state: undefined });
+  }, [location, navigate]);
 
-  /* -------- Datos base/simulados -------- */
-  const cajero = localStorage.getItem("sesion_caja_cajero") || "—";
-  const fechaAperturaISO = localStorage.getItem("sesion_caja_fecha_apertura");
+  const cajero =
+    sesionCaja?.id_cajero_apertura != null ? `Cajero #${sesionCaja.id_cajero_apertura}` : "—";
+  const fechaAperturaISO = sesionCaja?.fecha_apertura ?? null;
   const fechaApertura = fechaAperturaISO
     ? new Intl.DateTimeFormat("es-GT", {
         day: "2-digit",
@@ -168,10 +159,23 @@ const CierreCaja: React.FC = () => {
         hour12: true,
       }).format(new Date(fechaAperturaISO))
     : "—";
+  const montoInicial = sesionCaja?.monto_inicial ?? 0;
 
-  const montoInicial = Number(localStorage.getItem("sesion_caja_monto_inicial") || "0");
+  const makeEmptyArqueo = useCallback(
+    () => Object.fromEntries(DENOMS.map((d) => [d.toString(), 0])) as Record<string, number>,
+    []
+  );
 
-  // Totales del día (simulados / conectables)
+  type TfRows = Record<string, TfItem[]>;
+
+  const makeInitialTfRows = useCallback((): TfRows => {
+    const init: TfRows = {};
+    BANKS.forEach((b) => {
+      init[b.id] = [{ ref: "", amount: 0 }];
+    });
+    return init;
+  }, []);
+
   const [ventasTotales] = useState<number>(2750);
   const [ventasCount] = useState<number>(18);
   const ventasProm = useMemo(
@@ -179,49 +183,33 @@ const CierreCaja: React.FC = () => {
     [ventasTotales, ventasCount]
   );
 
-  // Métodos de pago (para KPI "Pagos del día")
   const [totalTarjeta] = useState<number>(0);
 
-  // -------- Formulario de Cierre --------
   const [efectivoContado, setEfectivoContado] = useState<number>(0);
   const [transferEsperadoCount, setTransferEsperadoCount] = useState<number>(0);
   const [transferVerificada, setTransferVerificada] = useState<number>(0);
   const [egresos, setEgresos] = useState<Array<{ monto: number; motivo: string }>>([]);
   const [reporteVisible, setReporteVisible] = useState<boolean>(false);
 
-  // Campos adicionales para arqueo_caja
   const [totalSistema, setTotalSistema] = useState<number>(0);
-  const [observacionesArqueo, setObservacionesArqueo] = useState<string>('');
-  const [estadoArqueo, setEstadoArqueo] = useState<'abierto' | 'cerrado' | 'revisado'>('abierto');
+  const [observacionesArqueo, setObservacionesArqueo] = useState<string>("");
+  const [estadoArqueo, setEstadoArqueo] = useState<"abierto" | "cerrado" | "revisado">("abierto");
 
-  // Drawer de ARQUEO (Billetes)
   const [showArqueo, setShowArqueo] = useState<boolean>(false);
-  const [arqueo, setArqueo] = useState<Record<string, number>>(
-    () => Object.fromEntries(DENOMS.map((d) => [d.toString(), 0])) as Record<string, number>
-  );
+  const [arqueo, setArqueo] = useState<Record<string, number>>(() => makeEmptyArqueo());
   const totalArqueoCents = useMemo(
     () => DENOMS.reduce((acc, d) => acc + Math.round(d * 100) * (arqueo[d.toString()] || 0), 0),
     [arqueo]
   );
   const totalArqueo = totalArqueoCents / 100;
-  const limpiarArqueo = () =>
-    setArqueo(Object.fromEntries(DENOMS.map((d) => [d.toString(), 0])) as Record<string, number>);
+  const limpiarArqueo = () => setArqueo(makeEmptyArqueo());
   const aplicarArqueo = () => {
     setEfectivoContado(totalArqueo);
     setShowArqueo(false);
   };
 
-  // Drawer de TRANSFERENCIAS (por banco) con múltiples filas
-  type TfRows = Record<string, TfItem[]>;
-
-  const initialTfRows = (): TfRows => {
-    const init: TfRows = {};
-    BANKS.forEach((b) => (init[b.id] = [{ ref: "", amount: 0 }]));
-    return init;
-  };
-
   const [showTfDrawer, setShowTfDrawer] = useState<boolean>(false);
-  const [tfRows, setTfRows] = useState<TfRows>(initialTfRows);
+  const [tfRows, setTfRows] = useState<TfRows>(() => makeInitialTfRows());
 
   const bankTotals = useMemo<Record<string, number>>(() => {
     const totals: Record<string, number> = {};
@@ -256,36 +244,44 @@ const CierreCaja: React.FC = () => {
       return { ...prev, [bankId]: arr };
     });
 
-  const limpiarTf = () => setTfRows(initialTfRows());
+  const limpiarTf = () => setTfRows(makeInitialTfRows());
   const aplicarTf = () => {
     setTransferVerificada(totalTf);
     setShowTfDrawer(false);
   };
 
-  // Egresos
+  const resetFormulario = useCallback(() => {
+    setEfectivoContado(0);
+    setTransferVerificada(0);
+    setTransferEsperadoCount(0);
+    setEgresos([{ monto: 0, motivo: "" }]);
+    setArqueo(makeEmptyArqueo());
+    setTfRows(makeInitialTfRows());
+    setTotalSistema(0);
+    setObservacionesArqueo("");
+    setEstadoArqueo("abierto");
+    setReporteVisible(false);
+  }, [makeEmptyArqueo, makeInitialTfRows]);
+
   const egresosTotales = useMemo(
     () => egresos.reduce((acc, e) => acc + (Number(e.monto) || 0), 0),
     [egresos]
   );
 
-  // Efectivo esperado
   const efectivoEsperadoCalc = useMemo(() => {
     const cents = toCents(efectivoContado) + toCents(montoInicial) - toCents(egresosTotales);
     return fromCents(Math.max(0, cents));
   }, [efectivoContado, montoInicial, egresosTotales]);
 
-  // Actualizar totalSistema cuando cambie efectivoEsperadoCalc
   useEffect(() => {
     setTotalSistema(efectivoEsperadoCalc);
   }, [efectivoEsperadoCalc]);
 
-  // Diferencia total
   const diferencia = useMemo(
     () => efectivoContado - efectivoEsperadoCalc + (transferVerificada - 0),
     [efectivoContado, efectivoEsperadoCalc, transferVerificada]
   );
 
-  // Validación
   const registroCompleto =
     efectivoContado >= 0 &&
     transferVerificada >= 0 &&
@@ -294,62 +290,99 @@ const CierreCaja: React.FC = () => {
 
   const abrirReporte = () => setReporteVisible(true);
 
-  // Cerrar caja
-  const [modalOk, setModalOk] = useState<string | null>(null);
-  const cerrarCaja = () => {
+  const refreshEstado = useCallback(async () => {
+    setGuardChecking(true);
+    try {
+      const estado = await cajaService.getEstado();
+      if (estado.abierta && estado.sesion) {
+        setSesionCaja(estado.sesion);
+        setMustOpen(false);
+        setGuardReason(null);
+      } else {
+        setSesionCaja(null);
+        setMustOpen(true);
+      }
+    } catch (error) {
+      console.error("Error verificando estado de caja:", error);
+      setSesionCaja(null);
+      setMustOpen(true);
+    } finally {
+      setGuardChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshEstado();
+  }, [refreshEstado]);
+
+  const handleIniciarCaja = async () => {
+    setAperturaError(null);
+    const val = Number(String(aperturaMonto).replace(",", "."));
+    if (!Number.isFinite(val) || val < 0) {
+      setAperturaError("Ingresa un monto valido (mayor o igual a 0).");
+      return;
+    }
+    setAperturaLoading(true);
+    try {
+      const nuevaSesion = await cajaService.abrirCaja(val);
+      setSesionCaja(nuevaSesion);
+      setMustOpen(false);
+  setGuardReason(null);
+      setAperturaMonto("");
+      setToast(`Caja abierta con ${currency(nuevaSesion.monto_inicial)}`);
+      setTimeout(() => setToast(null), 3000);
+    } catch (error) {
+      console.error("Error al abrir caja:", error);
+      const mensaje = (error as { response?: { data?: { message?: string } } }).response?.data?.message;
+      setAperturaError(mensaje ?? "No se pudo abrir la caja.");
+    } finally {
+      setAperturaLoading(false);
+    }
+  };
+
+  const resetSesionCaja = useCallback(async () => {
+    try {
+      await cajaService.cerrarCaja();
+    } catch (error) {
+      console.warn("No se pudo cerrar la caja de manera forzada:", error);
+    } finally {
+      resetFormulario();
+      setAperturaMonto("");
+      setSesionCaja(null);
+      setMustOpen(true);
+      await refreshEstado();
+      setToast("Sesion de caja reiniciada.");
+      setTimeout(() => setToast(null), 2500);
+    }
+  }, [refreshEstado, resetFormulario]);
+
+  const cerrarCaja = async () => {
+    if (cerrando) {
+      return;
+    }
     if (!registroCompleto) {
       setToast("Completa el registro antes de cerrar la caja.");
       setTimeout(() => setToast(null), 2200);
       return;
     }
+    setCerrando(true);
     try {
-      localStorage.setItem(
-        "ultimo_cierre",
-        JSON.stringify({
-          fecha: new Date().toISOString(),
-          efectivoContado,
-          transferVerificada,
-          egresosTotales,
-          esperado: efectivoEsperadoCalc,
-          diferencia,
-        })
-      );
-      ["sesion_caja_abierta", "sesion_caja_monto_inicial", "sesion_caja_fecha_apertura"].forEach(
-        (k) => localStorage.removeItem(k)
-      );
-
-      setEfectivoContado(0);
-      setTransferVerificada(0);
-      setTransferEsperadoCount(0);
-      setEgresos([]);
-      setArqueo(Object.fromEntries(DENOMS.map((d) => [d.toString(), 0])) as Record<string, number>);
-      setTfRows(initialTfRows());
-      setTotalSistema(0);
-      setObservacionesArqueo('');
-      setEstadoArqueo('abierto');
-
-      // Enviar arqueo a la BD
-      const arqueoData = {
-        id_cajero: 1, // TODO: Obtener del usuario autenticado
-        billetes_100: arqueo['100'] || 0,
-        billetes_50: arqueo['50'] || 0,
-        billetes_20: arqueo['20'] || 0,
-        billetes_10: arqueo['10'] || 0,
-        billetes_5: arqueo['5'] || 0,
-        monedas_1: arqueo['1'] || 0,
-        monedas_050: arqueo['0.5'] || 0,
-        monedas_025: arqueo['0.25'] || 0,
-        total_sistema: totalSistema,
-        observaciones: observacionesArqueo,
-        estado: estadoArqueo
-      };
-      console.log('Enviando arqueo a BD:', arqueoData);
-      // TODO: await api.insertArqueo(arqueoData);
-
-      setModalOk("✅ Caja cerrada correctamente. ¡Gracias!");
-    } catch {
-      setToast("❌ Error al cerrar la caja.");
+      await cajaService.cerrarCaja({
+        monto_cierre: efectivoContado,
+        observaciones: observacionesArqueo.trim() || undefined,
+      });
+      resetFormulario();
+      setSesionCaja(null);
+      setMustOpen(true);
+      setModalOk("Caja cerrada correctamente. Gracias!");
+      await refreshEstado();
+    } catch (error) {
+      console.error("Error al cerrar la caja:", error);
+      const mensaje = (error as { response?: { data?: { message?: string } } }).response?.data?.message;
+      setToast(mensaje ?? "Error al cerrar la caja.");
       setTimeout(() => setToast(null), 2200);
+    } finally {
+      setCerrando(false);
     }
   };
 
@@ -362,7 +395,7 @@ const CierreCaja: React.FC = () => {
             <div>
               <h2 className="text-2xl font-bold text-gray-800">Arqueo y Cierre Diario</h2>
               <p className="text-sm text-gray-500 mt-1">
-                Cerrando la sesión iniciada el: <b>{fechaApertura}</b> por <b>{cajero}</b>
+                Cerrando la sesi??n iniciada el: <b>{fechaApertura}</b> por <b>{cajero}</b>
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -373,7 +406,7 @@ const CierreCaja: React.FC = () => {
                 Forzar Apertura
               </button>
               <button onClick={() => navigate("/ventas")} className="px-3 py-2 rounded-md border bg-white hover:bg-gray-50">
-                ← Regresar
+                ??? Regresar
               </button>
             </div>
           </div>
@@ -549,7 +582,7 @@ const CierreCaja: React.FC = () => {
                 </thead>
                 <tbody>
                   <tr className="border-t">
-                    <td className="px-4 py-3 text-gray-700">Ventas Totales (Todos los métodos)</td>
+                    <td className="px-4 py-3 text-gray-700">Ventas Totales (Todos los m??todos)</td>
                     <td className="px-4 py-3 text-right font-semibold">{currency(ventasTotales)}</td>
                   </tr>
                   <tr className="border-t">
@@ -594,12 +627,18 @@ const CierreCaja: React.FC = () => {
           </button>
           <button
             onClick={cerrarCaja}
-            disabled={!registroCompleto}
-            className={`h-11 px-5 rounded-md font-semibold text-white ${
-              !registroCompleto ? "opacity-50 cursor-not-allowed" : ""
+            disabled={!registroCompleto || cerrando}
+            className={`h-11 px-5 rounded-md font-semibold text-white flex items-center justify-center gap-2 ${
+              !registroCompleto || cerrando ? "opacity-50 cursor-not-allowed" : ""
             }`}
             style={{ background: primary }}
           >
+            {cerrando && (
+              <svg className="animate-spin w-4 h-4 text-white" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+              </svg>
+            )}
             Cerrar Caja
           </button>
         </div>
@@ -655,7 +694,7 @@ const CierreCaja: React.FC = () => {
         />
       </div>
 
-      {/* ===== Modal Guardián: Apertura de Caja ===== */}
+      {/* ===== Modal Guardi??n: Apertura de Caja ===== */}
       <AnimatePresence>
         {(mustOpen || guardChecking) && (
           <motion.div
@@ -673,8 +712,14 @@ const CierreCaja: React.FC = () => {
             >
               <h3 className="text-xl font-bold text-gray-800">Apertura de Caja</h3>
               <p className="text-sm text-gray-500 mt-1">
-                Por favor, ingresa el fondo de caja inicial para activar las ventas del día.
+                Por favor, ingresa el fondo de caja inicial para activar las ventas del d??a.
               </p>
+
+              {guardReason && (
+                <div className="mt-3 text-sm text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-md">
+                  {guardReason}
+                </div>
+              )}
 
               {guardChecking ? (
                 <div className="flex items-center justify-center py-10">
@@ -795,7 +840,7 @@ function EgresosForm({
   useEffect(() => {
     if (!egresos.length) setEgresos([{ monto: 0, motivo: "" }]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // mantener vacío
+  }, []); // mantener vac??o
 
   const total = egresos.reduce((a, e) => a + (Number(e.monto) || 0), 0);
 
@@ -880,10 +925,10 @@ function ArqueoDrawer({
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <div>
                 <h3 className="text-lg font-semibold text-gray-800">Arqueo de caja</h3>
-                <p className="text-xs text-gray-500">Ingresa la cantidad de billetes/monedas por denominación (Q)</p>
+                <p className="text-xs text-gray-500">Ingresa la cantidad de billetes/monedas por denominaci??n (Q)</p>
               </div>
               <button onClick={onClose} className="px-3 py-1 rounded-md border bg-gray-50 hover:bg-gray-100 text-sm">
-                ✕
+                ???
               </button>
             </div>
 
@@ -896,7 +941,7 @@ function ArqueoDrawer({
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 text-gray-600">
                       <tr>
-                        <th className="px-4 py-2 text-left">Denominación</th>
+                        <th className="px-4 py-2 text-left">Denominaci??n</th>
                         <th className="px-4 py-2 text-right">Cant</th>
                         <th className="px-4 py-2 text-right">Total</th>
                       </tr>
@@ -1009,7 +1054,7 @@ function TransferDrawer({
                 <p className="text-xs text-gray-500">Agrega las transferencias por banco y sus montos (Q).</p>
               </div>
               <button onClick={onClose} className="px-3 py-1 rounded-md border bg-gray-50 hover:bg-gray-100 text-sm">
-                ✕
+                ???
               </button>
             </div>
 
@@ -1168,7 +1213,7 @@ function ReportModal({
             <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }} className="bg-white w-full max-w-4xl rounded-2xl shadow-xl overflow-hidden">
               <div className="flex items-center justify-between border-b p-4">
                 <h2 className="text-xl font-bold text-gray-800">{titulo}</h2>
-                <button onClick={onClose} className="text-gray-500 hover:text-gray-700">✕</button>
+                <button onClick={onClose} className="text-gray-500 hover:text-gray-700">???</button>
               </div>
 
               <div className="p-6 bg-gray-50">
@@ -1204,7 +1249,7 @@ function ReportModal({
             </motion.div>
           </div>
 
-          {/* Área imprimible A4 — SIEMPRE en el DOM (oculta en pantalla, visible en print) */}
+          {/* ??rea imprimible A4 ??? SIEMPRE en el DOM (oculta en pantalla, visible en print) */}
           <div id="reporte-cierre">
             <PrintableSheet
               titulo={titulo}
@@ -1225,7 +1270,7 @@ function ReportModal({
             />
           </div>
 
-          {/* CSS de impresión (EN STRING para evitar error de decorators) */}
+          {/* CSS de impresi??n (EN STRING para evitar error de decorators) */}
           <style>{`
             @page { size: A4; margin: 12mm; }
 
@@ -1242,7 +1287,7 @@ function ReportModal({
             }
 
             @media print {
-              /* Mostrar únicamente el contenedor del reporte */
+              /* Mostrar ??nicamente el contenedor del reporte */
               body * { visibility: hidden; }
               #reporte-cierre, #reporte-cierre * { visibility: visible; }
               #reporte-cierre {
@@ -1338,7 +1383,7 @@ function PrintableSheet({
       <div className="mt-5 p-4 rounded-lg border bg-gradient-to-br from-white to-gray-50">
         <div className="text-center">
           <h2 className="text-lg font-extrabold tracking-wide text-gray-900">{titulo}</h2>
-          {fechaApertura && <div className="text-xs text-gray-600">Sesión iniciada el <b>{fechaApertura}</b></div>}
+          {fechaApertura && <div className="text-xs text-gray-600">Sesi??n iniciada el <b>{fechaApertura}</b></div>}
         </div>
       </div>
 
@@ -1394,7 +1439,7 @@ function PrintableSheet({
                         {items.map((it, idx) => (
                           <tr key={idx}>
                             <td className="px-3 py-1">{idx + 1}</td>
-                            <td className="px-3 py-1">{it.ref || "—"}</td>
+                            <td className="px-3 py-1">{it.ref || "???"}</td>
                             <td className="px-3 py-1 text-right tabular-nums">{currency(Number(it.amount) || 0)}</td>
                           </tr>
                         ))}
@@ -1425,7 +1470,7 @@ function PrintableSheet({
                 {detalleEgresos!.map((e, idx) => (
                   <tr key={idx}>
                     <td className="px-3 py-1">{idx + 1}</td>
-                    <td className="px-3 py-1">{e.motivo || "—"}</td>
+                    <td className="px-3 py-1">{e.motivo || "???"}</td>
                     <td className="px-3 py-1 text-right tabular-nums">{currency(Number(e.monto) || 0)}</td>
                   </tr>
                 ))}
@@ -1456,10 +1501,11 @@ function PrintableSheet({
       {/* Pie */}
       <div className="mt-6 text-[10px] text-gray-500 flex items-center justify-between">
         <div>Generado: {fechaCierre}</div>
-        <div>© {new Date().getFullYear()} Mi Comercio, S.A.</div>
+        <div>?? {new Date().getFullYear()} Mi Comercio, S.A.</div>
       </div>
     </div>
   );
 }
 
 export default CierreCaja;
+

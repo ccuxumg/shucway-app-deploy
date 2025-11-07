@@ -4,16 +4,53 @@ import { supabase } from '../config/database';
 
 const router = Router();
 
+const getQueryParamValue = (param: unknown): string | undefined => {
+  if (typeof param === 'string') return param;
+  if (Array.isArray(param) && typeof param[0] === 'string') return param[0];
+  return undefined;
+};
+
+const normalizeDateParam = (value?: string, endOfDay: boolean = false): string | undefined => {
+  if (!value) return undefined;
+
+  if (value.includes('T')) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return undefined;
+    if (endOfDay) {
+      date.setHours(23, 59, 59, 999);
+    }
+    return date.toISOString();
+  }
+
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return undefined;
+
+  if (endOfDay) {
+    date.setHours(23, 59, 59, 999);
+  }
+
+  return date.toISOString();
+};
+
 /**
  * GET /api/reportes/ventas
  * Obtener todas las ventas con detalles para reportes
  */
 router.get('/ventas', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { fechaInicio, fechaFin } = req.query;
+    const fechaInicioStr = getQueryParamValue(req.query.fechaInicio);
+    const fechaFinStr = getQueryParamValue(req.query.fechaFin);
 
-    if (!fechaInicio || !fechaFin) {
+    if (!fechaInicioStr || !fechaFinStr) {
       res.status(400).json({ error: 'fechaInicio y fechaFin son requeridos' });
+      return;
+    }
+
+    const fechaInicioIso = normalizeDateParam(fechaInicioStr, false);
+    const fechaFinIso = normalizeDateParam(fechaFinStr, true);
+
+    if (!fechaInicioIso || !fechaFinIso) {
+      res.status(400).json({ error: 'Los parámetros de fecha no tienen un formato válido' });
       return;
     }
 
@@ -24,9 +61,10 @@ router.get('/ventas', authenticateToken, async (req: Request, res: Response): Pr
         precio_unitario,
         costo_unitario,
         subtotal,
-        venta:id_venta (
+        venta:venta!inner (
           fecha_venta,
-          tipo_pago
+          tipo_pago,
+          estado
         ),
         producto:id_producto (
           nombre_producto,
@@ -38,8 +76,9 @@ router.get('/ventas', authenticateToken, async (req: Request, res: Response): Pr
           nombre_variante
         )
       `)
-      .gte('venta.fecha_venta', fechaInicio)
-      .lte('venta.fecha_venta', fechaFin);
+  .gte('venta.fecha_venta', fechaInicioIso)
+  .lte('venta.fecha_venta', fechaFinIso)
+      .eq('venta.estado', 'confirmada');
 
     if (error) throw error;
 
@@ -71,18 +110,28 @@ router.get('/ventas', authenticateToken, async (req: Request, res: Response): Pr
  */
 router.get('/kpis', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { fechaInicio, fechaFin } = req.query;
+    const fechaInicioStr = getQueryParamValue(req.query.fechaInicio);
+    const fechaFinStr = getQueryParamValue(req.query.fechaFin);
 
-    if (!fechaInicio || !fechaFin) {
+    if (!fechaInicioStr || !fechaFinStr) {
       res.status(400).json({ error: 'fechaInicio y fechaFin son requeridos' });
+      return;
+    }
+
+    const fechaInicioIso = normalizeDateParam(fechaInicioStr, false);
+    const fechaFinIso = normalizeDateParam(fechaFinStr, true);
+
+    if (!fechaInicioIso || !fechaFinIso) {
+      res.status(400).json({ error: 'Los parámetros de fecha no tienen un formato válido' });
       return;
     }
 
     const { data, error } = await supabase
       .from('venta')
       .select('total_venta, total_costo')
-      .gte('fecha_venta', fechaInicio)
-      .lte('fecha_venta', fechaFin);
+      .gte('fecha_venta', fechaInicioIso)
+      .lte('fecha_venta', fechaFinIso)
+      .eq('estado', 'confirmada');
 
     if (error) throw error;
 
@@ -118,12 +167,25 @@ router.get('/kpis', authenticateToken, async (req: Request, res: Response): Prom
  */
 router.get('/productos', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { fechaInicio, fechaFin, categoria, metodo, busqueda } = req.query;
+    const fechaInicioStr = getQueryParamValue(req.query.fechaInicio);
+    const fechaFinStr = getQueryParamValue(req.query.fechaFin);
 
-    if (!fechaInicio || !fechaFin) {
+    if (!fechaInicioStr || !fechaFinStr) {
       res.status(400).json({ error: 'fechaInicio y fechaFin son requeridos' });
       return;
     }
+
+    const fechaInicioIso = normalizeDateParam(fechaInicioStr, false);
+    const fechaFinIso = normalizeDateParam(fechaFinStr, true);
+
+    if (!fechaInicioIso || !fechaFinIso) {
+      res.status(400).json({ error: 'Los parámetros de fecha no tienen un formato válido' });
+      return;
+    }
+
+    const categoriaStr = getQueryParamValue(req.query.categoria);
+    const metodoStr = getQueryParamValue(req.query.metodo);
+    const busquedaStr = getQueryParamValue(req.query.busqueda);
 
     const query = supabase
       .from('detalle_venta')
@@ -131,9 +193,10 @@ router.get('/productos', authenticateToken, async (req: Request, res: Response):
         cantidad,
         subtotal,
         costo_unitario,
-        venta:id_venta (
+        venta:venta!inner (
           fecha_venta,
-          tipo_pago
+          tipo_pago,
+          estado
         ),
         producto:id_producto (
           nombre_producto,
@@ -145,8 +208,9 @@ router.get('/productos', authenticateToken, async (req: Request, res: Response):
           nombre_variante
         )
       `)
-      .gte('venta.fecha_venta', fechaInicio)
-      .lte('venta.fecha_venta', fechaFin);
+  .gte('venta.fecha_venta', fechaInicioIso)
+  .lte('venta.fecha_venta', fechaFinIso)
+      .eq('venta.estado', 'confirmada');
 
     const { data, error } = await query;
 
@@ -156,20 +220,20 @@ router.get('/productos', authenticateToken, async (req: Request, res: Response):
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let filteredData = data as any[];
 
-    if (metodo && metodo !== 'Todos') {
+    if (metodoStr && metodoStr !== 'Todos') {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      filteredData = filteredData.filter((d: any) => d.venta?.tipo_pago === metodo);
+      filteredData = filteredData.filter((d: any) => d.venta?.tipo_pago === metodoStr);
     }
 
-    if (categoria && categoria !== 'Todas') {
+    if (categoriaStr && categoriaStr !== 'Todas') {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       filteredData = filteredData.filter((d: any) => 
-        d.producto?.categoria_producto?.nombre_categoria === categoria
+        d.producto?.categoria_producto?.nombre_categoria === categoriaStr
       );
     }
 
-    if (busqueda) {
-      const searchLower = (busqueda as string).toLowerCase();
+    if (busquedaStr) {
+      const searchLower = busquedaStr.toLowerCase();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       filteredData = filteredData.filter((d: any) =>
         d.producto?.nombre_producto?.toLowerCase().includes(searchLower)
@@ -234,10 +298,19 @@ router.get('/productos', authenticateToken, async (req: Request, res: Response):
  */
 router.get('/distribucion-categoria', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { fechaInicio, fechaFin } = req.query;
+    const fechaInicioStr = getQueryParamValue(req.query.fechaInicio);
+    const fechaFinStr = getQueryParamValue(req.query.fechaFin);
 
-    if (!fechaInicio || !fechaFin) {
+    if (!fechaInicioStr || !fechaFinStr) {
       res.status(400).json({ error: 'fechaInicio y fechaFin son requeridos' });
+      return;
+    }
+
+    const fechaInicioIso = normalizeDateParam(fechaInicioStr, false);
+    const fechaFinIso = normalizeDateParam(fechaFinStr, true);
+
+    if (!fechaInicioIso || !fechaFinIso) {
+      res.status(400).json({ error: 'Los parámetros de fecha no tienen un formato válido' });
       return;
     }
 
@@ -250,12 +323,14 @@ router.get('/distribucion-categoria', authenticateToken, async (req: Request, re
             nombre_categoria
           )
         ),
-        venta:id_venta (
-          fecha_venta
+        venta:venta!inner (
+          fecha_venta,
+          estado
         )
-      `)
-      .gte('venta.fecha_venta', fechaInicio)
-      .lte('venta.fecha_venta', fechaFin);
+  `)
+  .gte('venta.fecha_venta', fechaInicioIso)
+  .lte('venta.fecha_venta', fechaFinIso)
+      .eq('venta.estado', 'confirmada');
 
     if (error) throw error;
 
@@ -290,18 +365,28 @@ router.get('/distribucion-categoria', authenticateToken, async (req: Request, re
  */
 router.get('/distribucion-metodo', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { fechaInicio, fechaFin } = req.query;
+    const fechaInicioStr = getQueryParamValue(req.query.fechaInicio);
+    const fechaFinStr = getQueryParamValue(req.query.fechaFin);
 
-    if (!fechaInicio || !fechaFin) {
+    if (!fechaInicioStr || !fechaFinStr) {
       res.status(400).json({ error: 'fechaInicio y fechaFin son requeridos' });
+      return;
+    }
+
+    const fechaInicioIso = normalizeDateParam(fechaInicioStr, false);
+    const fechaFinIso = normalizeDateParam(fechaFinStr, true);
+
+    if (!fechaInicioIso || !fechaFinIso) {
+      res.status(400).json({ error: 'Los parámetros de fecha no tienen un formato válido' });
       return;
     }
 
     const { data, error } = await supabase
       .from('venta')
       .select('tipo_pago, total_venta')
-      .gte('fecha_venta', fechaInicio)
-      .lte('fecha_venta', fechaFin);
+      .gte('fecha_venta', fechaInicioIso)
+      .lte('fecha_venta', fechaFinIso)
+      .eq('estado', 'confirmada');
 
     if (error) throw error;
 

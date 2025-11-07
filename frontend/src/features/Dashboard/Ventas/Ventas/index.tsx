@@ -221,7 +221,7 @@ const VentasDashboard: React.FC = () => {
   const ventas = useMemo(() => {
     return ventasData.map(venta => ({
       id: `#${venta.id_venta}`,
-      productos: venta.productos || 'Productos varios', // Si no hay descripción, usar genérica
+      productos: venta.productos_resumen || venta.productos || 'Productos varios',
       total: venta.total_venta,
       metodo: venta.tipo_pago === 'Cash' ? 'Efectivo' :
               venta.tipo_pago === 'Tarjeta' ? 'Tarjeta' :
@@ -231,6 +231,16 @@ const VentasDashboard: React.FC = () => {
   }, [ventasData]);
 
   // Convertir productos populares del backend al formato del componente
+  const getProductIcon = (nombre: string): string => {
+    const nombreLower = nombre.toLowerCase();
+    if (nombreLower.includes('gringa')) return '🌯';
+    if (nombreLower.includes('shuco') || nombreLower.includes('salami')) return '🌭';
+    if (nombreLower.includes('hamburguesa')) return '🍔';
+    if (nombreLower.includes('papas') || nombreLower.includes('fritas')) return '🍟';
+    if (nombreLower.includes('bebida') || nombreLower.includes('refresco')) return '🥤';
+    return '🍽️'; // Ícono genérico para comida
+  };
+
   const populares = useMemo(() => {
     return productosPopulares.map((producto) => ({
       id: `pp${producto.id_producto}`,
@@ -242,17 +252,6 @@ const VentasDashboard: React.FC = () => {
       vecesVendido: producto.veces_vendido,
     }));
   }, [productosPopulares]);
-
-  // Función auxiliar para asignar íconos según el nombre del producto
-  const getProductIcon = (nombre: string): string => {
-    const nombreLower = nombre.toLowerCase();
-    if (nombreLower.includes('gringa')) return '🌯';
-    if (nombreLower.includes('shuco') || nombreLower.includes('salami')) return '🌭';
-    if (nombreLower.includes('hamburguesa')) return '🍔';
-    if (nombreLower.includes('papas') || nombreLower.includes('fritas')) return '🍟';
-    if (nombreLower.includes('bebida') || nombreLower.includes('refresco')) return '🥤';
-    return '🍽️'; // Ícono genérico para comida
-  };
 
   // ------- Estado de filtros -------
   const [search, setSearch] = useState("");

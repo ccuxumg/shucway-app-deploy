@@ -22,6 +22,8 @@ router.get('/', requireCajero, ventasController.getVentas.bind(ventasController)
 router.get('/del-dia', requireCajero, ventasController.getVentasDelDia.bind(ventasController));
 router.get('/total', requireCajero, ventasController.getTotalVentas.bind(ventasController));
 router.get('/cajero/:idCajero', requireCajero, ventasController.getVentasPorCajero.bind(ventasController));
+router.get('/productos-populares', requireCajero, ventasController.getProductosPopulares.bind(ventasController));
+router.get('/:idVenta/detalles', requireCajero, ventasController.getDetallesByVenta.bind(ventasController));
 router.get('/:id', requireCajero, ventasController.getVentaById.bind(ventasController));
 
 router.post('/', requireCajero, ventasController.createVenta.bind(ventasController));
@@ -33,7 +35,5 @@ router.delete('/:id', requireAdministrador, ventasController.deleteVenta.bind(ve
 // ================== DETALLES DE VENTA ==================
 // Nivel mínimo: Cajero (30)
 
-router.get('/:idVenta/detalles', requireCajero, ventasController.getDetallesByVenta.bind(ventasController));
-router.get('/productos-populares', requireCajero, ventasController.getProductosPopulares.bind(ventasController));
 
 export default router;

@@ -52,6 +52,9 @@ export const MODULE_PERMISSIONS = {
   // Administración - administradores y superiores
   ADMINISTRACION: PermissionLevel.ADMINISTRADOR,
   GESTIONAR_USUARIOS: PermissionLevel.ADMINISTRADOR,
+
+  // Caja - cajeros y superiores
+  CAJA: PermissionLevel.CAJERO,
   
   // Configuración - solo propietario
   CONFIGURACION: PermissionLevel.PROPIETARIO,

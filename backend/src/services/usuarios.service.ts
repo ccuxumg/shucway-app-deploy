@@ -25,6 +25,13 @@ export interface PerfilUsuario {
 export interface PerfilConRoles extends PerfilUsuario {
   roles: string; // String concatenado de roles
   nivel_permisos: number;
+  ventas_stats?: UsuarioVentasStats;
+}
+
+interface UsuarioVentasStats {
+  totalVentas: number;
+  totalProductos: number;
+  totalIngresos: number;
 }
 
 export interface CreateUsuarioDTO {
@@ -184,10 +191,57 @@ export class UsuariosService {
     const roles = rolUsuario?.nombre_rol as string || 'Sin rol';
     const nivel_permisos = rolUsuario?.nivel_permisos as number || 0;
 
+    const ventasStats: UsuarioVentasStats = {
+      totalVentas: 0,
+      totalProductos: 0,
+      totalIngresos: 0,
+    };
+
+    try {
+      const { data: ventasData, error: ventasError, count: ventasCount } = await supabase
+        .from('venta')
+        .select('id_venta, total_venta', { count: 'exact' })
+        .eq('id_cajero', id)
+        .eq('estado', 'confirmada');
+
+      if (ventasError) {
+        console.warn('Error obteniendo ventas del usuario:', ventasError.message);
+      } else if (Array.isArray(ventasData) && ventasData.length > 0) {
+        ventasStats.totalVentas = typeof ventasCount === 'number' ? ventasCount : ventasData.length;
+        ventasStats.totalIngresos = ventasData.reduce((acc, venta) => {
+          const monto = typeof venta.total_venta === 'number' ? venta.total_venta : Number(venta.total_venta);
+          return acc + (Number.isFinite(monto) ? monto : 0);
+        }, 0);
+
+        const ventaIds = ventasData
+          .map((venta) => (typeof venta.id_venta === 'number' ? venta.id_venta : Number(venta.id_venta)))
+          .filter((idVenta): idVenta is number => Number.isFinite(idVenta));
+
+        if (ventaIds.length > 0) {
+          const { data: detallesData, error: detallesError } = await supabase
+            .from('detalle_venta')
+            .select('cantidad')
+            .in('id_venta', ventaIds);
+
+          if (detallesError) {
+            console.warn('Error obteniendo detalle_venta del usuario:', detallesError.message);
+          } else if (Array.isArray(detallesData) && detallesData.length > 0) {
+            ventasStats.totalProductos = detallesData.reduce((acc, detalle) => {
+              const cantidad = typeof detalle.cantidad === 'number' ? detalle.cantidad : Number(detalle.cantidad);
+              return acc + (Number.isFinite(cantidad) ? cantidad : 0);
+            }, 0);
+          }
+        }
+      }
+    } catch (statsError) {
+      console.warn('Error calculando estadísticas de ventas para el usuario:', statsError);
+    }
+
     return {
       ...perfil,
       roles,
       nivel_permisos,
+      ventas_stats: ventasStats,
     } as PerfilConRoles;
   }
 

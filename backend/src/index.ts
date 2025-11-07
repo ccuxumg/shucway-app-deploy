@@ -50,18 +50,31 @@ async function startServer() {
     });
 
     console.log('Configurando graceful shutdown...');
-    const gracefulShutdown = () => {
-      console.log('Iniciando graceful shutdown...');
-      logger.info('Iniciando apagado graceful...');
+    const bootstrapSignalGracePeriodMs = 3000;
+    let signalsEnabled = false;
+    const enableSignalsTimer = setTimeout(() => {
+      signalsEnabled = true;
+      logger.info('Señales de apagado graceful habilitadas tras la ventana de arranque.');
+    }, bootstrapSignalGracePeriodMs);
+
+    const gracefulShutdown = (signal: NodeJS.Signals | 'MANUAL') => {
+      if (!signalsEnabled && signal && signal !== 'MANUAL') {
+        logger.warn(`Señal ${signal} recibida durante los primeros ${bootstrapSignalGracePeriodMs}ms; ignorando para evitar cierre temprano.`);
+        return;
+      }
+      console.log('Iniciando graceful shutdown...', signal ? `signal=${signal}` : '');
+      logger.info(`Iniciando apagado graceful${signal ? ` por señal ${signal}` : ''}...`);
       server.close(() => {
         console.log('Servidor cerrado correctamente');
         logger.info('Servidor cerrado correctamente');
+        clearTimeout(enableSignalsTimer);
         process.exit(0);
       });
     };
 
-    process.on('SIGTERM', gracefulShutdown);
-    process.on('SIGINT', gracefulShutdown);
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+    process.on('SIGBREAK', () => gracefulShutdown('SIGBREAK'));
 
     console.log('Servidor configurado completamente');
     return server;
@@ -79,6 +92,10 @@ if (!isVercel) {
   process.on('unhandledRejection', (reason, promise) => {
     logger.error('Promesa rechazada no manejada:', { reason, promise });
     process.exit(1);
+  });
+
+  process.on('exit', (code) => {
+    logger.info(`Proceso finalizado con código ${code}`);
   });
 }
 

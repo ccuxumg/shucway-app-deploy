@@ -4,11 +4,13 @@
  * - ESLint/TS OK (sin any, sin hooks condicionales)
  * =============================================== */
 import React, { useMemo, useState, useEffect, useCallback } from "react";
+import axios from 'axios';
 import { message } from 'antd';
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { getInsumos } from '@/api/inventarioService';
 import { productosService, type Producto as ProductoAPI, type CategoriaProducto as CategoriaProductoAPI, type ProductoConReceta } from '@/api/productosService';
+import { supabase } from '@/api/supabaseClient';
 import {
   PiEyeBold,
   PiPencilSimpleBold,
@@ -18,6 +20,8 @@ import {
   PiPlusBold,
   PiArrowLeftBold,
 } from "react-icons/pi";
+import { useAuth } from '../../../../../hooks/useAuth';
+import { PermissionLevel } from '../../../../../constants/permissions';
 
 /* ============================================================
  * ===== Tipos =====
@@ -103,6 +107,77 @@ const slugify = (s: string) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 
+const PRODUCT_IMAGE_BUCKET = 'producto-img';
+
+const dataUrlToBlob = (dataUrl: string): Blob => {
+  const parts = dataUrl.split(',');
+  if (parts.length !== 2) {
+    throw new Error('Formato de imagen inválido');
+  }
+  const metadata = parts[0];
+  const base64Data = parts[1];
+  const mimeMatch = metadata.match(/data:(.*?);/);
+  const mimeType = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+  const byteCharacters = atob(base64Data);
+  const byteNumbers = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i += 1) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  return new Blob([byteArray], { type: mimeType });
+};
+
+const uploadProductoImage = async (
+  blob: Blob,
+  options?: { nameHint?: string; extensionHint?: string }
+): Promise<string> => {
+  const mimeExtension = blob.type?.split('/').pop() ?? 'bin';
+  const extension = (options?.extensionHint || mimeExtension || 'bin')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '') || 'bin';
+  const slug = slugify(options?.nameHint || 'producto');
+  const objectPath = `${slug || 'producto'}/${Date.now()}.${extension}`;
+
+  const uploadResult = await supabase.storage
+    .from(PRODUCT_IMAGE_BUCKET)
+    .upload(objectPath, blob, {
+      upsert: true,
+      cacheControl: '3600',
+      contentType: blob.type || undefined,
+    });
+
+  if (uploadResult.error) {
+    throw uploadResult.error;
+  }
+
+  const publicUrlResult = supabase.storage
+    .from(PRODUCT_IMAGE_BUCKET)
+    .getPublicUrl(objectPath);
+
+  if (!publicUrlResult.data?.publicUrl) {
+    throw new Error('No se pudo obtener la URL pública de la imagen');
+  }
+
+  return publicUrlResult.data.publicUrl;
+};
+
+const ensureRemoteImage = async (
+  imageCandidate?: string | null,
+  options?: { nameHint?: string }
+): Promise<string | undefined> => {
+  if (!imageCandidate) {
+    return undefined;
+  }
+  if (!imageCandidate.startsWith('data:')) {
+    return imageCandidate;
+  }
+  const blob = dataUrlToBlob(imageCandidate);
+  return uploadProductoImage(blob, {
+    nameHint: options?.nameHint,
+    extensionHint: blob.type?.split('/').pop() ?? undefined,
+  });
+};
+
 /* ===== Icon Button ===== */
 function IconBtn({
   title,
@@ -152,6 +227,16 @@ const mapProductoDB = (
 
 export default function ProductosPage() {
   const navigate = useNavigate();
+  const { roleLevel } = useAuth();
+  const canManageProductos = (roleLevel ?? 0) >= PermissionLevel.ADMINISTRADOR;
+
+  const ensureCanManageProductos = useCallback(() => {
+    if (!canManageProductos) {
+      message.warning('No tienes permisos para administrar productos.');
+      return false;
+    }
+    return true;
+  }, [canManageProductos]);
   const [rows, setRows] = useState<Producto[]>([]);
   const [categorias, setCategorias] = useState<CategoriaProducto[]>([]);
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -286,6 +371,9 @@ export default function ProductosPage() {
   }, [filteredData, page, perPage]);
 
   const openCreate = () => {
+    if (!ensureCanManageProductos()) {
+      return;
+    }
     const nuevo: FormProducto = {
       nombre: "",
       descripcion: "",
@@ -344,6 +432,9 @@ export default function ProductosPage() {
 
   const openEdit = useCallback(
     async (producto: Producto) => {
+      if (!ensureCanManageProductos()) {
+        return;
+      }
       const recetaCargada = await ensureRecetaLoaded(producto.id);
 
       const { id, ...resto } = producto;
@@ -355,7 +446,7 @@ export default function ProductosPage() {
 
       setModalProducto({ mode: "edit", data: editable, recetaCargada });
     },
-    [ensureRecetaLoaded]
+    [ensureCanManageProductos, ensureRecetaLoaded]
   );
 
   // ======= GUARDA (con receta inline) =======
@@ -367,6 +458,9 @@ export default function ProductosPage() {
     recipeLines?: RecetaLinea[];
     variantes?: VarianteForm[];
   }) => {
+    if (!ensureCanManageProductos()) {
+      return;
+    }
     try {
       setLoading(true);
 
@@ -414,6 +508,24 @@ export default function ProductosPage() {
         }));
       }
 
+      let imageUrlToPersist: string | undefined;
+      try {
+  const resolvedImageUrl = await ensureRemoteImage(payload.producto.imagen_url, { nameHint: payload.producto.nombre });
+        const rawImageUrl = payload.producto.imagen_url;
+        if (resolvedImageUrl) {
+          imageUrlToPersist = resolvedImageUrl;
+        } else if (rawImageUrl && !rawImageUrl.startsWith('data:')) {
+          imageUrlToPersist = rawImageUrl;
+        }
+      } catch (uploadError) {
+        console.error('Error preparando la imagen del producto:', uploadError);
+        const uploadMessage = uploadError instanceof Error ? uploadError.message : 'No se pudo subir la imagen del producto';
+        message.error(`No se pudo subir la imagen del producto: ${uploadMessage}`);
+        return;
+      }
+
+      const finalImageUrl = imageUrlToPersist || `/productos/${slugify(payload.producto.nombre)}.png`;
+
       if (payload.mode === 'create') {
         const newProducto = {
           nombre_producto: payload.producto.nombre,
@@ -422,7 +534,7 @@ export default function ProductosPage() {
           costo_producto: payload.producto.costo_total_producto || 0,
           id_categoria: payload.producto.id_categoria,
           estado: (payload.producto.activo ? 'activo' : 'desactivado') as 'activo' | 'desactivado',
-          imagen_url: payload.producto.imagen_url || `/productos/${slugify(payload.producto.nombre)}.png`,
+          imagen_url: finalImageUrl,
         };
 
         await productosService.createProducto(newProducto, variantesNormalizadas, recetaPayload);
@@ -440,7 +552,7 @@ export default function ProductosPage() {
           costo_producto: payload.producto.costo_total_producto || 0,
           id_categoria: payload.producto.id_categoria,
           estado: (payload.producto.activo ? 'activo' : 'desactivado') as 'activo' | 'desactivado',
-          imagen_url: payload.producto.imagen_url || `/productos/${slugify(payload.producto.nombre)}.png`,
+          imagen_url: finalImageUrl,
         };
 
         await productosService.updateProducto(Number(payload.producto.id), updateData, variantesNormalizadas, recetaPayload);
@@ -451,13 +563,21 @@ export default function ProductosPage() {
       setModalProducto(null);
     } catch (error) {
       console.error('Error guardando producto:', error);
-      message.error('Error guardando producto. Por favor intente de nuevo.');
+      const axiosMessage = axios.isAxiosError(error)
+        ? error.response?.data?.message || error.message
+        : error instanceof Error
+          ? error.message
+          : 'Error guardando producto. Por favor intente de nuevo.';
+      message.error(`Error guardando producto: ${axiosMessage}`);
     } finally {
       setLoading(false);
     }
   };
 
   const onDelete = (id: string) => {
+    if (!ensureCanManageProductos()) {
+      return;
+    }
     const product = rows.find(r => r.id === id);
     if (product) {
       setDeleteConfirm({ show: true, productId: id, productName: product.nombre });
@@ -466,6 +586,10 @@ export default function ProductosPage() {
 
   const confirmDelete = async () => {
     if (!deleteConfirm) return;
+    if (!ensureCanManageProductos()) {
+      setDeleteConfirm(null);
+      return;
+    }
     try {
       setLoading(true);
       await productosService.deleteProducto(parseInt(deleteConfirm.productId));
@@ -520,19 +644,26 @@ export default function ProductosPage() {
               Regresar
             </button>
             {/* Verde oscuro SOLO este botón */}
-            <button
-              onClick={() => setOpenRecetario({ open: true })}
-              className="h-11 rounded-xl px-4 text-base font-semibold text-white flex items-center gap-2 bg-[#12443D] hover:bg-[#0f3833]"
-            >
-              📖 Ver Recetario
-            </button>
-            <button
-              onClick={openCreate}
-              className="h-11 rounded-xl bg-emerald-600 px-4 text-base font-semibold text-white hover:bg-emerald-700 flex items-center gap-2"
-            >
-              <PiPlusBold />
-              Agregar Producto
-            </button>
+            {canManageProductos && (
+              <button
+                onClick={() => {
+                  if (!ensureCanManageProductos()) return;
+                  setOpenRecetario({ open: true });
+                }}
+                className="h-11 rounded-xl px-4 text-base font-semibold text-white flex items-center gap-2 bg-[#12443D] hover:bg-[#0f3833]"
+              >
+                📖 Ver Recetario
+              </button>
+            )}
+            {canManageProductos && (
+              <button
+                onClick={openCreate}
+                className="h-11 rounded-xl bg-emerald-600 px-4 text-base font-semibold text-white hover:bg-emerald-700 flex items-center gap-2"
+              >
+                <PiPlusBold />
+                Agregar Producto
+              </button>
+            )}
           </div>
         </div>
 
@@ -662,12 +793,16 @@ export default function ProductosPage() {
                             <IconBtn title="Ver" onClick={() => void handleView(r)}>
                               <PiEyeBold className="h-5 w-5" />
                             </IconBtn>
-                            <IconBtn title="Editar" onClick={() => void openEdit(r)}>
-                              <PiPencilSimpleBold className="h-5 w-5" />
-                            </IconBtn>
-                            <IconBtn title="Eliminar" onClick={() => onDelete(r.id)}>
-                              <PiTrashBold className="h-5 w-5 text-rose-600" />
-                            </IconBtn>
+                              {canManageProductos && (
+                                <IconBtn title="Editar" onClick={() => void openEdit(r)}>
+                                  <PiPencilSimpleBold className="h-5 w-5" />
+                                </IconBtn>
+                              )}
+                              {canManageProductos && (
+                                <IconBtn title="Eliminar" onClick={() => onDelete(r.id)}>
+                                  <PiTrashBold className="h-5 w-5 text-rose-600" />
+                                </IconBtn>
+                              )}
                           </div>
                         </td>
                       </tr>
@@ -1158,13 +1293,23 @@ function ProductoModal({
   const handleUpload = async (file: File) => {
     if (!file) return;
     setUploading(true);
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setForm((f) => ({ ...(f as FormProducto), imagen_url: reader.result as string }));
+    try {
+      const imageUrl = await uploadProductoImage(file, { nameHint: form?.nombre });
+      setForm((prev) => {
+        if (!prev) return prev;
+        return { ...prev, imagen_url: imageUrl };
+      });
+      message.success('Imagen del producto actualizada');
+    } catch (error) {
+      console.error('Error subiendo imagen del producto:', error);
+      const errorMessage = error instanceof Error ? error.message : 'No se pudo subir la imagen';
+      message.error(`No se pudo subir la imagen: ${errorMessage}`);
+    } finally {
       setUploading(false);
-    };
-    reader.readAsDataURL(file);
-    if (fileInputRef.current) fileInputRef.current.value = "";
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
   };
 
   if (!modal || !form) return null;

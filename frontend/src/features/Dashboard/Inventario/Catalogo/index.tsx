@@ -16,6 +16,8 @@ import { MdClose } from "react-icons/md";
 import Kardex from './Kardex';
 import { supabase } from "../../../../api/supabaseClient";
 import { message } from "antd";
+import { useAuth } from "../../../../hooks/useAuth";
+import { PermissionLevel } from "../../../../constants/permissions";
 
 /** Tipos */
 type TipoInsumo = "Perpetuo" | "Operativo";
@@ -89,6 +91,8 @@ export default function Catalogo() {
   const [debouncedQ, setDebouncedQ] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'todos' | 'perpetuos' | 'operativos'>('todos');
   const location = useLocation();
+  const { roleLevel } = useAuth();
+  const canManageInsumos = (roleLevel ?? 0) >= PermissionLevel.ADMINISTRADOR;
   const [categoria, setCategoria] = useState<string>("Todas las categorías");
   const [sortBy, setSortBy] = useState<SortKey>('nombre' as SortKey);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -464,12 +468,20 @@ export default function Catalogo() {
 
   // CRUD
   const openCreate = () => {
+    if (!canManageInsumos) {
+      message.warning('No tienes permisos para crear insumos');
+      return;
+    }
     setEditingId(null);
     // no crear id en frontend: delegar autoincrement al backend
     setForm({ ...blankForm, id: "", categoriaId: categoriasBD.length > 0 ? categoriasBD[0].id_categoria : undefined });
     setOpenDrawer(true);
   };
   const openEdit = async (row: Fila) => {
+    if (!canManageInsumos) {
+      message.warning('No tienes permisos para modificar insumos');
+      return;
+    }
     setEditingId(row.id);
     setLoading(true);
     setError(null);
@@ -533,11 +545,20 @@ export default function Catalogo() {
     }
   };
   const deleteRow = async (row: Fila) => {
+    if (!canManageInsumos) {
+      message.warning('No tienes permisos para eliminar insumos');
+      return;
+    }
     setDeleteModal({ open: true, row });
   };
 
   // Acción real de eliminación tras confirmar en el modal
   const confirmDeleteRow = async () => {
+    if (!canManageInsumos) {
+      message.warning('No tienes permisos para eliminar insumos');
+      setDeleteModal({ open: false, row: null });
+      return;
+    }
     if (!deleteModal.row) return;
     setLoading(true);
     setError(null);
@@ -581,6 +602,11 @@ export default function Catalogo() {
   const submitForm = (e: React.FormEvent) => {
     e.preventDefault();
     e.stopPropagation(); // Prevenir cualquier propagación del evento
+
+    if (!canManageInsumos) {
+      message.warning('No tienes permisos para guardar insumos');
+      return;
+    }
     
     // Limpiar errores anteriores
     setFieldErrors({});
@@ -823,10 +849,12 @@ export default function Catalogo() {
               </svg>
               Gestión de Categorías
             </button>
-            <button onClick={openCreate} className="h-10 rounded-lg px-4 text-sm font-semibold text-white flex items-center gap-2" style={{ backgroundColor: '#12443D' }}>
-              <PiPlusBold />
-              Agregar Insumo
-            </button>
+            {canManageInsumos && (
+              <button onClick={openCreate} className="h-10 rounded-lg px-4 text-sm font-semibold text-white flex items-center gap-2" style={{ backgroundColor: '#12443D' }}>
+                <PiPlusBold />
+                Agregar Insumo
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -879,8 +907,12 @@ export default function Catalogo() {
                   <td className="px-4 py-3 align-top">
                     <div className="flex items-center gap-2 justify-end">
                       <IconBtn title={`Ver ${r.nombre}`} onClick={() => { setDetail(r); }}><PiEyeBold /></IconBtn>
-                      <IconBtn title="Editar" onClick={() => openEdit(r)}><PiPencilSimpleBold /></IconBtn>
-                      <IconBtn title="Eliminar" onClick={() => deleteRow(r)}><PiTrashBold /></IconBtn>
+                      {canManageInsumos && (
+                        <>
+                          <IconBtn title="Editar" onClick={() => openEdit(r)}><PiPencilSimpleBold /></IconBtn>
+                          <IconBtn title="Eliminar" onClick={() => deleteRow(r)}><PiTrashBold /></IconBtn>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -1090,8 +1122,8 @@ export default function Catalogo() {
                             const file = e.target.files?.[0];
                             if (!file) return;
                             const ext = file.name.includes('.') ? file.name.split('.').pop() : undefined;
-                            const sanitizedExt = (ext || 'bin').toLowerCase();
-                            const bucket = 'insumo_img';
+                            const sanitizedExt = ((ext || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '')) || 'bin';
+                            const bucket = 'insumo-img';
                             const folder = form.id ? `insumo/${form.id}` : 'insumo/tmp';
                             const uniqueSuffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
                             const fileName = `${folder}/${uniqueSuffix}.${sanitizedExt}`;
@@ -1119,8 +1151,9 @@ export default function Catalogo() {
                             }
                             const uploadedPath = data?.path || fileName;
                             const publicUrl = supabase.storage.from(bucket).getPublicUrl(uploadedPath).data.publicUrl;
-                            console.debug('insumo_img upload:', { fileName, uploadedPath, publicUrl, data });
+                            console.debug('insumo-img upload:', { fileName, uploadedPath, publicUrl, data });
                             setFormField('imagen', publicUrl);
+                            message.success('Imagen del insumo actualizada');
                           }}
                           className="block"
                         />

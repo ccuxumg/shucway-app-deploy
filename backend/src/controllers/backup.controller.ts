@@ -35,14 +35,39 @@ type SchemaSnippet = {
 
 type IncrementalTableKey = 'insumo' | 'venta' | 'gasto_operativo';
 
-const SCHEMA_FILE_PATH = path.resolve(__dirname, '../../..', 'database_complete_new.sql');
+const schemaPathCandidates = [
+  path.resolve(process.cwd(), 'database_complete_new.sql'),
+  path.resolve(process.cwd(), '..', 'database_complete_new.sql'),
+  path.resolve(process.cwd(), '../..', 'database_complete_new.sql'),
+];
+
+let resolvedSchemaPath: string | null = null;
+const resolveSchemaPath = async (): Promise<string> => {
+  if (resolvedSchemaPath) {
+    return resolvedSchemaPath;
+  }
+
+  for (const candidate of schemaPathCandidates) {
+    try {
+      await fs.access(candidate);
+      resolvedSchemaPath = candidate;
+      return candidate;
+    } catch {
+      // try next candidate
+    }
+  }
+
+  const fallback = schemaPathCandidates[schemaPathCandidates.length - 1];
+  throw new Error(`No se encontró el archivo de respaldo en ${fallback}`);
+};
 
 let cachedSchemaContent: string | null = null;
 
 const readSchemaFile = async (): Promise<string> => {
   if (cachedSchemaContent) return cachedSchemaContent;
   try {
-    const content = await fs.readFile(SCHEMA_FILE_PATH, 'utf8');
+    const schemaPath = await resolveSchemaPath();
+    const content = await fs.readFile(schemaPath, 'utf8');
     cachedSchemaContent = content;
     return content;
   } catch (error) {

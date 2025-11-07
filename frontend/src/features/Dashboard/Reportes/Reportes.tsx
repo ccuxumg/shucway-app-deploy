@@ -442,7 +442,7 @@ table{font-size:12px}
 
   /* ========================= UI ========================= */
   return (
-    <div className="min-h-screen bg-white p-6">
+    <div className="min-h-screen bg-gray-50 p-6">
       {/* Header compacto */}
   <div className="w-full max-w-[1200px] mx-auto mb-4">
         <div className="flex items-center justify-between gap-3">
@@ -487,23 +487,19 @@ table{font-size:12px}
         <div className="mt-3 bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-gray-700 mr-1">Periodo:</span>
-            {(["hoy","ayer","30d","rango"] as Periodo[]).map((p) => {
-              const isActive = periodo === p;
-              const label = p === "hoy" ? "Hoy" : p === "ayer" ? "Ayer" : p === "30d" ? "Últimos 30 días" : "Rango";
-              return (
-                <button
-                  key={p}
-                  onClick={() => setPeriodo(p)}
-                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 ${
-                    isActive
-                      ? "bg-emerald-700 text-white shadow-lg ring-1 ring-emerald-800"
-                      : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
+            {(["hoy","ayer","30d","rango"] as Periodo[]).map(p=>(
+              <button
+                key={p}
+                onClick={()=>setPeriodo(p)}
+                className={`rounded-full px-4 py-2 text-sm font-semibold border transition-all duration-150 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-emerald-500
+                ${periodo===p
+                  ? "bg-emerald-600 border-emerald-700 text-white shadow-[0_10px_24px_rgba(16,185,129,0.35)] hover:bg-emerald-700"
+                  : "bg-emerald-100 border-emerald-200 text-emerald-800 hover:bg-emerald-200"}
+              `}
+              >
+                {p==="hoy"?"Hoy":p==="ayer"?"Ayer":p==="30d"?"Últimos 30 días":"Rango"}
+              </button>
+            ))}
 
             {periodo==="rango" && (
               <div className="flex items-center gap-2 ml-1">
@@ -650,7 +646,7 @@ table{font-size:12px}
                     <div className="loader" />
                   </div>
                 ) : (
-                  <ResponsiveContainer width="100%" height="100%" minWidth={280} minHeight={240}>
+                  <ResponsiveContainer width="100%" height={320} minWidth={280} minHeight={240}>
                     <PieChart>
                       <Pie data={pieCategoria} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
                         {pieCategoria.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
@@ -674,7 +670,7 @@ table{font-size:12px}
                     <div className="loader" />
                   </div>
                 ) : (
-                  <ResponsiveContainer width="100%" height="100%" minWidth={280} minHeight={240}>
+                  <ResponsiveContainer width="100%" height={320} minWidth={280} minHeight={240}>
                     <PieChart>
                       <Pie data={pieMetodo} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
                         {pieMetodo.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
@@ -708,7 +704,7 @@ table{font-size:12px}
                     <div className="loader" />
                   </div>
                 ) : (
-                  <ResponsiveContainer width="100%" height="100%" minWidth={320} minHeight={240}>
+                  <ResponsiveContainer width="100%" height={320} minWidth={320} minHeight={240}>
                     <BarChart data={topVendidos} margin={{left:10,right:10,top:10,bottom:10}}>
                       <CartesianGrid stroke="#f3f4f6" vertical={false} />
                       <XAxis dataKey="name" tick={{ fontSize: 11 }} />
@@ -740,7 +736,7 @@ table{font-size:12px}
                     <div className="loader" />
                   </div>
                 ) : (
-                  <ResponsiveContainer width="100%" height="100%" minWidth={320} minHeight={240}>
+                  <ResponsiveContainer width="100%" height={320} minWidth={320} minHeight={240}>
                     <BarChart data={topRentables} margin={{left:10,right:10,top:10,bottom:10}}>
                       <CartesianGrid stroke="#f3f4f6" vertical={false} />
                       <XAxis dataKey="name" tick={{ fontSize: 11 }} />

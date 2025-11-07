@@ -1,4 +1,5 @@
 import { supabase } from '../config/database';
+import { AppError } from '../middlewares/errorHandler.middleware';
 import {
   Venta,
   DetalleVenta,
@@ -6,6 +7,7 @@ import {
   VentaCompleta,
   ProductoPopular,
 } from '../types/ventas.types';
+import { cajaService } from './caja.service';
 
 // ================================================================
 // 💰 SERVICIO DE VENTAS
@@ -24,6 +26,17 @@ export class VentasService {
     idCajero?: number
   ): Promise<Venta[]> {
     try {
+      const normalizeDateParam = (value?: string, endOfDay: boolean = false) => {
+        if (!value) return undefined;
+        if (value.includes('T')) {
+          return endOfDay ? value : value;
+        }
+        return endOfDay ? `${value}T23:59:59.999` : `${value}T00:00:00.000`;
+      };
+
+      const fechaInicioIso = normalizeDateParam(fechaInicio, false);
+      const fechaFinIso = normalizeDateParam(fechaFin, true);
+
       let query = supabase
         .from('venta')
         .select('*')
@@ -33,12 +46,12 @@ export class VentasService {
         query = query.eq('estado', estado);
       }
 
-      if (fechaInicio) {
-        query = query.gte('fecha_venta', fechaInicio);
+      if (fechaInicioIso) {
+        query = query.gte('fecha_venta', fechaInicioIso);
       }
 
-      if (fechaFin) {
-        query = query.lte('fecha_venta', fechaFin);
+      if (fechaFinIso) {
+        query = query.lte('fecha_venta', fechaFinIso);
       }
 
       if (idCajero) {
@@ -52,7 +65,92 @@ export class VentasService {
         throw new Error(`Error al obtener ventas: ${error.message}`);
       }
 
-      return data || [];
+      const ventas = data || [];
+
+      if (!ventas.length) {
+        return ventas;
+      }
+
+      const ventaIds = Array.from(new Set(ventas.map((venta) => venta.id_venta)));
+
+      const { data: detalles, error: detallesAggError } = await supabase
+        .from('detalle_venta')
+        .select('id_venta, cantidad, id_producto, id_variante')
+        .in('id_venta', ventaIds);
+
+      if (detallesAggError) {
+        console.warn('No se pudieron obtener detalles para resumen de ventas:', detallesAggError.message);
+        return ventas;
+      }
+
+      const productoIds = new Set<number>();
+      const varianteIds = new Set<number>();
+
+      (detalles || []).forEach((detalle) => {
+        if (typeof detalle.id_producto === 'number') {
+          productoIds.add(detalle.id_producto);
+        }
+        if (typeof detalle.id_variante === 'number') {
+          varianteIds.add(detalle.id_variante);
+        }
+      });
+
+      const [productosRes, variantesRes] = await Promise.all([
+        productoIds.size
+          ? supabase
+              .from('producto')
+              .select('id_producto, nombre_producto')
+              .in('id_producto', Array.from(productoIds))
+          : Promise.resolve({ data: [], error: null }),
+        varianteIds.size
+          ? supabase
+              .from('producto_variante')
+              .select('id_variante, nombre_variante')
+              .in('id_variante', Array.from(varianteIds))
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+
+      const productosMap = new Map<number, string>();
+      const variantesMap = new Map<number, string>();
+
+      if (!productosRes.error && productosRes.data) {
+        productosRes.data.forEach((producto) => {
+          if (typeof producto.id_producto === 'number') {
+            productosMap.set(producto.id_producto, producto.nombre_producto ?? `Producto ${producto.id_producto}`);
+          }
+        });
+      }
+
+      if (!variantesRes.error && variantesRes.data) {
+        variantesRes.data.forEach((variante) => {
+          if (typeof variante.id_variante === 'number') {
+            variantesMap.set(variante.id_variante, variante.nombre_variante ?? `Variante ${variante.id_variante}`);
+          }
+        });
+      }
+
+      const grupos = new Map<number, string>();
+
+      (detalles || []).forEach((detalle) => {
+        if (typeof detalle.id_venta !== 'number') return;
+
+        const nombreProducto = productosMap.get(detalle.id_producto) ?? 'Producto';
+        const nombreVariante =
+          typeof detalle.id_variante === 'number' ? variantesMap.get(detalle.id_variante) : undefined;
+        const cantidad = Number(detalle.cantidad) || 0;
+        const descripcion = `${cantidad} x ${nombreProducto}${nombreVariante ? ` (${nombreVariante})` : ''}`;
+
+        if (grupos.has(detalle.id_venta)) {
+          grupos.set(detalle.id_venta, `${grupos.get(detalle.id_venta)} · ${descripcion}`);
+        } else {
+          grupos.set(detalle.id_venta, descripcion);
+        }
+      });
+
+      return ventas.map((venta) => ({
+        ...venta,
+        productos_resumen: grupos.get(venta.id_venta) ?? 'Productos varios',
+      }));
     } catch (error) {
       console.error('Error en getVentas:', error);
       throw error;
@@ -109,25 +207,49 @@ export class VentasService {
     }
 
     // Obtener cajero si existe
-    let cajero = null;
+    let cajero: VentaCompleta['cajero'] = undefined;
     if (venta.id_cajero) {
       const { data: cajeroData, error: cajeroError } = await supabase
         .from('perfil_usuario')
-        .select('id_perfil, nombre')
+        .select(
+          'id_perfil, primer_nombre, segundo_nombre, primer_apellido, segundo_apellido, username, email'
+        )
         .eq('id_perfil', venta.id_cajero)
         .single();
 
       if (cajeroError && cajeroError.code !== 'PGRST116') {
         throw new Error(`Error al obtener cajero: ${cajeroError.message}`);
       }
-      cajero = cajeroData;
+      if (cajeroData) {
+        const nombrePartes = [
+          cajeroData.primer_nombre,
+          cajeroData.segundo_nombre,
+          cajeroData.primer_apellido,
+          cajeroData.segundo_apellido,
+        ]
+          .map((parte) => (typeof parte === 'string' ? parte.trim() : ''))
+          .filter((parte) => parte.length > 0);
+
+        const nombreFormateado =
+          (Array.isArray(nombrePartes) && nombrePartes.length > 0
+            ? nombrePartes.join(' ')
+            : '') ||
+          (typeof cajeroData.username === 'string' && cajeroData.username.trim()) ||
+          (typeof cajeroData.email === 'string' && cajeroData.email.trim()) ||
+          `Cajero #${venta.id_cajero}`;
+
+        cajero = {
+          id_perfil: cajeroData.id_perfil,
+          nombre: nombreFormateado,
+        };
+      }
     }
 
     return {
       ...venta,
       detalles: detalles || [],
       cliente: cliente || undefined,
-      cajero: cajero || undefined,
+      cajero,
     };
   }
 
@@ -138,6 +260,8 @@ export class VentasService {
    * - fn_acumular_puntos_venta: Se ejecuta automáticamente por trigger al mismo cambio de estado
    */
   async createVenta(dto: CreateVentaDTO, idCajero: number): Promise<VentaCompleta> {
+    await cajaService.requireCajaAbierta(idCajero);
+
     // 1. Crear venta principal (estado 'pendiente' por defecto)
     const { data: venta, error: ventaError } = await supabase
       .from('venta')
@@ -185,7 +309,33 @@ export class VentasService {
       .eq('id_venta', venta.id_venta);
 
     if (confirmarError) {
-      throw new Error(`Error al confirmar venta: ${confirmarError.message}`);
+      await supabase.from('detalle_venta').delete().eq('id_venta', venta.id_venta);
+      await supabase.from('venta').delete().eq('id_venta', venta.id_venta);
+      throw new AppError(confirmarError.message ?? 'Error al confirmar la venta', 400);
+    }
+
+    try {
+      const { data: movimientosExistentes, error: movimientosError } = await supabase
+        .from('movimiento_inventario')
+        .select('id_movimiento')
+        .eq('id_referencia', venta.id_venta)
+        .eq('tipo_movimiento', 'salida_venta')
+        .limit(1);
+
+      const requiereDescuento = !movimientosError && (!movimientosExistentes || movimientosExistentes.length === 0);
+
+      if (requiereDescuento) {
+        const { error: rpcError } = await supabase.rpc('fn_descontar_inventario_venta', {
+          p_id_venta: venta.id_venta,
+          p_id_perfil: idCajero,
+        });
+
+        if (rpcError) {
+          console.error('Error ejecutando fn_descontar_inventario_venta manualmente:', rpcError.message);
+        }
+      }
+    } catch (fallbackError) {
+      console.warn('No se pudo verificar movimientos de inventario tras confirmar venta:', fallbackError);
     }
 
     // 4. Manejar canje de puntos si existe

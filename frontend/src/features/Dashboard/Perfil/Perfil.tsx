@@ -152,6 +152,17 @@ const Perfil: React.FC = () => {
     });
   };
 
+  const ventasRegistradas = userData?.ventas_stats?.totalVentas ?? 0;
+  const productosVendidos = userData?.ventas_stats?.totalProductos ?? 0;
+  const ingresosGenerados = userData?.ventas_stats?.totalIngresos ?? 0;
+
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat('es-GT', {
+      style: 'currency',
+      currency: 'GTQ',
+      maximumFractionDigits: 2,
+    }).format(amount);
+
   if (loading) {
     return (
       <>
@@ -429,8 +440,12 @@ const Perfil: React.FC = () => {
             <h3 className="text-xl font-semibold text-gray-800 mb-4">Estadísticas</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="text-center p-4 bg-blue-50 rounded-lg">
-                <div className="text-2xl font-bold text-blue-600">0</div>
-                <div className="text-sm text-gray-600">Ventas Registradas</div>
+                <div className="text-2xl font-bold text-blue-600">{ventasRegistradas}</div>
+                <div className="text-sm text-gray-600">Ventas registradas</div>
+                <div className="mt-2 text-xs text-gray-500">
+                  {productosVendidos} productos vendidos
+                </div>
+                <div className="text-xs text-gray-500">{formatCurrency(ingresosGenerados)}</div>
               </div>
               <div className="text-center p-4 bg-green-50 rounded-lg">
                 <div className="text-2xl font-bold text-green-600">

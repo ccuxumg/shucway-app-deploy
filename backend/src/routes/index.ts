@@ -14,6 +14,7 @@ import backupRoutes from './backup.routes';
 import auditoriaRoutes from './auditoria.routes';
 import reportesRoutes from './reportes.routes';
 import gastosOperativosRoutes from './gastos_operativos.routes';
+import cajaRoutes from './caja.routes';
 
 const router = Router();
 
@@ -32,6 +33,7 @@ router.use('/backup', backupRoutes);
 router.use('/auditoria', auditoriaRoutes);
 router.use('/reportes', reportesRoutes);
 router.use('/gastos-operativos', gastosOperativosRoutes);
+router.use('/caja', cajaRoutes);
 
 // Rutas adicionales para compatibilidad con frontend
 router.get('/db/tables-count', dashboardController.getTablesCount);

@@ -6,7 +6,7 @@
  * - Abre el modal de "Iniciar Auditoría" automáticamente si no hay sesión
  * =============================================== */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../Inventario.css";
 import "./Auditoria.css";
@@ -248,6 +248,11 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
   const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
   const [isCanceling, setIsCanceling] = useState(false);
   const navigate = useNavigate();
+  const [notif, setNotif] = useState<{ type: "info" | "success" | "error"; msg: string } | null>(null);
+  const notify = useCallback((type: "info" | "success" | "error", msg: string) => {
+    setNotif({ type, msg });
+    setTimeout(() => setNotif(null), 2600);
+  }, [setNotif]);
 
   // Interceptar navegación mediante click en enlaces/botones del sidebar
   useEffect(() => {
@@ -305,34 +310,15 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
           // Guardar la función de navegación
           setPendingNavigation(() => () => navigate(targetPath));
           setShowCancelConfirmModal(true);
+          notify("info", "Tienes una auditoría en curso. Puedes guardar los cambios o continuar más tarde.");
         }
       }
     };
 
     document.addEventListener('click', handleClick, true);
     return () => document.removeEventListener('click', handleClick, true);
-  }, [sessionId, sessionEstado, navigate]);
+  }, [sessionId, sessionEstado, navigate, notify]);
 
-  // Advertencia antes de cerrar la ventana/pestaña del navegador
-  useEffect(() => {
-    if (!sessionId || sessionEstado !== 'en_progreso') return;
-
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = ''; // Chrome requiere esto
-      return ''; // Para otros navegadores
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [sessionId, sessionEstado]);
-
-  // Notificación
-  const [notif, setNotif] = useState<{ type: "info" | "success" | "error"; msg: string } | null>(null);
-  const notify = (type: "info" | "success" | "error", msg: string) => {
-    setNotif({ type, msg });
-    setTimeout(() => setNotif(null), 2600);
-  };
   const detectedName = getUserDisplayName(user, auditorName);
 
   // Refs
@@ -913,6 +899,11 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
       window.dispatchEvent(new Event('auditoria-changed'));
       
       notify("success", "Auditoría finalizada.");
+
+      if (pendingNavigation) {
+        pendingNavigation();
+        setPendingNavigation(null);
+      }
     } catch {
       notify("error", "Error al finalizar la auditoría.");
     } finally {
@@ -1016,6 +1007,11 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
       pendingNavigation();
       setPendingNavigation(null);
     }
+  }
+
+  function handleSaveAndExit() {
+    setShowCancelConfirmModal(false);
+    setShowFinalizeModal(true);
   }
 
   // ===== Cerrar modal de éxito y navegar =====
@@ -1626,11 +1622,19 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
             </p>
 
             <ul className="list-disc list-inside text-gray-600 mb-4 space-y-2">
+              <li><strong>Guardar ajustes:</strong> Finaliza la auditoría para conservar todo lo registrado.</li>
               <li><strong>Cancelar la auditoría:</strong> Se marcará como cancelada y perderás todo el progreso.</li>
               <li><strong>Continuar:</strong> Podrás navegar entre módulos y la auditoría seguirá activa.</li>
             </ul>
 
-            <div className="mt-6 flex gap-3 justify-end">
+            <div className="mt-6 flex gap-3 justify-end flex-wrap">
+              <button
+                className="btn primary"
+                onClick={handleSaveAndExit}
+                style={{ minWidth: 140 }}
+              >
+                Guardar cambios
+              </button>
               <button 
                 className="btn ghost" 
                 onClick={handleContinueWithoutCancel}
@@ -1643,7 +1647,7 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
                 onClick={cancelAudit}
                 disabled={isCanceling}
                 style={{ 
-                  minWidth: 110,
+                  minWidth: 140,
                   background: "linear-gradient(135deg, #001f3f 0%, #003d7a 100%)",
                   color: "#fff",
                   border: "none"

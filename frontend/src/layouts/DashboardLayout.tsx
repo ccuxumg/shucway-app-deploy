@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Tippy from '@tippyjs/react';
 import 'tippy.js/dist/tippy.css';
@@ -12,6 +12,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { MenuItemGuard } from "../components/guards/ModuleGuard";
 import { dashboardService } from "../api/dashboardService";
 import { useAlerts } from "../hooks/useAlerts";
+import { usePermissions } from "../hooks/usePermissions";
+import { cajaService, type CajaSesion as CajaSesionApi } from "../api/cajaService";
 
 // usar el logo público (public/img/logo.png)
 const publicLogo = "/img/logo.png";
@@ -82,6 +84,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const debounceRef = useRef<number | null>(null);
+  const { isModuleAllowed } = usePermissions();
 
   useEffect(() => {
     // Obtener el usuario del localStorage y API (similar a Perfil.tsx)
@@ -265,7 +268,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     { name: 'Administración', route: '/administracion', section: 'General' },
     { name: 'Gestionar Roles', route: '/administracion/roles', section: 'General' },
     { name: 'Ventas', route: '/ventas', section: 'General' },
-    { name: 'Punto de Venta', route: '/ventas/ventas', section: 'Ventas' },
+  { name: 'POS / Punto de Venta', route: '/ventas/ventas', section: 'Ventas' },
     { name: 'Producto (Ventas)', route: '/ventas/producto', section: 'Ventas' },
     { name: 'Cierre de Caja', route: '/ventas/cierre-caja', section: 'Ventas' },
     { name: 'Inventario', route: '/inventario', section: 'Operaciones' },
@@ -279,6 +282,13 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     { name: 'Soporte', route: '/soporte', section: 'General' },
     { name: 'Login', route: '/login', section: 'Público' },
   ];
+
+  const visibleSidebarSections = sidebarSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => isModuleAllowed(item.module)),
+    }))
+    .filter((section) => section.items.length > 0);
 
   const combined = [
     ...sidebarSections.flatMap((sec) => sec.items.map((it) => ({ name: it.name, route: it.route, section: sec.title })) ),
@@ -468,49 +478,103 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     );
   };
 
+  const resolveCajaApiMessage = (error: unknown): string | undefined => {
+    if (typeof error === 'object' && error !== null) {
+      const maybeResponse = (error as { response?: { data?: { message?: string } } }).response;
+      if (maybeResponse?.data?.message) {
+        return maybeResponse.data.message;
+      }
+    }
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return undefined;
+  };
+
   // Componente local: CajaQuick (declarado antes del return para evitar errores TSX)
   const CajaQuick: React.FC = () => {
-    const [startTs, setStartTs] = useState<number | null>(() => {
-      try {
-        const v = localStorage.getItem('caja:start');
-        return v ? Number(v) : null;
-      } catch {
-        return null;
-      }
-    });
-    const cajaOpen = !!startTs;
+    const [sesion, setSesion] = useState<CajaSesionApi | null>(null);
+    const [cajaLoading, setCajaLoading] = useState<boolean>(true);
+    const [cajaError, setCajaError] = useState<string | null>(null);
+    const [expirada, setExpirada] = useState<boolean>(false);
     const [showConfirm, setShowConfirm] = useState(false);
 
-    const openCaja = () => {
-      const ts = Date.now();
-  try { localStorage.setItem('caja:start', String(ts)); } catch { /* ignore storage errors */ }
-      setStartTs(ts);
-      navigate('/ventas/cierre-caja');
-    };
-
-    const closeCaja = () => {
-  try { localStorage.removeItem('caja:start'); } catch { /* ignore storage errors */ }
-      setStartTs(null);
-      navigate('/ventas/cierre-caja');
-    };
-
-    
-
-    const formatDateSpanish = (ts: number) => {
+    const loadEstado = useCallback(async () => {
       try {
-        const d = new Date(ts);
-        const day = d.getDate();
+        setCajaError(null);
+        const estado = await cajaService.getEstado();
+        if (estado.abierta && estado.sesion) {
+          setSesion(estado.sesion);
+        } else {
+          setSesion(null);
+        }
+        setExpirada(Boolean(estado.expirada));
+      } catch (error: unknown) {
+        console.error('Error obteniendo estado de caja:', error);
+        const message = resolveCajaApiMessage(error) ?? 'No se pudo obtener el estado de la caja.';
+        setCajaError(message);
+      } finally {
+        setCajaLoading(false);
+      }
+    }, []);
+
+    useEffect(() => {
+      let mounted = true;
+
+      const init = async () => {
+        if (!mounted) return;
+        setCajaLoading(true);
+        await loadEstado();
+      };
+
+      init();
+
+      const interval = window.setInterval(() => {
+        loadEstado();
+      }, 60000);
+
+      return () => {
+        mounted = false;
+        window.clearInterval(interval);
+      };
+    }, [loadEstado]);
+
+    const openCaja = () => {
+      setCajaError(null);
+      navigate('/ventas/cierre-caja', { state: { requireOpenCaja: true } });
+    };
+
+    const cerrarCaja = async () => {
+      try {
+        setCajaLoading(true);
+        setCajaError(null);
+        await cajaService.cerrarCaja();
+        setSesion(null);
+        setShowConfirm(false);
+        navigate('/ventas/cierre-caja');
+      } catch (error: unknown) {
+        console.error('Error al cerrar la caja:', error);
+        const message = resolveCajaApiMessage(error) ?? 'No se pudo cerrar la caja.';
+        setCajaError(message);
+      } finally {
+        setCajaLoading(false);
+      }
+    };
+
+    const cajaOpen = !!sesion;
+    const fechaApertura = sesion ? new Date(sesion.fecha_apertura) : null;
+
+    const formatDateSpanish = (date?: Date | null) => {
+      if (!date) return '';
+      try {
+        const day = date.getDate();
         const monthNames = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
-        return `${day} DE ${monthNames[d.getMonth()]}`;
-      } catch { return '' }
+        return `${day} DE ${monthNames[date.getMonth()]}`;
+      } catch {
+        return '';
+      }
     };
 
-    const formatCurrency = (amount: number) => {
-      // show like Q.78.0 or Q.0.00 -> use 2 decimals
-      return `Q.${amount.toFixed(2)}`;
-    };
-
-    // Always render card; button color/label depends on cajaOpen.
     return (
       <>
         <div className="flex items-center justify-center w-full mt-1 caja-quick-widget">
@@ -518,7 +582,8 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
             // Vista colapsada: solo icono
             <button 
               onClick={cajaOpen ? () => setShowConfirm(true) : openCaja}
-              className={`w-12 h-12 rounded-lg ${cajaOpen ? 'bg-yellow-400 hover:bg-yellow-500' : 'bg-green-500 hover:bg-green-600'} flex items-center justify-center shadow-md transition-colors`}
+              disabled={cajaLoading}
+              className={`w-12 h-12 rounded-lg ${cajaOpen ? 'bg-yellow-400 hover:bg-yellow-500' : 'bg-green-500 hover:bg-green-600'} flex items-center justify-center shadow-md transition-colors ${cajaLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
               title={cajaOpen ? 'Cerrar Caja' : 'Abrir Caja'}
             >
               <MdLockOpen size={24} className={cajaOpen ? 'text-gray-900' : 'text-white'} />
@@ -527,20 +592,25 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
             // Vista expandida: card completa
             <div className="w-full bg-gray-50 rounded-lg p-2 flex flex-col items-center shadow-md border border-gray-200">
               <div className="text-xs uppercase font-semibold text-gray-500 mb-1">
-                {cajaOpen ? 'Caja Abierta' : 'Caja Cerrada'}
+                {cajaOpen ? 'Caja Abierta' : expirada ? 'Caja Expirada' : 'Caja Cerrada'}
               </div>
-              <div className="text-lg font-semibold text-gray-700 text-center">{formatDateSpanish(startTs || Date.now())}</div>
-              {cajaOpen && (
-                <div className="text-sm text-gray-600 mt-1 text-center">{formatCurrency(0)}</div>
+              <div className="text-lg font-semibold text-gray-700 text-center">
+                {cajaOpen ? formatDateSpanish(fechaApertura) : '—'}
+              </div>
+              {cajaError && (
+                <div className="text-xs text-red-600 mt-1 text-center">{cajaError}</div>
+              )}
+              {expirada && !cajaOpen && !cajaError && (
+                <div className="text-xs text-amber-600 mt-1 text-center">La última sesión se cerró automáticamente por tiempo.</div>
               )}
               <div className="mt-2 w-full">
                 {!cajaOpen ? (
-                  <button onClick={openCaja} className="w-full bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2 text-sm">
+                  <button onClick={openCaja} disabled={cajaLoading} className={`w-full bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2 text-sm ${cajaLoading ? 'opacity-70 cursor-not-allowed' : ''}`}>
                     <MdLockOpen size={16} />
                     Abrir Caja
                   </button>
                 ) : (
-                  <button onClick={() => setShowConfirm(true)} className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2 text-sm">
+                  <button onClick={() => setShowConfirm(true)} disabled={cajaLoading} className={`w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 px-3 py-2 rounded-full font-normal flex items-center justify-center gap-2 text-sm ${cajaLoading ? 'opacity-70 cursor-not-allowed' : ''}`}>
                     <MdLockOpen size={16} />
                     Cerrar Caja
                   </button>
@@ -558,11 +628,11 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
               <h3 className="text-xl font-semibold mb-4 text-center">Confirmar cierre</h3>
               <p className="text-lg text-gray-700 mb-8 leading-relaxed text-center">¿Estás seguro de que deseas cerrar la caja?<br />Se registrará el cierre y podrá revisarse en el módulo de ventas.</p>
               <div className="flex gap-4 justify-end">
-                <button onClick={() => setShowConfirm(false)} className="px-6 py-3 rounded-md bg-gray-100 hover:bg-gray-200 font-bold text-xl flex items-center gap-2">
+                <button onClick={() => setShowConfirm(false)} disabled={cajaLoading} className={`px-6 py-3 rounded-md bg-gray-100 hover:bg-gray-200 font-bold text-xl flex items-center gap-2 ${cajaLoading ? 'opacity-70 cursor-not-allowed' : ''}`}>
                   <MdCancel size={24} />
                   Cancelar
                 </button>
-                <button onClick={() => { setShowConfirm(false); closeCaja(); }} className="px-6 py-3 rounded-md bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold text-xl flex items-center gap-2">
+                <button onClick={cerrarCaja} disabled={cajaLoading} className={`px-6 py-3 rounded-md bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold text-xl flex items-center gap-2 ${cajaLoading ? 'opacity-70 cursor-not-allowed' : ''}`}>
                   <MdLock size={24} />
                   Cerrar caja
                 </button>
@@ -614,7 +684,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           </motion.button>
         </div>
         <nav className="flex flex-col gap-3 sm:gap-4 w-full px-2 sm:px-3" role="navigation">
-          {sidebarSections.map((sec) => (
+          {visibleSidebarSections.map((sec) => (
             <div key={sec.title}>
               {!collapsed && <div className="px-2 sm:px-3 text-xs uppercase text-gray-400 mb-1">{sec.title}</div>}
               <div className="flex flex-col gap-2">

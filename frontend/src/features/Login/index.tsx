@@ -230,8 +230,9 @@ const Login = () => {
         {/* Right Side - Image */}
         <div className="login-right">
           <button
+            type="button"
             className="close-btn"
-            onClick={() => navigate("/")}
+            onClick={() => navigate("/home")}
           >
             ✕
           </button>

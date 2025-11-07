@@ -19,6 +19,7 @@ export interface Venta {
   // Datos adicionales para el frontend
   productos?: string; // Para mostrar en la tabla
   metodo?: string; // Para mostrar en la tabla
+  productos_resumen?: string;
   cliente?: {
     nombre: string;
     telefono?: string;

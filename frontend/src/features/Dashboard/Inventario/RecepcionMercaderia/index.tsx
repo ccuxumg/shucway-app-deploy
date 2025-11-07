@@ -3,6 +3,8 @@ import { PiPackageBold, PiEyeBold, PiTrashBold, PiPencilBold } from "react-icons
 import { useNavigate } from 'react-router-dom';
 import { api } from "../../../../api/apiClient";
 import { message } from "antd";
+import { useAuth } from "../../../../hooks/useAuth";
+import { PermissionLevel } from "../../../../constants/permissions";
 
 /* =============== Tipos =============== */
 type RecepcionMercaderia = {
@@ -48,6 +50,8 @@ export default function RecepcionMercaderia() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { roleLevel } = useAuth();
+  const canManageRecepciones = (roleLevel ?? 0) >= PermissionLevel.ADMINISTRADOR;
 
   // Estados de filtrado
   const [searchTerm, setSearchTerm] = useState("");
@@ -100,6 +104,10 @@ export default function RecepcionMercaderia() {
   const totalPages = Math.ceil((Array.isArray(filteredRecepciones) ? filteredRecepciones.length : 0) / pageSize);
 
   const handleDelete = async (id: number) => {
+    if (!canManageRecepciones) {
+      message.warning('No tienes permisos para modificar recepciones.');
+      return;
+    }
     try {
       await api.delete(`/inventario/recepciones-mercaderia/${id}`);
       message.success('Recepción eliminada exitosamente');
@@ -123,12 +131,20 @@ export default function RecepcionMercaderia() {
   };
 
   const handleEdit = (recepcion: RecepcionMercaderia) => {
+    if (!canManageRecepciones) {
+      message.warning('No tienes permisos para modificar recepciones.');
+      return;
+    }
     setSelectedRecepcion(recepcion);
     setInvoiceNumber(recepcion.numero_factura || '');
     setEditModal(true);
   };
 
   const handleUpdateInvoice = async () => {
+    if (!canManageRecepciones) {
+      message.warning('No tienes permisos para modificar recepciones.');
+      return;
+    }
     if (!selectedRecepcion) {
       return;
     }
@@ -259,24 +275,28 @@ export default function RecepcionMercaderia() {
                           <button
                             onClick={() => handleView(recepcion)}
                             className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors duration-200"
-                            title="Ver detalles"
+                            title="Ver detalle"
                           >
                             <PiEyeBold className="w-5 h-5" />
                           </button>
-                          <button
-                            onClick={() => handleEdit(recepcion)}
-                            className="p-2 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg transition-colors duration-200"
-                            title="Editar factura"
-                          >
-                            <PiPencilBold className="w-5 h-5" />
-                          </button>
-                          <button
-                            onClick={() => setDeleteModal({ open: true, recepcion })}
-                            className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors duration-200"
-                            title="Eliminar"
-                          >
-                            <PiTrashBold className="w-5 h-5" />
-                          </button>
+                          {canManageRecepciones && (
+                            <button
+                              onClick={() => handleEdit(recepcion)}
+                              className="p-2 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg transition-colors duration-200"
+                              title="Editar factura"
+                            >
+                              <PiPencilBold className="w-5 h-5" />
+                            </button>
+                          )}
+                          {canManageRecepciones && (
+                            <button
+                              onClick={() => setDeleteModal({ open: true, recepcion })}
+                              className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors duration-200"
+                              title="Eliminar"
+                            >
+                              <PiTrashBold className="w-5 h-5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -449,22 +469,15 @@ export default function RecepcionMercaderia() {
                     <p className="text-base font-semibold text-gray-900">{selectedRecepcion.numero_orden || selectedRecepcion.orden_compra?.numero_orden || '-'}</p>
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-gray-500 mb-1">Proveedor</p>
-                    <p className="text-base font-semibold text-gray-900">{selectedRecepcion.orden_compra?.proveedor?.nombre || '-'}</p>
+                    <p className="text-xs font-medium text-gray-500 mb-1">Número de factura</p>
+                    <input
+                      className="w-full h-11 rounded-lg border border-gray-300 px-3 text-base focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                      placeholder="Ingrese el número de factura"
+                      value={invoiceNumber}
+                      onChange={(event) => setInvoiceNumber(event.target.value)}
+                      maxLength={50}
+                    />
                   </div>
-                </div>
-
-                <div>
-                  <label htmlFor="numeroFacturaInput" className="block text-xs font-semibold text-gray-600 mb-1">Número de factura</label>
-                  <input
-                    id="numeroFacturaInput"
-                    type="text"
-                    value={invoiceNumber}
-                    onChange={(e) => setInvoiceNumber(e.target.value)}
-                    className="w-full h-11 rounded-lg border border-gray-300 px-3 text-base focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                    placeholder="Ingrese el número de factura"
-                    maxLength={50}
-                  />
                 </div>
 
                 <div className="flex justify-end gap-3">

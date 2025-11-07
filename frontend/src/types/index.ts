@@ -66,6 +66,13 @@ export interface UsuarioDataType {
   nombre?: string; // Campo adicional del backend
   roles?: string; // Roles concatenados del backend
   nivel_permisos?: number; // Nivel de permisos del backend
+  ventas_stats?: UsuarioVentasStats;
+}
+
+export interface UsuarioVentasStats {
+  totalVentas: number;
+  totalProductos: number;
+  totalIngresos: number;
 }
 
 export interface InsumoDataType {

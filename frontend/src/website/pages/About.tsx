@@ -141,6 +141,11 @@ const About = () => {
       alt="Clientes en Shucway"
       className="about-gallery-img animate-zoom-in"
     />
+    <img
+      src="/image/fotos-local/local.jpg"
+      alt="Ambiente Shucway"
+      className="about-gallery-img animate-zoom-in"
+    />
   </div>
 </section>
 

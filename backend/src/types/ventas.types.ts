@@ -23,6 +23,7 @@ export interface Venta {
   total_costo: number;
   ganancia: number;
   notas?: string;
+  productos_resumen?: string;
 }
 
 export interface DetalleVenta {

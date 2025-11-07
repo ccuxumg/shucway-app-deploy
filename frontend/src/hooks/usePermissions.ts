@@ -14,6 +14,7 @@ export const MODULE_PERMISSIONS = {
   VENTAS: 50,          // Vendedores y superiores
   PRODUCTOS: 60,       // Gerentes y superiores
   USUARIOS: 80,        // Solo administradores y superiores
+  CAJA: 30,            // Cajeros y superiores
   CONFIGURACION: 90,   // Solo administradores
 } as const;
 
@@ -40,7 +41,7 @@ export const usePermissions = () => {
   const getAllowedModulesForLimitedUser = () => {
     if (!isLimitedUser()) return Object.keys(MODULE_PERMISSIONS);
 
-    return ['VENTAS', 'REPORTES'];
+    return ['VENTAS', 'REPORTES', 'CAJA'];
   };
 
   // Verificar si un módulo está permitido para el usuario actual

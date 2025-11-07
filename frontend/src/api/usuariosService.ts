@@ -220,12 +220,11 @@ export const getEstadisticas = async (): Promise<Estadisticas> => {
  */
 export const checkEmailExists = async (email: string, excludeId?: number): Promise<boolean> => {
   try {
-    const token = localStorage.getItem('token');
-    const params = new URLSearchParams({ email });
-    if (excludeId) params.append('excludeId', excludeId.toString());
+    const params: Record<string, string | number> = { email };
+    if (excludeId !== undefined) params.excludeId = excludeId;
 
-    const response = await api.get(`/usuarios/check-email?${params}`, {
-      headers: { Authorization: token ? `Bearer ${token}` : '' }
+    const response = await api.get(`/usuarios/check-email`, {
+      params,
     });
     return response.data.exists;
   } catch (error) {
@@ -239,12 +238,11 @@ export const checkEmailExists = async (email: string, excludeId?: number): Promi
  */
 export const checkUsernameExists = async (username: string, excludeId?: number): Promise<boolean> => {
   try {
-    const token = localStorage.getItem('token');
-    const params = new URLSearchParams({ username });
-    if (excludeId) params.append('excludeId', excludeId.toString());
+    const params: Record<string, string | number> = { username };
+    if (excludeId !== undefined) params.excludeId = excludeId;
 
-    const response = await api.get(`/usuarios/check-username?${params}`, {
-      headers: { Authorization: token ? `Bearer ${token}` : '' }
+    const response = await api.get(`/usuarios/check-username`, {
+      params,
     });
     return response.data.exists;
   } catch (error) {

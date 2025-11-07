@@ -431,7 +431,7 @@ table{font-size:12px}
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%" minWidth={300} minHeight={200} key={`pie-categoria-${pieCategoria.length}`}>
+              <ResponsiveContainer width="100%" height={260} minWidth={300} minHeight={200} key={`pie-categoria-${pieCategoria.length}`}>
                 <PieChart>
                   <Pie data={pieCategoria} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
                     {pieCategoria.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
@@ -455,7 +455,7 @@ table{font-size:12px}
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%" minWidth={300} minHeight={200} key={`pie-metodo-${pieMetodo.length}`}>
+              <ResponsiveContainer width="100%" height={260} minWidth={300} minHeight={200} key={`pie-metodo-${pieMetodo.length}`}>
                 <PieChart>
                   <Pie data={pieMetodo} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2}>
                     {pieMetodo.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
@@ -491,7 +491,7 @@ table{font-size:12px}
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%" minWidth={400} minHeight={300}>
+              <ResponsiveContainer width="100%" height={240} minWidth={400} minHeight={240}>
                 <BarChart data={topVendidos} margin={{left:10,right:10,top:10,bottom:10}}>
                   <CartesianGrid stroke="#f3f4f6" vertical={false} />
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} />
@@ -524,7 +524,7 @@ table{font-size:12px}
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%" minWidth={400} minHeight={300} key={`bar-rentables-${topRentables.length}`}>
+              <ResponsiveContainer width="100%" height={240} minWidth={400} minHeight={240} key={`bar-rentables-${topRentables.length}`}>
                 <BarChart data={topRentables} margin={{left:10,right:10,top:10,bottom:10}}>
                   <CartesianGrid stroke="#f3f4f6" vertical={false} />
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} />

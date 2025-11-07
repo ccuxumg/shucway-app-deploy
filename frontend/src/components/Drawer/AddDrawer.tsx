@@ -1,14 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Drawer,
   Input,
-  message,
   Select,
   Spin,
   Upload,
   UploadProps,
   DatePicker,
+  message,
 } from "antd";
 import { uploadFile } from "../../api/uploadFIle";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -23,7 +23,7 @@ import { UsuarioFormData } from "../../types";
 import dayjs from "dayjs";
 import { useAuth } from "../../hooks/useAuth";
 
-import { BiPhone, BiUser, BiUserPlus, BiMap } from "react-icons/bi";
+import { BiPhone, BiUser, BiUserPlus, BiMap, BiLock } from "react-icons/bi";
 import { CgClose } from "react-icons/cg";
 import AddNewUserIcon from "../../assets/icons/AddNewUser.svg";
 import ImportAvatar from "../../assets/icons/importAvatar.svg";
@@ -40,6 +40,7 @@ const AddDrawer = () => {
   const toggleDrawer = useToggleDrawer();
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
+  const [messageApi, contextHolder] = message.useMessage();
 
   // Obtener roles disponibles
   const { data: rolesData, isLoading: isLoadingRoles } = useQuery({
@@ -47,6 +48,11 @@ const AddDrawer = () => {
     queryFn: () => getRoles(1, 100), // Obtener todos los roles
     staleTime: 15 * 60 * 1000, // 15 minutos - los roles no cambian frecuentemente
   });
+
+  const availableRoles = useMemo(
+    () => (rolesData?.data as Rol[] | undefined)?.filter((rol) => rol.nombre_rol.toLowerCase() !== 'cliente') ?? [],
+    [rolesData?.data]
+  );
 
   const { mutate: addUsuarioApi } = useMutation({
     mutationFn: addUsuario,
@@ -63,6 +69,8 @@ const AddDrawer = () => {
     formState: { errors },
     control,
     reset,
+    setValue,
+    getValues,
   } = useForm<UsuarioFormData>({
     defaultValues: {
       email: '',
@@ -77,15 +85,44 @@ const AddDrawer = () => {
       avatar_url: '',
       estado: 'activo',
       username: '',
-      rol: rolesData?.data?.[0]?.nombre_rol || ''
+      rol: '',
     }
   });
 
   useEffect(() => {
+    if (availableRoles.length === 0) return;
+    const currentRole = getValues('rol');
+    if (!currentRole || !availableRoles.some((rol) => rol.nombre_rol === currentRole)) {
+      setValue('rol', availableRoles[0].nombre_rol, { shouldValidate: true });
+    }
+  }, [availableRoles, getValues, setValue]);
+
+  useEffect(() => {
     const queryParams = new URLSearchParams(location.search);
     const showDrawerParam = queryParams.get("showDrawerAdd");
-    setIsDrawerOpen(showDrawerParam === "true");
-  }, [location.search]);
+    const isOpen = showDrawerParam === "true";
+    setIsDrawerOpen(isOpen);
+    
+    // Limpiar el formulario cuando se abre el drawer
+    if (isOpen) {
+      reset({
+        email: '',
+        password: '',
+        primer_nombre: '',
+        segundo_nombre: '',
+        primer_apellido: '',
+        segundo_apellido: '',
+        telefono: '',
+        direccion: '',
+        fecha_nacimiento: null,
+        avatar_url: '',
+        estado: 'activo',
+        username: '',
+        rol: availableRoles[0]?.nombre_rol || '',
+      });
+      setAvatar(null);
+    }
+  }, [location.search, reset, availableRoles]);
 
   // Función de validación asíncrona para email
   const validateEmail = async (value: string | null) => {
@@ -150,102 +187,101 @@ const AddDrawer = () => {
         }
       });
 
-      message.success('Usuario creado exitosamente');
+      messageApi.success('Usuario creado exitosamente');
       reset();
       onCloseDrawer();
     } catch (error) {
-      message.error('Error al crear el usuario: ' + (error as Error).message);
+      messageApi.error('Error al crear el usuario: ' + (error as Error).message);
     }
   };
 
   const props: UploadProps = {
-  name: "file",
-  multiple: false,
-  async onChange(info) {
-    const { status } = info.file;
-    setIsUploading(true);
+    name: "file",
+    multiple: false,
+    async onChange(info) {
+      const { status } = info.file;
+      setIsUploading(true);
 
-    if (status === "done") {
-      const file = info.file.originFileObj;
+      if (status === "done") {
+        const file = info.file.originFileObj;
 
-      if (!currentUser?.id_perfil) {
-        message.error("No se encontró la sesión de usuario. Vuelve a iniciar sesión.");
-        setIsUploading(false);
-        return;
+        if (!currentUser?.id_perfil) {
+          messageApi.error("No se encontró la sesión de usuario. Vuelve a iniciar sesión.");
+          setIsUploading(false);
+          return;
+        }
+
+        const fileUrl = await uploadFile(file, currentUser.id_perfil.toString());
+        if (!fileUrl) {
+          messageApi.error("No se pudo obtener la URL del archivo");
+          setIsUploading(false);
+          return;
+        }
+
+        setAvatar(fileUrl);
+        messageApi.success(`${info.file.name} se subió correctamente`);
+      } else if (status === "error") {
+        messageApi.error(`Error al subir el archivo ${info.file.name}`);
       }
 
-      const fileUrl = await uploadFile(file, currentUser.id_perfil.toString());
-      if (!fileUrl) {
-        message.error("No se pudo obtener la URL del archivo");
-        setIsUploading(false);
-        return;
-      }
-
-      setAvatar(fileUrl);
-      message.success(`${info.file.name} se subió correctamente`);
-    } else if (status === "error") {
-      message.error(`Error al subir el archivo ${info.file.name}`);
-    }
-
-    setIsUploading(false);
-  },
-  customRequest: ({ onSuccess }) => {
-    setTimeout(() => {
-      onSuccess?.("ok");
-    }, 0);
-  },
-  onDrop(e) {
-    console.log("Archivos arrastrados", e.dataTransfer.files);
-  },
-};
+      setIsUploading(false);
+    },
+    customRequest: ({ onSuccess }) => {
+      setTimeout(() => {
+        onSuccess?.("ok");
+      }, 0);
+    },
+  };
 
   return (
-    <Drawer
-      title={
-        <div className="flex items-center gap-4">
-          <img src={AddNewUserIcon} alt="add user icon" />
-          <div>
-            <p className="text-[1.6rem] font-semibold">Agregar Nuevo Usuario</p>
-            <p className="text-sm text-gray-500">Complete todos los datos del usuario</p>
-          </div>
-        </div>
-      }
-      placement="right"
-      onClose={onCloseDrawer}
-      open={isAddDrawerOpen}
-      width={700}
-      closeIcon={<CgClose size={20} />}
-      destroyOnClose
-    >
-      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col h-full">
-        <div className="flex-1">
-          {/* Avatar Upload Section */}
-          <div className="mt-6 px-6 py-4">
-            <div className="flex flex-col gap-4">
-              <label className="text-gray-700 font-medium">Avatar</label>
-              <div className="flex items-center gap-6">
-                <img
-                  src={avatar || ImportAvatar}
-                  alt="avatar"
-                  className="w-20 h-20 rounded-full object-cover"
-                />
-                <Dragger {...props} className="flex-1">
-                  <div className="flex items-center gap-5">
-                    {isUplaoding ? (
-                      <Spin />
-                    ) : (
-                      <img src={UploadIcon} alt="upload icon" />
-                    )}
-                    <p className="text-[1.4rem] font-extralight w-8/12">
-                      <strong>Click to upload</strong> or drag and drop SVG, PNG,
-                      JPG or GIF
-                    </p>
-                  </div>
-                </Dragger>
-              </div>
+    <>
+      {contextHolder}
+      <Drawer
+        title={
+          <div className="flex items-center gap-4">
+            <img src={AddNewUserIcon} alt="add user icon" />
+            <div>
+              <p className="text-[1.6rem] font-semibold">Agregar Nuevo Usuario</p>
+              <p className="text-sm text-gray-500">Complete todos los datos del usuario</p>
             </div>
           </div>
-          <hr />
+        }
+        placement="right"
+        onClose={onCloseDrawer}
+        open={isAddDrawerOpen}
+        width={700}
+        closeIcon={<CgClose size={20} />}
+        destroyOnClose
+      >
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col h-full">
+          <div className="flex-1">
+            {/* Avatar Upload Section */}
+            <div className="mt-6 px-6 py-4">
+              <div className="flex flex-col gap-4">
+                <label className="text-gray-700 font-medium">Avatar</label>
+                <div className="flex items-center gap-6">
+                  <img
+                    src={avatar || ImportAvatar}
+                    alt="avatar"
+                    className="w-20 h-20 rounded-full object-cover"
+                  />
+                  <Dragger {...props} className="flex-1">
+                    <div className="flex items-center gap-5">
+                      {isUplaoding ? (
+                        <Spin />
+                      ) : (
+                        <img src={UploadIcon} alt="upload icon" />
+                      )}
+                      <p className="text-[1.4rem] font-extralight w-8/12">
+                        <strong>Click to upload</strong> or drag and drop SVG, PNG,
+                        JPG or GIF
+                      </p>
+                    </div>
+                  </Dragger>
+                </div>
+              </div>
+            </div>
+            <hr />
 
           <div className="mt-6 flex flex-col">
             <div
@@ -392,20 +428,20 @@ const AddDrawer = () => {
                   required: 'La contraseña es requerida',
                   minLength: {
                     value: 6,
-                    message: 'La contraseña debe tener al menos 6 caracteres'
-                  }
+                    message: 'La contraseña debe tener al menos 6 caracteres',
+                  },
                 }}
                 render={({ field }) => (
                   <Input.Password
                     {...field}
+                    value={field.value || ''}
+                    prefix={<BiLock />}
                     placeholder="Ingrese contraseña"
                   />
                 )}
               />
               {errors.password && (
-                <p className="text-red-500 text-[1.2rem]">
-                  {errors.password.message as string}
-                </p>
+                <p className="text-red-500 text-[1.2rem]">{errors.password.message as string}</p>
               )}
             </div>
 
@@ -528,12 +564,10 @@ const AddDrawer = () => {
                     {...field}
                     placeholder="Seleccione rol"
                     loading={isLoadingRoles}
-                    options={
-                      rolesData?.data?.map((rol: Rol) => ({
-                        value: rol.nombre_rol,
-                        label: rol.nombre_rol
-                      })) || []
-                    }
+                    options={availableRoles.map((rol) => ({
+                      value: rol.nombre_rol,
+                      label: rol.nombre_rol,
+                    }))}
                   />
                 )}
               />
@@ -556,9 +590,10 @@ const AddDrawer = () => {
               Crear Usuario
             </Button>
           </div>
-        </div>
-      </form>
-    </Drawer>
+          </div>
+        </form>
+      </Drawer>
+    </>
   );
 };
 

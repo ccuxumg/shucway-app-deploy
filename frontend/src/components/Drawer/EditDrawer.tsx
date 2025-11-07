@@ -388,29 +388,26 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
           return;
         }
 
-        // Cargar roles
-        getRoles(1, 100, { estado: 'activo' })
-          .then((response) => {
-            if (mounted) {
-              setRoles(response.data as Rol[]);
-            }
-          })
-          .catch((error) => {
-            console.error('Error cargando roles:', error);
-          });
+        const [rolesResponse, userRoles] = await Promise.all([
+          getRoles(1, 100, { estado: 'activo' }),
+          data?.id_perfil ? getRolesByUsuario(Number(data.id_perfil)) : Promise.resolve(null),
+        ]);
 
-        // Cargar rol del usuario si hay id_perfil
-        if (data?.id_perfil) {
-          getRolesByUsuario(Number(data.id_perfil))
-            .then((ur: UsuarioRolResponse[]) => {
-              if (!mounted) return;
-              const first = ur?.[0];
-              setSelectedRoleId(first?.rol_usuario?.id_rol || null);
-            })
-            .catch((error) => {
-              console.error('Error cargando rol del usuario:', error);
-            });
+        if (!mounted) return;
+
+        const filteredRoles = (rolesResponse.data as Rol[]).filter((rol) => rol.nombre_rol.toLowerCase() !== 'cliente');
+        setRoles(filteredRoles);
+
+        let nextRoleId: number | null = null;
+        if (Array.isArray(userRoles) && userRoles.length > 0) {
+          nextRoleId = userRoles[0]?.rol_usuario?.id_rol ?? null;
         }
+
+        if (nextRoleId && !filteredRoles.some((rol) => rol.id_rol === nextRoleId)) {
+          nextRoleId = filteredRoles[0]?.id_rol ?? null;
+        }
+
+        setSelectedRoleId(nextRoleId);
       } catch (error) {
         console.error('Error verificando sesión:', error);
       }

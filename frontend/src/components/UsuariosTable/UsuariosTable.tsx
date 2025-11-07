@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import TableTitle from "../TableTitle/TableTitle";
 import "./UsuariosTable.css";
 import TableHeader from "../TableHeader/TableHeader";
-import { Pagination, PaginationProps, Spin, Modal, message } from "antd";
+import { Pagination, PaginationProps, Spin, Modal, message as antdMessage } from "antd";
 import AddDrawer from "../Drawer/AddDrawer";
 import EditDrawer from "../Drawer/EditDrawer";
 import { useLocation } from "react-router-dom";
@@ -17,7 +17,7 @@ import { useMemo } from "react";
 import AvatarIcon from "../../assets/icons/avatar.svg";
 import { usePermissions } from "../../hooks/usePermissions";
 import { MdVisibility, MdEdit, MdDelete } from "react-icons/md";
-import { PiArrowUpBold, PiArrowDownBold } from "react-icons/pi";
+import { PiArrowUpBold, PiArrowDownBold, PiWarningBold } from "react-icons/pi";
 import { useToggleDrawer } from "../../hooks/usetoggleDrawer";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { deleteUsuario } from "../../api/deleteUsuario";
@@ -61,17 +61,18 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
   const toggleDrawer = useToggleDrawer();
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
+  const [messageApi, contextHolder] = antdMessage.useMessage();
 
-  const { mutate: deleteUsuarioApi } = useMutation({
+  const { mutateAsync: softDeleteApi } = useMutation({
     mutationFn: (id: number) => cambiarEstado(id, 'eliminado'),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["usuarios"],
       });
-      message.success('Usuario marcado como eliminado');
+      messageApi.success('Usuario marcado como eliminado');
     },
     onError: (error: Error) => {
-      message.error(`Error al eliminar usuario: ${error.message}`);
+      messageApi.error(`Error al eliminar usuario: ${error.message}`);
     },
   });
 
@@ -80,12 +81,50 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
     mutationFn: (id: string) => deleteUsuario(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["usuarios"], exact: false });
-      message.success('Usuario eliminado permanentemente');
+      messageApi.success('Usuario eliminado permanentemente');
     },
     onError: (error: Error) => {
-      message.error(`Error al eliminar usuario permanentemente: ${error.message}`);
+      messageApi.error(`Error al eliminar usuario permanentemente: ${error.message}`);
     },
   });
+
+  const [deleteModalState, setDeleteModalState] = useState<{ open: boolean; user: UsuarioDataType | null; type: 'soft' | 'hard' }>({
+    open: false,
+    user: null,
+    type: 'soft',
+  });
+  const [hardDeleteText, setHardDeleteText] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  const closeDeleteModal = () => {
+    setDeleteModalState({ open: false, user: null, type: 'soft' });
+    setHardDeleteText('');
+    setDeleteLoading(false);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteModalState.user) return;
+
+    try {
+      setDeleteLoading(true);
+
+      if (deleteModalState.type === 'hard') {
+        if (hardDeleteText.trim() !== 'ELIMINAR') {
+          messageApi.warning('Debes escribir ELIMINAR para confirmar.');
+          setDeleteLoading(false);
+          return;
+        }
+        await hardDeleteApi(deleteModalState.user.id_perfil.toString());
+      } else {
+        await softDeleteApi(deleteModalState.user.id_perfil);
+      }
+
+      closeDeleteModal();
+    } catch (error) {
+      console.error('Error al eliminar usuario:', error);
+      setDeleteLoading(false);
+    }
+  };
 
   // Funciones de manejo de acciones
   const handleView = (record: UsuarioDataType) => {
@@ -108,49 +147,13 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
       return;
     }
 
-    // Si ya está marcado como 'eliminado', pedir confirmación escrita para borrado definitivo
-    if (record.estado === 'eliminado') {
-      let confirmation = '';
-      Modal.confirm({
-        title: 'Eliminar usuario permanentemente',
-        content: (
-          <div>
-            <p>El usuario ya está marcado como <strong>eliminado</strong>. Esto borrará sus datos permanentemente.</p>
-            <p>Escribe <strong>ELIMINAR</strong> para confirmar:</p>
-            <input
-              onChange={(e) => (confirmation = e.target.value)}
-              className="w-full border rounded px-2 py-1"
-              placeholder="ELIMINAR"
-            />
-          </div>
-        ),
-        okText: 'Eliminar permanentemente',
-        okType: 'danger',
-        cancelText: 'Cancelar',
-        async onOk() {
-          if (confirmation !== 'ELIMINAR') {
-            Modal.error({ title: 'Confirmación inválida', content: 'Debes escribir ELIMINAR para confirmar.' });
-            return Promise.reject();
-          }
-
-          // Llamar al endpoint de borrado físico
-          return hardDeleteApi(record.id_perfil.toString());
-        },
-      });
-      return;
-    }
-
-    // Si está activo o inactivo, solo marcar como 'eliminado'
-    Modal.confirm({
-      title: 'Confirmar eliminación',
-      content: `¿Estás seguro que deseas eliminar al usuario "${record?.primer_nombre} ${record?.primer_apellido}"? Esta acción no se puede deshacer.`,
-      okText: 'Eliminar',
-      okType: 'danger',
-      cancelText: 'Cancelar',
-      onOk() {
-        deleteUsuarioApi(record.id_perfil);
-      },
+    // Abrir modal personalizado inspirado en IngresoCompra
+    setDeleteModalState({
+      open: true,
+      user: record,
+      type: record.estado === 'eliminado' ? 'hard' : 'soft',
     });
+    setHardDeleteText('');
   };
 
   // Función para alternar ordenamiento
@@ -176,7 +179,7 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
           <img
             src={record?.avatar_url || AvatarIcon}
             alt="avatar"
-            className="min-w-16 h-16 rounded-[50%] object-cover"
+            className="w-16 h-16 rounded-full object-cover aspect-square"
           />
           <div className="flex flex-col ">
             <p className="font-semibold">{record?.primer_nombre} {record?.primer_apellido}</p>
@@ -511,27 +514,28 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
 
   return (
     <>
+      {contextHolder}
       <TableTitle totalUsuarios={totalUsuarios} />
-      <div className="list_view ">
+      <div className="mt-6 space-y-6">
         <TableHeader
           columnsInfo={columnsInfo}
           handleChangeColumns={handleChangeColumns}
           handleSearch={handleSearch}
         />
-        {isLoading ? (
-          <div className="w-full h-[50vh] flex justify-center items-center">
-            <Spin />
-          </div>
-        ) : usuarios.length === 0 ? (
-          <div className="w-full h-[50vh] flex justify-center items-center">
-            <div className="text-center">
-              <p className="text-gray-500 text-lg">No hay usuarios</p>
+        <div className="bg-white border border-gray-200 rounded-xl shadow-sm">
+          {isLoading ? (
+            <div className="flex h-[320px] items-center justify-center">
+              <Spin />
             </div>
-          </div>
-        ) : (
-          <>
-            <div className="custom-scrollbar">
-              <table className="users-table w-full border-collapse">
+          ) : usuarios.length === 0 ? (
+            <div className="flex h-[320px] flex-col items-center justify-center text-center">
+              <p className="text-gray-500 text-lg">No se encontraron usuarios con los filtros aplicados.</p>
+              <p className="text-gray-400 text-sm mt-2">Intenta ajustar la búsqueda o limpiar los filtros.</p>
+            </div>
+          ) : (
+            <>
+              <div className="custom-scrollbar overflow-x-auto">
+                <table className="users-table w-full border-collapse">
                 <thead>
                   <tr className="bg-gray-50 border-b">
                     {columnsInfo?.filter(col => !col.hidden).map((col) => (
@@ -565,7 +569,7 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
                   {usuarios.map((usuario, index) => (
                     <tr
                       key={usuario.id_perfil}
-                      className={index % 2 === 0 ? 'bg-[#e6f4f1]' : 'bg-white border-b hover:bg-gray-50'}
+                      className={index % 2 === 0 ? 'bg-emerald-50/60' : 'bg-white border-b hover:bg-slate-50'}
                     >
                       {columnsInfo?.filter(col => !col.hidden).map((col) => {
                         const column = col as { dataIndex?: string; render?: (value: unknown, record: UsuarioDataType, index: number) => React.ReactNode };
@@ -582,24 +586,98 @@ const UsuariosTable: React.FC<UsuariosTableProps> = ({ estadoFilter }) => {
                   ))}
                 </tbody>
               </table>
-            </div>
-            <div className="list_view_pagination ">
-              <Pagination
-                total={totalUsuarios}
-                current={currentPage}
-                onChange={handlePageCHnage}
-                pageSize={pageSize}
-                showSizeChanger
-                pageSizeOptions={["5", "10", "20"]}
-                itemRender={itemRender}
-              />
-            </div>
-          </>
-        )}
+              </div>
+              <div className="border-t border-gray-100 px-4 py-4 flex justify-between items-center flex-col gap-3 md:flex-row">
+                <span className="text-sm text-gray-500">
+                  Mostrando {usuarios.length} de {totalUsuarios} usuarios
+                </span>
+                <Pagination
+                  total={totalUsuarios}
+                  current={currentPage}
+                  onChange={handlePageCHnage}
+                  pageSize={pageSize}
+                  showSizeChanger
+                  pageSizeOptions={["5", "10", "20"]}
+                  itemRender={itemRender}
+                />
+              </div>
+            </>
+          )}
+        </div>
       </div>
       <AddDrawer />
-  {/* Drawer de edición global: se controla via query string y carga user por id */}
-  <EditDrawer data={drawerUser ?? undefined} />
+      {/* Drawer de edición global: se controla via query string y carga user por id */}
+      <EditDrawer data={drawerUser ?? undefined} />
+
+      {deleteModalState.open && deleteModalState.user ? (
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 px-6">
+          <div className="w-full max-w-2xl rounded-[32px] bg-white px-12 py-10 shadow-[0_40px_80px_-30px_rgba(15,23,42,0.45)]">
+            <div className="flex items-start gap-3">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-100 text-red-600">
+                <PiWarningBold size={36} />
+              </div>
+              <div className="space-y-4">
+                <h3 className="text-2xl font-semibold text-gray-900">
+                  {deleteModalState.type === 'hard' ? 'Eliminar usuario permanentemente' : 'Confirmar eliminación'}
+                </h3>
+                <p className="text-lg text-gray-600 leading-relaxed">
+                  {deleteModalState.type === 'hard'
+                    ? (
+                      <>
+                        El usuario <strong>{deleteModalState.user.primer_nombre} {deleteModalState.user.primer_apellido}</strong> ya está marcado como eliminado.
+                        Esta acción borrará sus datos de forma <strong>permanente</strong>.
+                      </>
+                    )
+                    : (
+                      <>
+                        ¿Seguro que deseas eliminar al usuario <strong>{deleteModalState.user.primer_nombre} {deleteModalState.user.primer_apellido}</strong>?<br />
+                        Podrás recuperarlo luego desde mantenimiento, excepto si lo eliminas permanentemente.
+                      </>
+                    )}
+                </p>
+              </div>
+            </div>
+
+            {deleteModalState.type === 'hard' ? (
+              <div className="mt-7">
+                <label className="mb-2 block text-base font-semibold text-gray-600">Escribe ELIMINAR para confirmar</label>
+                <input
+                  value={hardDeleteText}
+                  onChange={(e) => setHardDeleteText(e.target.value)}
+                  placeholder="ELIMINAR"
+                  className="w-full rounded-xl border border-gray-200 px-4 py-3.5 text-lg focus:outline-none focus:ring-2 focus:ring-red-200"
+                />
+              </div>
+            ) : null}
+
+            <div className="mt-10 flex justify-end gap-5">
+              <button
+                onClick={closeDeleteModal}
+                className="rounded-xl border border-gray-200 px-6 py-3 text-lg font-semibold text-gray-600 transition-colors hover:bg-gray-100"
+                type="button"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                disabled={deleteLoading}
+                className={`rounded-xl px-6 py-3 text-lg font-semibold text-white transition-colors ${
+                  deleteModalState.type === 'hard'
+                    ? 'bg-red-600 hover:bg-red-700 disabled:bg-red-400'
+                    : 'bg-rose-500 hover:bg-rose-600 disabled:bg-rose-300'
+                }`}
+                type="button"
+              >
+                {deleteLoading
+                  ? 'Eliminando...'
+                  : deleteModalState.type === 'hard'
+                    ? 'Eliminar permanentemente'
+                    : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 };

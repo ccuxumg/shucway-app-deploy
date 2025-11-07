@@ -25,6 +25,12 @@ router.get('/test', (req: AuthRequest, res) => {
 // Obtener usuarios (paginado con filtros) - Requiere Cajero (nivel 30)
 router.get('/', requireCajero, usuariosController.getUsuarios);
 
+// Verificar si email existe - Requiere Cajero (nivel 30) - DEBE IR ANTES DE /:id
+router.get('/check-email', requireCajero, usuariosController.checkEmailExists);
+
+// Verificar si username existe - Requiere Cajero (nivel 30) - DEBE IR ANTES DE /:id
+router.get('/check-username', requireCajero, usuariosController.checkUsernameExists);
+
 // Crear nuevo usuario - Requiere Propietario (nivel 100)
 router.post('/', requirePropietario, usuariosController.createUsuario);
 
@@ -69,11 +75,5 @@ router.post('/roles', requireAdministrador, usuariosController.createRol);
 
 // Actualizar rol - Requiere Propietario (nivel 100)
 router.put('/roles/:id', requireAdministrador, usuariosController.updateRol);
-
-// Verificar si email existe - Requiere Cajero (nivel 30)
-router.get('/check-email', requireCajero, usuariosController.checkEmailExists);
-
-// Verificar si username existe - Requiere Cajero (nivel 30)
-router.get('/check-username', requireCajero, usuariosController.checkUsernameExists);
 
 export default router;

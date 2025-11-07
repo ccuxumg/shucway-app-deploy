@@ -6,6 +6,7 @@ import { useToggleDrawer } from "../../hooks/usetoggleDrawer";
 import { useNavigate } from "react-router-dom";
 import { ITableHeaderProps } from "../../types";
 import { MdAdminPanelSettings } from "react-icons/md";
+import { FiSearch } from "react-icons/fi";
 
 const TableHeader = ({
   columnsInfo,
@@ -33,41 +34,46 @@ const TableHeader = ({
   return (
     <>
       {/* Filtros y acciones */}
-      <div className="bg-white rounded-xl shadow p-4 mb-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex-1" />
-
-          <div className="relative">
-            <label className="sr-only" htmlFor="search">Buscar</label>
-            <input
-              id="search"
-              value={searchValue}
-              onChange={handleChangeSearch}
-              placeholder="Buscar usuarios…"
-              className="h-12 w-96 rounded-lg border border-gray-200 bg-white pl-4 pr-4 text-base text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-            />
+      <div className="bg-white border border-gray-200/70 rounded-xl shadow-sm mb-6 px-5 py-6">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="w-full lg:max-w-2xl lg:flex-1">
+            <label htmlFor="search" className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Buscar usuarios
+            </label>
+            <div className="relative mt-2">
+              <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+              <input
+                id="search"
+                value={searchValue}
+                onChange={handleChangeSearch}
+                placeholder="Nombre, correo o rol"
+                className="h-11 w-full rounded-lg border border-gray-200 bg-white pl-11 pr-4 text-base text-gray-700 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+              />
+            </div>
           </div>
 
-          <ColumnsBtn
-            columnsInfo={columnsInfo}
-            handleChangeColumns={handleChangeColumns}
-          />
+          <div className="flex flex-wrap items-center justify-end gap-3 w-full lg:w-auto">
+            <ColumnsBtn
+              columnsInfo={columnsInfo}
+              handleChangeColumns={handleChangeColumns}
+            />
 
-          <Button
-            onClick={handleOpenDrawer}
-            className="h-12 rounded-lg bg-emerald-500 px-6 text-base font-semibold text-white hover:bg-emerald-600 flex items-center gap-2"
-          >
-            <img src={PlusIcon} alt="Plus" className="w-5 h-5" />
-            Agregar Nuevo Usuario
-          </Button>
+            <Button
+              onClick={handleNavigateToRoles}
+              className="h-11 rounded-lg bg-slate-800 px-5 text-sm font-semibold text-white hover:bg-slate-900 flex items-center gap-2 shadow-sm"
+            >
+              <MdAdminPanelSettings size={18} />
+              Gestión de Roles
+            </Button>
 
-          <Button
-            onClick={handleNavigateToRoles}
-            className="h-12 rounded-lg bg-gray-700 px-6 text-base font-semibold text-white hover:bg-gray-800 ml-3 flex items-center gap-2"
-          >
-            <MdAdminPanelSettings size={20} />
-            Gestión de Roles
-          </Button>
+            <Button
+              onClick={handleOpenDrawer}
+              className="h-11 rounded-lg bg-emerald-500 px-5 text-sm font-semibold text-white hover:bg-emerald-600 flex items-center gap-2 shadow-sm"
+            >
+              <img src={PlusIcon} alt="Plus" className="w-4 h-4" />
+              Agregar Usuario
+            </Button>
+          </div>
         </div>
       </div>
     </>

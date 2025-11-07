@@ -6,6 +6,7 @@ import { FaUser, FaEdit, FaSave, FaCamera, FaEnvelope, FaPhone, FaMapMarkerAlt, 
 import { message } from 'antd';
 
 const Perfil: React.FC = () => {
+  const [messageApi, contextHolder] = message.useMessage();
   const [userData, setUserData] = useState<UsuarioDataType | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -21,19 +22,72 @@ const Perfil: React.FC = () => {
         setFormData(profile);
       } catch (error) {
         console.error('Error fetching user profile:', error);
-        message.error('Error al cargar el perfil de usuario');
+  messageApi.error('Error al cargar el perfil de usuario');
       } finally {
         setLoading(false);
       }
     };
     fetchUserProfile();
-  }, []);
+  }, [messageApi]);
 
   const handleInputChange = (field: keyof UsuarioDataType, value: string) => {
     setFormData((prev: Partial<UsuarioDataType>) => ({
       ...prev,
       [field]: value
     }));
+  };
+
+  const handleAvatarUpload = async (file: File) => {
+    if (!userData) return;
+
+    try {
+      const userFolder = String(userData.id_perfil);
+      const extension = file.name.split('.').pop() || 'png';
+      const fileName = `${userFolder}/avatar-${Date.now()}.${extension}`;
+
+      const arrayBuffer = await file.arrayBuffer();
+      const fileBlob = new Blob([arrayBuffer], { type: file.type });
+
+      const { error: uploadError } = await supabase.storage
+        .from('user-img')
+        .upload(fileName, fileBlob, {
+          contentType: file.type,
+          upsert: true,
+        });
+
+      if (uploadError) {
+        console.error('Error subiendo avatar:', uploadError);
+  messageApi.error('Error subiendo avatar: ' + uploadError.message);
+        return;
+      }
+
+      const { data } = supabase.storage.from('user-img').getPublicUrl(fileName);
+      const publicUrl = data.publicUrl;
+
+      const { updateUsuario } = await import('../../../api/usuariosService');
+      await updateUsuario(userData.id_perfil, { avatar_url: publicUrl });
+
+      setFormData((prev: Partial<UsuarioDataType>) => ({ ...prev, avatar_url: publicUrl }));
+      setUserData((prev: UsuarioDataType | null) => (prev ? ({ ...prev, avatar_url: publicUrl }) : prev));
+
+      try {
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) {
+          const parsedUser = JSON.parse(storedUser);
+          const updatedUser = { ...parsedUser, avatar_url: publicUrl };
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+          window.dispatchEvent(new CustomEvent('userProfileUpdated'));
+        }
+      } catch (storageError) {
+        console.warn('Error actualizando localStorage:', storageError);
+      }
+
+  messageApi.success('Avatar actualizado correctamente');
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('Error al subir avatar:', err);
+  messageApi.error('Error al subir avatar: ' + errMsg);
+    }
   };
 
   const handleSave = async () => {
@@ -65,10 +119,10 @@ const Perfil: React.FC = () => {
       setUserData({ ...userData, ...updated, fecha_registro: fecha_registro as string, ultimo_acceso: ultimo_acceso as string | null });
       setFormData({ ...formData, ...updated, fecha_registro: fecha_registro as string, ultimo_acceso: ultimo_acceso as string | null });
       setEditing(false);
-      message.success('Perfil actualizado correctamente');
+      messageApi.success('Perfil actualizado correctamente');
     } catch (error) {
       console.error('Error updating profile:', error);
-      message.error('Error al actualizar el perfil');
+      messageApi.error('Error al actualizar el perfil');
     } finally {
       setSaving(false);
     }
@@ -100,17 +154,22 @@ const Perfil: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Cargando perfil...</p>
+      <>
+        {contextHolder}
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Cargando perfil...</p>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+    <>
+      {contextHolder}
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <div className="max-w-4xl mx-auto p-6">
         {/* Header */}
         <div className="bg-white rounded-2xl shadow-lg p-8 mb-6">
@@ -170,71 +229,9 @@ const Perfil: React.FC = () => {
                     style={{ zIndex: 2 }}
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
-                      if (!file || !userData) return;
-
-                      try {
-                        // Obtener usuario autenticado
-                        const { data: userInfo } = await supabase.auth.getUser();
-                        const userId = userInfo?.user?.id;
-                        if (!userId) {
-                          message.error('No se encontró la sesión de usuario. Vuelve a iniciar sesión.');
-                          return;
-                        }
-
-                        // Generar nombre de archivo único
-                        const ext = file.name.split('.').pop();
-                        const fileName = `${userId}/avatar-${Date.now()}.${ext}`;
-
-                        // Convertir archivo a ArrayBuffer para asegurar que se suba como binario
-                        const arrayBuffer = await file.arrayBuffer();
-                        const fileBlob = new Blob([arrayBuffer], { type: file.type });
-
-                        // Subir archivo
-                        const { error: uploadError } = await supabase.storage
-                          .from('user-img')
-                          .upload(fileName, fileBlob, {
-                            contentType: file.type,
-                            upsert: true
-                          });
-
-                        if (uploadError) {
-                          console.error('Error subiendo avatar:', uploadError);
-                          message.error('Error subiendo avatar: ' + uploadError.message);
-                          return;
-                        }
-
-                        // Obtener URL pública
-                        const { data } = supabase.storage.from('user-img').getPublicUrl(fileName);
-                        const publicUrl = data.publicUrl;
-
-                        // Actualizar en la base de datos
-                        const { updateUsuario } = await import('../../../api/usuariosService');
-                        await updateUsuario(userData.id_perfil, { avatar_url: publicUrl });
-
-                        // Actualizar UI
-                        setFormData((prev: Partial<UsuarioDataType>) => ({ ...prev, avatar_url: publicUrl }));
-                        setUserData((prev: UsuarioDataType | null) => prev ? ({ ...prev, avatar_url: publicUrl }) : prev);
-
-                        // Actualizar localStorage para que se refleje en el dashboard
-                        try {
-                          const userStr = localStorage.getItem('user');
-                          if (userStr) {
-                            const currentUser = JSON.parse(userStr);
-                            const updatedUser = { ...currentUser, avatar_url: publicUrl };
-                            localStorage.setItem('user', JSON.stringify(updatedUser));
-                            // Notificar a otros componentes que el perfil del usuario se actualizó
-                            window.dispatchEvent(new CustomEvent('userProfileUpdated'));
-                          }
-                        } catch (storageError) {
-                          console.warn('Error actualizando localStorage:', storageError);
-                        }
-
-                        message.success('Avatar actualizado correctamente');
-                      } catch (err: unknown) {
-                        const errMsg = err instanceof Error ? err.message : String(err);
-                        console.error('Error al subir avatar:', err);
-                        message.error('Error al subir avatar: ' + errMsg);
-                      }
+                      if (!file) return;
+                      await handleAvatarUpload(file);
+                      e.target.value = '';
                     }}
                   />
                 </>
@@ -450,6 +447,7 @@ const Perfil: React.FC = () => {
         </div>
       </div>
     </div>
+    </>
   );
 };
 

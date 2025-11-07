@@ -8,13 +8,15 @@ const TableTitle = ({
   itemName?: string;
 }) => {
   return (
-    <div className="flex gap-10 items-center">
-      <p className="text-[3.2rem] font-semibold text-[#13443c]">{title}</p>
-      <div className="relative">
-        <p className="text-[1.6rem] py-2 px-6 text-[#13443c] font-semibold rounded-lg bg-[#e6f4f1] border-2 border-[#13443c] relative z-10">
-          {totalUsuarios} {itemName}
-        </p>
-        <div className="absolute top-1 left-1 w-full h-full bg-[#13443c] rounded-lg opacity-10 z-0"></div>
+    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <h2 className="text-3xl md:text-[3rem] font-semibold text-slate-900 tracking-tight">
+        {title}
+      </h2>
+      <div className="inline-flex items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50 px-5 py-2 shadow-sm">
+        <span className="text-xl font-bold text-emerald-700">{totalUsuarios}</span>
+        <span className="text-sm font-medium uppercase tracking-wide text-emerald-700">
+          {itemName}
+        </span>
       </div>
     </div>
   );

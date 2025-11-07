@@ -6,13 +6,13 @@ import avatarImg from "../assets/imgs/login.png";
 import { CgLogOut } from "react-icons/cg";
 import { MdHome, MdInventory, MdSettings, MdOutlineAssessment, MdAdminPanelSettings, MdShoppingCart, MdLockOpen, MdBackup, MdError, MdWarning, MdCancel, MdLock, MdPerson, MdHelp } from "react-icons/md";
 import { FiBell } from "react-icons/fi";
-import { IoAlertCircleOutline } from "react-icons/io5";
 import { handleLogout } from "../api/handleLogout";
 import { useNavigate, useLocation } from "react-router-dom";
 import { MenuItemGuard } from "../components/guards/ModuleGuard";
 import { dashboardService } from "../api/dashboardService";
 import { useAlerts } from "../hooks/useAlerts";
 import { usePermissions } from "../hooks/usePermissions";
+import { useStockMonitoring } from "../hooks/useStockMonitoring";
 import { cajaService, type CajaSesion as CajaSesionApi } from "../api/cajaService";
 
 // usar el logo público (public/img/logo.png)
@@ -71,11 +71,9 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement | null>(null);
   // Notifications and alerts states
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [alerts, setAlerts] = useState<NotificationItem[]>([]);
-  const notificationsRef = useRef<HTMLDivElement | null>(null);
   const alertsRef = useRef<HTMLDivElement | null>(null);
   // Search states
   const [searchQuery, setSearchQuery] = useState("");
@@ -168,9 +166,6 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
         setProfileOpen(false);
       }
-      if (notificationsRef.current && !notificationsRef.current.contains(e.target as Node)) {
-        setNotificationsOpen(false);
-      }
       if (alertsRef.current && !alertsRef.current.contains(e.target as Node)) {
         setAlertsOpen(false);
       }
@@ -251,6 +246,9 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     };
     loadAlerts();
   }, [navigate, setNotifications, setAlerts]);
+
+  // 🔔 Activar monitoreo automático de stock
+  useStockMonitoring(true);
 
   const currentRouteName = () => {
     const match = sidebarItems.find((s) => s.route === location.pathname);
@@ -861,63 +859,17 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
 
             {/* Right: notifications + profile */}
             <div className="flex items-center gap-2 sm:gap-4 justify-end w-auto min-w-fit">
-              <div className="relative" ref={notificationsRef}>
-                <button onClick={() => setNotificationsOpen(!notificationsOpen)} className="p-2 rounded-lg bg-blue-50 hover:bg-blue-100 transition-colors relative flex items-center justify-center" aria-label="notificaciones">
+              <div className="relative" ref={alertsRef}>
+                <button onClick={() => setAlertsOpen(!alertsOpen)} className="p-2 rounded-lg bg-blue-50 hover:bg-blue-100 transition-colors relative flex items-center justify-center" aria-label="notificaciones y alertas">
                   <FiBell size={18} className="text-green-600" />
                   <motion.span
-                    key={notifications.length}
+                    key={notifications.length + alerts.length + localAlerts.length}
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     transition={{ type: "spring", stiffness: 500, damping: 20 }}
                     className="absolute -top-1 -right-1 bg-blue-500 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center"
                   >
-                    {notifications.length}
-                  </motion.span>
-                </button>
-                <AnimatePresence>
-                  {notificationsOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      transition={{ duration: 0.2 }}
-                      className="absolute right-0 mt-2 w-80 bg-white/70 backdrop-blur-sm rounded-2xl shadow-lg border-l-4 border-green-600 py-2 z-50 max-h-80 overflow-auto"
-                    >
-                      {notifications.length > 0 ? (
-                        notifications.map((notif) => (
-                          <button
-                            key={notif.id}
-                            onClick={() => { notif.action(); setNotificationsOpen(false); }}
-                            className="w-full text-left px-4 py-3 hover:bg-gray-100 rounded-2xl bg-white shadow-sm border border-gray-200 flex items-start gap-3 transition-colors mb-2"
-                          >
-                            <div className="flex-shrink-0 mt-1 text-gray-600">
-                              {notif.icon}
-                            </div>
-                            <div className="flex-1">
-                              <span className="text-xs text-gray-500 uppercase font-medium">{notif.module}</span>
-                              <span className="text-sm text-gray-700 block">{notif.message}</span>
-                            </div>
-                          </button>
-                        ))
-                      ) : (
-                        <div className="px-4 py-3 text-sm text-gray-500">No hay notificaciones</div>
-                      )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              <div className="relative" ref={alertsRef}>
-                <button onClick={() => setAlertsOpen(!alertsOpen)} className="p-2 rounded-lg bg-pink-50 hover:bg-pink-100 transition-colors relative flex items-center justify-center" aria-label="alertas">
-                  <IoAlertCircleOutline size={18} className="text-pink-500" />
-                  <motion.span
-                    key={alerts.length + localAlerts.length}
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    transition={{ type: "spring", stiffness: 500, damping: 20 }}
-                    className="absolute -top-1 -right-1 bg-pink-400 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center"
-                  >
-                    {alerts.length + localAlerts.length}
+                    {notifications.length + alerts.length + localAlerts.length}
                   </motion.span>
                 </button>
                 <AnimatePresence>
@@ -927,28 +879,28 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -10 }}
                       transition={{ duration: 0.2 }}
-                      className="absolute right-0 mt-2 w-80 bg-white/70 backdrop-blur-sm rounded-2xl shadow-lg border-l-4 border-pink-500 py-2 z-50 max-h-80 overflow-auto"
+                      className="absolute right-0 mt-2 w-80 bg-white/70 backdrop-blur-sm rounded-2xl shadow-lg border-l-4 border-green-600 py-2 z-50 max-h-80 overflow-auto"
                     >
                       {(() => {
-                        const combinedAlerts = [...alerts, ...localAlerts];
-                        return combinedAlerts.length > 0 ? (
-                          combinedAlerts.map((alert) => (
+                        const allNotifications = [...notifications, ...alerts, ...localAlerts];
+                        return allNotifications.length > 0 ? (
+                          allNotifications.map((item) => (
                             <button
-                              key={alert.id}
-                              onClick={() => { alert.action(); setAlertsOpen(false); }}
+                              key={item.id}
+                              onClick={() => { item.action(); setAlertsOpen(false); }}
                               className="w-full text-left px-4 py-3 hover:bg-gray-100 rounded-2xl bg-white shadow-sm border border-gray-200 flex items-start gap-3 transition-colors mb-2"
                             >
                               <div className="flex-shrink-0 mt-1 text-gray-600">
-                                {alert.icon}
+                                {item.icon}
                               </div>
                               <div className="flex-1">
-                                <span className="text-xs text-gray-500 uppercase font-medium">{alert.module}</span>
-                                <span className="text-sm text-gray-700 block">{alert.message}</span>
+                                <span className="text-xs text-gray-500 uppercase font-medium">{item.module}</span>
+                                <span className="text-sm text-gray-700 block">{item.message}</span>
                               </div>
                             </button>
                           ))
                         ) : (
-                          <div className="px-4 py-2 text-sm text-gray-500">No hay alertas</div>
+                          <div className="px-4 py-3 text-sm text-gray-500">No hay notificaciones</div>
                         );
                       })()}
                     </motion.div>

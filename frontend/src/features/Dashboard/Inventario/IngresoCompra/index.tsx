@@ -641,6 +641,17 @@ export default function IngresoCompra(): JSX.Element {
     return () => { document.body.style.overflow = prev || ""; };
   }, [openDrawer, openProvDrawer, openProvFormDrawer]);
 
+  // Detectar flag de localStorage para abrir modal de Nueva Orden desde stock monitoring
+  useEffect(() => {
+    const shouldOpenNewOrder = localStorage.getItem('openNewOrderModal');
+    if (shouldOpenNewOrder === 'true') {
+      setDetail(null);
+      setReadOnly(false);
+      setOpenDrawer(true);
+      localStorage.removeItem('openNewOrderModal');
+    }
+  }, []);
+
   // Reset paginación cuando cambian filtros
   useEffect(() => {
     setProviderPage(1);

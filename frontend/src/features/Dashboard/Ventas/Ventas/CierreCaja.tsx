@@ -1396,10 +1396,10 @@ function PrintableSheet({
         <div className="rounded-lg border p-4">
           <SectionHeading>Resumen de Ventas</SectionHeading>
           <Row label="Ventas Totales" value={currency(ventasTotales)} />
-          <Row label="Pagos con Tarjeta" value={currency(totalTarjeta)} />
+          <Row label="Pagos con Tarjeta" value={currency(0)} />
           <Row label="Transferencias" value={currency(transferTotal)} />
           <div className="mt-2 border-t pt-2">
-            <Row label="Ventas en Efectivo" value={currency(ventasEfectivo)} strong />
+            <Row label="Ventas en Efectivo" value={currency(contado)} strong />
           </div>
         </div>
         <div className="rounded-lg border p-4">

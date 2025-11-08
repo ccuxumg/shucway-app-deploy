@@ -50,7 +50,7 @@ export const clientesService = {
   // Buscar cliente por teléfono
   async buscarPorTelefono(telefono: string): Promise<Cliente | null> {
     try {
-      const response = await apiClient.get(`/clientes/buscar/${telefono}`);
+      const response = await apiClient.get(`/clientes/telefono/${telefono}`);
       return response.data.data;
     } catch (error) {
       // Verificar si es un error de Axios con respuesta 404

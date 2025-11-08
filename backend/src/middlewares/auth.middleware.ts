@@ -5,6 +5,7 @@ import { AuthRequest, AuthUser } from '../types/express.types';
 import { logger } from '../utils/logger';
 
 const JWT_SECRET = config.jwt.secret;
+const isDevelopment = config.env === 'development';
 
 // Middleware para verificar el token JWT
 export const authenticateToken = (
@@ -18,13 +19,16 @@ export const authenticateToken = (
       ? authHeader.slice(7)
       : null;
 
-    logger.info(`🔍 Auth Check - Path: ${req.path}`);
-    logger.info(`🔍 Auth Header: ${authHeader ? 'Presente' : 'Ausente'}`);
-    logger.info(
-      `🔍 Token: ${
-        token ? 'Presente (primeros 20 chars): ' + token.substring(0, 20) + '...' : 'Ausente'
-      }`
-    );
+    // Solo logs detallados en desarrollo
+    if (isDevelopment) {
+      logger.info(`🔍 Auth Check - Path: ${req.path}`);
+      logger.info(`🔍 Auth Header: ${authHeader ? 'Presente' : 'Ausente'}`);
+      logger.info(
+        `🔍 Token: ${
+          token ? 'Presente (primeros 20 chars): ' + token.substring(0, 20) + '...' : 'Ausente'
+        }`
+      );
+    }
 
     if (!token) {
       logger.warn('❌ Token no proporcionado');
@@ -43,7 +47,15 @@ export const authenticateToken = (
       }
 
       req.user = decoded;
-      logger.info(`✅ Token válido - Usuario: ${req.user.email} (${req.user.role.nombre_rol})`);
+
+      // Solo log detallado en desarrollo
+      if (isDevelopment) {
+        logger.info(`✅ Token válido - Usuario: ${req.user.email} (${req.user.role.nombre_rol})`);
+      } else {
+        // En producción, log más conciso
+        logger.info(`✅ Auth - ${req.path} - ${req.user.email}`);
+      }
+
       next();
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'verify error';

@@ -7,6 +7,7 @@ import Catalogo from './Catalogo';
 import IngresoCompra from './IngresoCompra';
 import Auditoria from './Auditoria';
 import { dashboardService } from '../../../api/dashboardService';
+import { localStore } from '../../../utils/storage';
 
 const primary = '#00B074';
 const mid = '#346C60';
@@ -109,18 +110,18 @@ const Inventario: React.FC = () => {
   useEffect(() => {
     const fetchAuditoriasPendientes = async () => {
       try {
-        // Primero verificar localStorage como respaldo rápido
-        const auditoriaActiva = localStorage.getItem('auditoria_activa');
-        const auditoriaEstado = localStorage.getItem('auditoria_estado');
+        // Primero verificar localStorage optimizado como respaldo rápido
+        const auditoriaActiva = localStore.get('auditoria_activa');
+        const auditoriaEstado = localStore.get('auditoria_estado');
         
-        // Si hay auditoría activa en localStorage y está en progreso, mostrar 1
+        // Si hay auditoría activa en localStorage optimizado y está en progreso, mostrar 1
         if (auditoriaActiva && auditoriaEstado === 'en_progreso') {
           setAuditoriasPendientes(1);
-          console.log('Inventario: Auditoría activa en localStorage');
+          console.log('Inventario: Auditoría activa en localStorage optimizado');
         }
         
         // Luego intentar obtener del backend
-        const token = localStorage.getItem('token');
+        const token = localStore.get('token');
         if (!token) {
           console.log('Inventario: No hay token para auditorías pendientes');
           return;
@@ -147,9 +148,9 @@ const Inventario: React.FC = () => {
         }
       } catch (error) {
         console.error('Error cargando auditorías pendientes:', error);
-        // Si hay error de red, usar localStorage como fallback
-        const auditoriaActiva = localStorage.getItem('auditoria_activa');
-        const auditoriaEstado = localStorage.getItem('auditoria_estado');
+        // Si hay error de red, usar localStorage optimizado como fallback
+        const auditoriaActiva = localStore.get('auditoria_activa');
+        const auditoriaEstado = localStore.get('auditoria_estado');
         if (auditoriaActiva && auditoriaEstado === 'en_progreso') {
           setAuditoriasPendientes(1);
         }
@@ -161,10 +162,10 @@ const Inventario: React.FC = () => {
     // Actualizar cada 5 segundos (reducido para mayor responsividad)
     const interval = setInterval(fetchAuditoriasPendientes, 5000);
     
-    // Escuchar cambios en localStorage directamente
+    // Escuchar cambios en localStorage optimizado directamente
     const handleStorageChange = () => {
-      const auditoriaActiva = localStorage.getItem('auditoria_activa');
-      const auditoriaEstado = localStorage.getItem('auditoria_estado');
+      const auditoriaActiva = localStore.get('auditoria_activa');
+      const auditoriaEstado = localStore.get('auditoria_estado');
       if (auditoriaActiva && auditoriaEstado === 'en_progreso') {
         setAuditoriasPendientes(1);
       } else {

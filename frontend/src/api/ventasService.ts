@@ -139,6 +139,17 @@ export const ventasService = {
     }
   },
 
+  // Obtener total de ventas de la sesión
+  async getTotalVentasSesion(fechaInicio: string): Promise<{ efectivo: number; tarjeta: number; total: number; count: number }> {
+    try {
+      const response = await apiClient.get(`/ventas/sesion?fechaInicio=${fechaInicio}`);
+      return response.data.data;
+    } catch (error) {
+      console.error('Error obteniendo total de ventas de sesión:', error);
+      throw error;
+    }
+  },
+
   // Obtener venta por ID
   async getVentaById(id: number): Promise<Venta> {
     try {
@@ -179,6 +190,17 @@ export const ventasService = {
       return response.data.data;
     } catch (error) {
       console.error('Error obteniendo productos populares:', error);
+      throw error;
+    }
+  },
+
+  // Obtener productos recientemente vendidos
+  async getProductosRecientes(limit: number = 5): Promise<ProductoPopular[]> {
+    try {
+      const response = await apiClient.get(`/ventas/productos-recientes?limit=${limit}`);
+      return response.data.data;
+    } catch (error) {
+      console.error('Error obteniendo productos recientes:', error);
       throw error;
     }
   },

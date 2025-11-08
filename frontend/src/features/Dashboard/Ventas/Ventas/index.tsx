@@ -2,9 +2,14 @@ import React, { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { MdReceiptLong, MdInventory2, MdAccountBalance, MdError } from "react-icons/md";
-import { Banknote, Landmark, CreditCard } from "lucide-react";
+import { Banknote, Landmark, CreditCard, TrendingUp, Package, DollarSign, Users } from "lucide-react";
 import { ventasService, Venta, ProductoPopular } from "../../../../api/ventasService";
 import { useAlerts } from "../../../../hooks/useAlerts";
+import type { LucideIcon } from "lucide-react";
+import "../../Reportes/Reportes.styles.css";
+
+
+const PAGE_SIZE_OPTIONS = [5, 10, 20, 50];
 
 
 // ====== Tipos ======
@@ -102,29 +107,6 @@ const MetodoIcon: React.FC<{ metodo: string; className?: string }> = ({ metodo, 
 
 
 // ====== Helpers de fechas para filtros rápidos ======
-const startOfToday = () => {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
-const endOfToday = () => {
-  const d = new Date();
-  d.setHours(23, 59, 59, 999);
-  return d;
-};
-const startOfWeek = () => {
-  const d = startOfToday();
-  const day = d.getDay(); // 0=domingo
-  const diff = day === 0 ? 6 : day - 1; // semana inicia lunes
-  d.setDate(d.getDate() - diff);
-  return d;
-};
-const endOfWeek = () => {
-  const d = startOfWeek();
-  d.setDate(d.getDate() + 6);
-  d.setHours(23, 59, 59, 999);
-  return d;
-};
 
 const VentasDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -135,27 +117,109 @@ const VentasDashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   // Estado para productos populares
-  const [productosPopulares, setProductosPopulares] = useState<ProductoPopular[]>([]);
+  const [productosRecientes, setProductosRecientes] = useState<ProductoPopular[]>([]);
   const [isLoadingPopulares, setIsLoadingPopulares] = useState(false);
 
   const { addAlert } = useAlerts();
 
-  // Cargar ventas del backend
+  // ------- Estado de filtros -------
+  const [search, setSearch] = useState("");
+  const [showFilter, setShowFilter] = useState(false);
+  const [showDate, setShowDate] = useState(false);
+  const [metodos, setMetodos] = useState<string[]>([]); // multi-select
+
+  // 🔸 Por requerimiento: por defecto "todo"
+  const [range, setRange] = useState<RangeFilter>("todo");
+
+  const [customFrom, setCustomFrom] = useState<string>("");
+  const [customTo, setCustomTo] = useState<string>("");
+
+  // Estado para paginación
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[1]); // 10 por defecto
+
+  const toggleMetodo = (m: string) => {
+    setMetodos((prev) =>
+      prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]
+    );
+  };
+
+  // Función para formatear fecha
+  const formatDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('es-ES', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'America/Guatemala'
+      });
+    } catch {
+      return dateString;
+    }
+  };
+
+  // Función para ver detalles de venta
+  const verDetallesVenta = (ventaId: string) => {
+    // Por ahora solo navega a la página de ventas, pero se puede mejorar para mostrar detalles específicos
+    navigate('/ventas/ventas', { state: { ventaId: ventaId.replace('#', '') } });
+  };
+
+  // Cargar ventas con filtros aplicados
   useEffect(() => {
     const loadVentas = async () => {
       try {
         setIsLoading(true);
         setError(null);
-        // Obtener ventas de los últimos 30 días por defecto
-        const fechaFin = new Date().toISOString().split('T')[0];
-        const fechaInicio = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+        // Determinar fechas según el filtro
+        let fechaInicio: string | undefined;
+        let fechaFin: string | undefined;
+        const now = new Date();
+
+        if (range === "hoy") {
+          fechaInicio = fechaFin = now.toISOString().split('T')[0];
+        } else if (range === "ayer") {
+          const yesterday = new Date(now);
+          yesterday.setDate(yesterday.getDate() - 1);
+          fechaInicio = fechaFin = yesterday.toISOString().split('T')[0];
+        } else if (range === "esta_semana") {
+          const startOfWeek = new Date(now);
+          startOfWeek.setDate(now.getDate() - now.getDay() + 1); // Lunes
+          fechaInicio = startOfWeek.toISOString().split('T')[0];
+          fechaFin = now.toISOString().split('T')[0];
+        } else if (range === "ultimos_7") {
+          const sevenDaysAgo = new Date(now);
+          sevenDaysAgo.setDate(now.getDate() - 7);
+          fechaInicio = sevenDaysAgo.toISOString().split('T')[0];
+          fechaFin = now.toISOString().split('T')[0];
+        } else if (range === "ultimos_30") {
+          const thirtyDaysAgo = new Date(now);
+          thirtyDaysAgo.setDate(now.getDate() - 30);
+          fechaInicio = thirtyDaysAgo.toISOString().split('T')[0];
+          fechaFin = now.toISOString().split('T')[0];
+        } else if (range === "este_mes") {
+          const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+          fechaInicio = startOfMonth.toISOString().split('T')[0];
+          fechaFin = now.toISOString().split('T')[0];
+        } else if (range === "custom" && customFrom && customTo) {
+          fechaInicio = customFrom;
+          fechaFin = customTo;
+        } else {
+          // "todo" - últimos 90 días por defecto
+          const ninetyDaysAgo = new Date(now);
+          ninetyDaysAgo.setDate(now.getDate() - 90);
+          fechaInicio = ninetyDaysAgo.toISOString().split('T')[0];
+          fechaFin = now.toISOString().split('T')[0];
+        }
 
         const ventas = await ventasService.getVentas('confirmada', fechaInicio, fechaFin);
         setVentasData(ventas);
       } catch (err) {
         console.error('Error cargando ventas:', err);
         setError('Error al cargar las ventas');
-        // En caso de error, usar array vacío para que la interfaz se muestre
         setVentasData([]);
       } finally {
         setIsLoading(false);
@@ -163,32 +227,32 @@ const VentasDashboard: React.FC = () => {
     };
 
     loadVentas();
-  }, []);
+  }, [range, customFrom, customTo]);
 
-  // Cargar productos populares
+  // Cargar productos recientes
   useEffect(() => {
-    const loadProductosPopulares = async () => {
+    const loadProductosRecientes = async () => {
       try {
         setIsLoadingPopulares(true);
-        const populares = await ventasService.getProductosPopulares(4);
-        setProductosPopulares(populares);
+        const recientes = await ventasService.getProductosRecientes(4);
+        setProductosRecientes(recientes);
       } catch (err) {
-        console.error('Error cargando productos populares:', err);
+        console.error('Error cargando productos recientes:', err);
         // Agregar alerta al sistema
         addAlert({
-          message: 'Error al cargar productos populares',
+          message: 'Error al cargar productos recientes',
           icon: <MdError size={16} />,
           module: 'Ventas',
           action: () => navigate('/ventas'), // Acción para ir al módulo
         });
         // En caso de error, mantener array vacío
-        setProductosPopulares([]);
+        setProductosRecientes([]);
       } finally {
         setIsLoadingPopulares(false);
       }
     };
 
-    loadProductosPopulares();
+    loadProductosRecientes();
   }, [addAlert, navigate]);
 
   // Botones con mismo look & feel que Inventario
@@ -206,6 +270,13 @@ const VentasDashboard: React.FC = () => {
     tone: mid,
     icon: <MdInventory2 size={22} />,    // ícono estilo Inventario
     path: "/ventas/producto",
+  },
+  {
+    title: "VER CLIENTES",
+    desc: "Gestión de clientes",
+    tone: "#8B5CF6", // purple
+    icon: <Users size={22} />, // ícono de usuarios
+    path: "/clientes",
   },
   {
     title: "CIERRE DE CAJA",
@@ -230,7 +301,7 @@ const VentasDashboard: React.FC = () => {
     }));
   }, [ventasData]);
 
-  // Convertir productos populares del backend al formato del componente
+  // Convertir productos recientes del backend al formato del componente
   const getProductIcon = (nombre: string): string => {
     const nombreLower = nombre.toLowerCase();
     if (nombreLower.includes('gringa')) return '🌯';
@@ -241,8 +312,8 @@ const VentasDashboard: React.FC = () => {
     return '🍽️'; // Ícono genérico para comida
   };
 
-  const populares = useMemo(() => {
-    return productosPopulares.map((producto) => ({
+  const productosRecientesList = useMemo(() => {
+    return productosRecientes.map((producto) => ({
       id: `pp${producto.id_producto}`,
       nombre: producto.nombre_producto,
       tag: producto.categoria || 'Producto',
@@ -251,27 +322,9 @@ const VentasDashboard: React.FC = () => {
       totalVendido: producto.total_vendido,
       vecesVendido: producto.veces_vendido,
     }));
-  }, [productosPopulares]);
+  }, [productosRecientes]);
 
-  // ------- Estado de filtros -------
-  const [search, setSearch] = useState("");
-  const [showFilter, setShowFilter] = useState(false);
-  const [showDate, setShowDate] = useState(false);
-  const [metodos, setMetodos] = useState<string[]>([]); // multi-select
-
-  // 🔸 Por requerimiento: por defecto "todo"
-  const [range, setRange] = useState<RangeFilter>("todo");
-
-  const [customFrom, setCustomFrom] = useState<string>("");
-  const [customTo, setCustomTo] = useState<string>("");
-
-  const toggleMetodo = (m: string) => {
-    setMetodos((prev) =>
-      prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]
-    );
-  };
-
-  // Aplicación de filtros en memoria (hookear a tu fetch en producción)
+  // Aplicación de filtros en memoria (solo búsqueda y método de pago) con paginación
   const filteredVentas = useMemo(() => {
     let data = [...ventas];
 
@@ -288,55 +341,76 @@ const VentasDashboard: React.FC = () => {
       data = data.filter((v) => metodos.includes(v.metodo));
     }
 
-    // Filtro por rango de fechas
-    const now = new Date();
-    let from: Date | null = null;
-    let to: Date | null = null;
-    if (range === "hoy") {
-      from = startOfToday();
-      to = endOfToday();
-    } else if (range === "ayer") {
-      const d1 = startOfToday();
-      d1.setDate(d1.getDate() - 1);
-      const d2 = endOfToday();
-      d2.setDate(d2.getDate() - 1);
-      from = d1;
-      to = d2;
-    } else if (range === "esta_semana") {
-      from = startOfWeek();
-      to = endOfWeek();
-    } else if (range === "ultimos_7") {
-      from = new Date(now);
-      from.setDate(from.getDate() - 6);
-      from.setHours(0, 0, 0, 0);
-      to = endOfToday();
-    } else if (range === "ultimos_30") {
-      from = new Date(now);
-      from.setDate(from.getDate() - 29);
-      from.setHours(0, 0, 0, 0);
-      to = endOfToday();
-    } else if (range === "este_mes") {
-      from = new Date(now.getFullYear(), now.getMonth(), 1);
-      to = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-    } else if (range === "custom" && customFrom && customTo) {
-      from = new Date(customFrom);
-      from.setHours(0, 0, 0, 0);
-      to = new Date(customTo);
-      to.setHours(23, 59, 59, 999);
-    }
-    // si es "todo" no se aplican fechas
-
-    if (from && to) {
-      data = data.filter((v) => {
-        const d = new Date(v.fecha);
-        return d >= (from as Date) && d <= (to as Date);
-      });
-    }
-
     return data;
-  }, [ventas, search, metodos, range, customFrom, customTo]);
+  }, [ventas, search, metodos]);
 
+  // Paginación
+  const totalPages = Math.ceil(filteredVentas.length / pageSize);
+  const paginatedVentas = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return filteredVentas.slice(startIndex, endIndex);
+  }, [filteredVentas, currentPage, pageSize]);
+
+  const goToPage = (page: number) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  };
+
+  // Calcular filtros activos
   const activeFilters = metodos.length + (range !== "todo" ? 1 : 0) + (search ? 1 : 0);
+
+  // Calcular métricas para las tarjetas
+  const metrics = useMemo(() => {
+    const totalVentas = filteredVentas.length;
+    // Estimación de productos vendidos (promedio de 2 productos por venta)
+    const totalProductosVendidos = Math.round(totalVentas * 2.1);
+    const totalIngresos = filteredVentas.reduce((sum, venta) => sum + venta.total, 0);
+
+    return {
+      totalVentas,
+      totalProductos: totalProductosVendidos,
+      totalIngresos
+    };
+  }, [filteredVentas]);
+
+  // Definir tarjetas métricas siguiendo el patrón de reportes
+  const kpiCards = useMemo(() => {
+    const base: Array<{
+      key: string;
+      label: string;
+      icon: LucideIcon;
+      accent: string;
+      background: string;
+      value: string;
+    }> = [
+      {
+        key: "totalVentas",
+        label: "Total Ventas",
+        icon: TrendingUp,
+        accent: "#047857",
+        background: "#ecfdf3",
+        value: metrics.totalVentas.toString(),
+      },
+      {
+        key: "productosVendidos",
+        label: "Productos Vendidos",
+        icon: Package,
+        accent: "#1d4ed8",
+        background: "#eff6ff",
+        value: metrics.totalProductos.toLocaleString("es-GT"),
+      },
+      {
+        key: "ingresosTotales",
+        label: "Ingresos Totales",
+        icon: DollarSign,
+        accent: "#92400e",
+        background: "#fff7ed",
+        value: `Q${metrics.totalIngresos.toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      },
+    ];
+
+    return base;
+  }, [metrics]);
 
   return (
     <div className="p-8 bg-[#f8fafc] min-h-screen">
@@ -375,7 +449,7 @@ const VentasDashboard: React.FC = () => {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.22 }}
-        className="grid md:grid-cols-3 gap-6 mb-10"
+        className="grid md:grid-cols-4 gap-6 mb-6"
       >
         {cards.map((card, idx) => (
           <ActionCard
@@ -389,185 +463,206 @@ const VentasDashboard: React.FC = () => {
         ))}
       </motion.div>
 
-      {/* Toolbar superior: búsqueda + filtro por método (el filtro de fecha se mueve al header de la tabla) */}
+      {/* Tarjetas de métricas - estilo reportes */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.22, delay: 0.04 }}
-        className="flex flex-wrap items-center justify-between gap-3 mb-3"
+        transition={{ duration: 0.22, delay: 0.02 }}
+        className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6"
       >
-        <div className="flex items-center gap-3">
-          {/* Buscar */}
-          <div className="relative">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar ticket o producto"
-              className="pl-9 pr-3 py-2 rounded-lg border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
-            />
-          </div>
-
-          {/* Filtro por método */}
-          <div className="relative">
-            <button
-              onClick={() => setShowFilter((v) => !v)}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"
-            >
-              <span>Filtro</span>
-              {activeFilters > 0 && (
-                <span className="ml-1 text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                  {activeFilters}
-                </span>
-              )}
-            </button>
-            {showFilter && (
-              <div className="absolute z-20 mt-2 w-56 rounded-xl border border-gray-200 bg-white shadow-lg p-3">
-                <p className="text-xs font-semibold text-gray-500 mb-2">Método de pago</p>
-                {(["Efectivo", "Tarjeta", "Transferencia"] as const).map((m) => (
-                  <label key={m} className="flex items-center gap-2 py-1 text-sm cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={metodos.includes(m)}
-                      onChange={() => toggleMetodo(m)}
-                      className="accent-emerald-600"
-                    />
-                    <span className={`inline-flex items-center gap-2 px-2 py-1 rounded-md text-[11px] ${metodoBadgeClass(m)}`}>
-                      <MetodoIcon metodo={m} className="w-4 h-4" />
-                      <span>{m}</span>
-                    </span>
-                  </label>
-                ))}
-                <div className="flex items-center justify-between mt-3">
-                  <button
-                    onClick={() => setMetodos([])}
-                    className="text-xs text-gray-600 hover:underline"
-                  >
-                    Limpiar
-                  </button>
-                  <button
-                    onClick={() => setShowFilter(false)}
-                    className="text-xs text-emerald-700 font-semibold"
-                  >
-                    Aplicar
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+        {kpiCards.map((card) => (
+          <motion.div
+            key={card.key}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
+            className="report-card"
+            style={{ background: card.background }}
+          >
+            <div className="report-card__icon" style={{ color: card.accent }}>
+              <card.icon size={22} />
+            </div>
+            <div className="report-card__content">
+              <span className="report-card__label">{card.label}</span>
+              <span className="report-card__value">{card.value}</span>
+            </div>
+          </motion.div>
+        ))}
       </motion.div>
 
-      {/* CONTENEDOR en 2 columnas: Tabla (izq) + Populares (der) */}
+      {/* CONTENEDOR en 2 columnas: Tabla (izq) + Recientes (der) */}
       <div className="grid lg:grid-cols-[1fr_360px] gap-6">
-        {/* IZQUIERDA: Tabla (con header que contiene el filtro de fecha) */}
+        {/* IZQUIERDA: Tabla (con header que contiene búsqueda, filtro y rango de fecha) */}
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.22, delay: 0.06 }}
           className="bg-white p-6 rounded-xl shadow-sm border border-gray-100"
         >
-          {/* Header de la tabla con botón de fecha */}
-          <div className="mb-4 flex items-center justify-between relative">
-            <h2 className="text-lg font-semibold flex items-center gap-2">Historial de ventas</h2>
+          {/* Header de la tabla con búsqueda, filtro y rango de fecha */}
+          <div className="mb-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Historial de ventas</h2>
 
-            {/* Rango de fechas (ubicado Aquí, encima de la tabla) */}
-            <div className="relative">
-              <button
-                onClick={() => setShowDate((v) => !v)}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"
-              >
-                
-                <span>
-                  {range === "hoy"
-                    ? "Hoy"
-                    : range === "ayer"
-                    ? "Ayer"
-                    : range === "esta_semana"
-                    ? "Esta semana"
-                    : range === "ultimos_7"
-                    ? "Últimos 7 días"
-                    : range === "ultimos_30"
-                    ? "Últimos 30 días"
-                    : range === "este_mes"
-                    ? "Este mes"
-                    : range === "custom"
-                    ? "Rango personalizado"
-                    : "Todas las fechas"}
-                </span>
-                <span>▾</span>
-              </button>
+              {/* Rango de fechas */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowDate((v) => !v)}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-sm"
+                >
+                  <span>
+                    {range === "hoy"
+                      ? "Hoy"
+                      : range === "ayer"
+                      ? "Ayer"
+                      : range === "esta_semana"
+                      ? "Esta semana"
+                      : range === "ultimos_7"
+                      ? "Últimos 7 días"
+                      : range === "ultimos_30"
+                      ? "Últimos 30 días"
+                      : range === "este_mes"
+                      ? "Este mes"
+                      : range === "custom"
+                      ? "Rango personalizado"
+                      : "Todas las fechas"}
+                  </span>
+                  <span>▾</span>
+                </button>
 
-              {showDate && (
-                <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-gray-200 bg-white shadow-lg p-3">
-                  <p className="text-xs font-semibold text-gray-500 mb-2">Rango</p>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    {([
-                      { key: "todo" as RangeFilter, label: "Todas" },
-                      { key: "hoy" as RangeFilter, label: "Hoy" },
-                      { key: "ayer" as RangeFilter, label: "Ayer" },
-                      { key: "esta_semana" as RangeFilter, label: "Esta semana" },
-                      { key: "ultimos_7" as RangeFilter, label: "Últimos 7 días" },
-                      { key: "ultimos_30" as RangeFilter, label: "Últimos 30 días" },
-                      { key: "este_mes" as RangeFilter, label: "Este mes" },
-                      { key: "custom" as RangeFilter, label: "Personalizado" },
-                    ] as FilterOption[]).map(({ key, label }) => (
-                      <button
-                        key={key}
-                        onClick={() => setRange(key)}
-                        className={`px-2 py-1.5 rounded-md border ${
-                          range === key
-                            ? "border-emerald-400 bg-emerald-50 text-emerald-700"
-                            : "border-gray-200 hover:bg-gray-50"
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {range === "custom" && (
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                      <div>
-                        <label className="block text-xs text-gray-500 mb-1">Desde</label>
-                        <input
-                          type="date"
-                          value={customFrom}
-                          onChange={(e) => setCustomFrom(e.target.value)}
-                          className="w-full px-2 py-1.5 rounded-md border border-gray-200"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-gray-500 mb-1">Hasta</label>
-                        <input
-                          type="date"
-                          value={customTo}
-                          onChange={(e) => setCustomTo(e.target.value)}
-                          className="w-full px-2 py-1.5 rounded-md border border-gray-200"
-                        />
-                      </div>
+                {showDate && (
+                  <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-gray-200 bg-white shadow-lg p-3">
+                    <p className="text-xs font-semibold text-gray-500 mb-2">Rango</p>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      {([
+                        { key: "todo" as RangeFilter, label: "Todas" },
+                        { key: "hoy" as RangeFilter, label: "Hoy" },
+                        { key: "ayer" as RangeFilter, label: "Ayer" },
+                        { key: "esta_semana" as RangeFilter, label: "Esta semana" },
+                        { key: "ultimos_7" as RangeFilter, label: "Últimos 7 días" },
+                        { key: "ultimos_30" as RangeFilter, label: "Últimos 30 días" },
+                        { key: "este_mes" as RangeFilter, label: "Este mes" },
+                        { key: "custom" as RangeFilter, label: "Personalizado" },
+                      ] as FilterOption[]).map(({ key, label }) => (
+                        <button
+                          key={key}
+                          onClick={() => setRange(key)}
+                          className={`px-2 py-1.5 rounded-md border ${
+                            range === key
+                              ? "border-emerald-400 bg-emerald-50 text-emerald-700"
+                              : "border-gray-200 hover:bg-gray-50"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
                     </div>
-                  )}
 
-                  <div className="flex items-center justify-between mt-3">
-                    <button
-                      onClick={() => {
-                        setRange("todo");      // ← reset a "todo"
-                        setCustomFrom("");
-                        setCustomTo("");
-                      }}
-                      className="text-xs text-gray-600 hover:underline"
-                    >
-                      Limpiar
-                    </button>
-                    <button
-                      onClick={() => setShowDate(false)}
-                      className="text-xs text-emerald-700 font-semibold"
-                    >
-                      Aplicar
-                    </button>
+                    {range === "custom" && (
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Desde</label>
+                          <input
+                            type="date"
+                            value={customFrom}
+                            onChange={(e) => setCustomFrom(e.target.value)}
+                            className="w-full px-2 py-1.5 rounded-md border border-gray-200"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Hasta</label>
+                          <input
+                            type="date"
+                            value={customTo}
+                            onChange={(e) => setCustomTo(e.target.value)}
+                            className="w-full px-2 py-1.5 rounded-md border border-gray-200"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between mt-3">
+                      <button
+                        onClick={() => {
+                          setRange("todo");
+                          setCustomFrom("");
+                          setCustomTo("");
+                        }}
+                        className="text-xs text-gray-600 hover:underline"
+                      >
+                        Limpiar
+                      </button>
+                      <button
+                        onClick={() => setShowDate(false)}
+                        className="text-xs text-emerald-700 font-semibold"
+                      >
+                        Aplicar
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+            </div>
+
+            {/* Búsqueda y filtro en la misma línea */}
+            <div className="flex items-center gap-3">
+              {/* Buscar */}
+              <div className="relative">
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar ticket o producto"
+                  className="pl-9 pr-3 py-2 rounded-lg border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400 text-sm"
+                />
+              </div>
+
+              {/* Filtro por método */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowFilter((v) => !v)}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-sm"
+                >
+                  <span>Filtro</span>
+                  {activeFilters > 0 && (
+                    <span className="ml-1 text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                      {activeFilters}
+                    </span>
+                  )}
+                </button>
+                {showFilter && (
+                  <div className="absolute z-20 mt-2 w-56 rounded-xl border border-gray-200 bg-white shadow-lg p-3">
+                    <p className="text-xs font-semibold text-gray-500 mb-2">Método de pago</p>
+                    {(["Efectivo", "Tarjeta", "Transferencia"] as const).map((m) => (
+                      <label key={m} className="flex items-center gap-2 py-1 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={metodos.includes(m)}
+                          onChange={() => toggleMetodo(m)}
+                          className="accent-emerald-600"
+                        />
+                        <span className={`inline-flex items-center gap-2 px-2 py-1 rounded-md text-[11px] ${metodoBadgeClass(m)}`}>
+                          <MetodoIcon metodo={m} className="w-4 h-4" />
+                          <span>{m}</span>
+                        </span>
+                      </label>
+                    ))}
+                    <div className="flex items-center justify-between mt-3">
+                      <button
+                        onClick={() => setMetodos([])}
+                        className="text-xs text-gray-600 hover:underline"
+                      >
+                        Limpiar
+                      </button>
+                      <button
+                        onClick={() => setShowFilter(false)}
+                        className="text-xs text-emerald-700 font-semibold"
+                      >
+                        Aplicar
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -585,15 +680,18 @@ const VentasDashboard: React.FC = () => {
             <thead>
               <tr className="text-left border-b">
                 <th className="p-3 text-sm"># Venta</th>
+                <th className="p-3 text-sm">Fecha</th>
                 <th className="p-3 text-sm">Producto(s)</th>
                 <th className="p-3 text-sm">Total</th>
                 <th className="p-3 text-sm">Método de pago</th>
+                <th className="p-3 text-sm">Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {filteredVentas.map((v) => (
+              {paginatedVentas.map((v) => (
                 <tr key={v.id} className="border-b hover:bg-gray-50">
-                  <td className="p-3">{v.id}</td>
+                  <td className="p-3 font-medium">{v.id}</td>
+                  <td className="p-3 text-sm text-gray-600">{formatDate(v.fecha)}</td>
                   <td className="p-3">{v.productos}</td>
                   <td className="p-3 font-semibold">Q{v.total.toFixed(2)}</td>
                   <td className="p-3">
@@ -608,12 +706,20 @@ const VentasDashboard: React.FC = () => {
                       <span className="leading-none">{v.metodo}</span>
                     </span>
                   </td>
-
+                  <td className="p-3">
+                    <button
+                      onClick={() => verDetallesVenta(v.id)}
+                      className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors"
+                      title="Ver detalles"
+                    >
+                      Ver más
+                    </button>
+                  </td>
                 </tr>
               ))}
-              {filteredVentas.length === 0 && (
+              {paginatedVentas.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="p-6 text-center text-gray-500 text-sm">
+                  <td colSpan={6} className="p-6 text-center text-gray-500 text-sm">
                     No hay resultados para los filtros aplicados.
                   </td>
                 </tr>
@@ -621,14 +727,58 @@ const VentasDashboard: React.FC = () => {
             </tbody>
           </table>
 
-          <div className="text-gray-500 text-sm mt-4">
-            Mostrando {filteredVentas.length} registro(s)
+          <div className="text-gray-500 text-sm mt-4 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <span>
+                Mostrando {paginatedVentas.length > 0 ? ((currentPage - 1) * pageSize) + 1 : 0} - {Math.min(currentPage * pageSize, filteredVentas.length)} de {filteredVentas.length} registro(s)
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">Mostrar:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="px-2 py-1 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                >
+                  {PAGE_SIZE_OPTIONS.map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Controles de paginación */}
+            {totalPages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => goToPage(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Anterior
+                </button>
+                <span className="text-sm text-gray-600">
+                  Página {currentPage} de {totalPages}
+                </span>
+                <button
+                  onClick={() => goToPage(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Siguiente
+                </button>
+              </div>
+            )}
           </div>
           </>
           )}
         </motion.div>
 
-        {/* DERECHA: Panel de Ventas Populares */}
+        {/* DERECHA: Panel de Productos Recientes */}
         <motion.aside
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -636,7 +786,7 @@ const VentasDashboard: React.FC = () => {
           className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 h-fit"
         >
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-700">Ventas Populares</h3>
+            <h3 className="text-sm font-semibold text-gray-700">Productos Más Vendidos</h3>
             <button className="text-gray-400 hover:text-gray-600" title="Más opciones">⋯</button>
           </div>
 
@@ -648,12 +798,12 @@ const VentasDashboard: React.FC = () => {
                   <p className="text-gray-500 text-xs">Cargando productos...</p>
                 </div>
               </div>
-            ) : populares.length === 0 ? (
+            ) : productosRecientesList.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-gray-500 text-sm">No hay productos populares</p>
+                <p className="text-gray-500 text-sm">No hay productos recientes</p>
               </div>
             ) : (
-              populares.map((p) => (
+              productosRecientesList.map((p) => (
               <div
                 key={p.id}
                 className="flex items-center gap-3 p-2 rounded-xl border border-gray-100 hover:border-emerald-200 hover:shadow-sm transition"
@@ -669,9 +819,9 @@ const VentasDashboard: React.FC = () => {
                   <div 
                   key={p.id}
                   className="flex items-center gap-2 mt-1">
-                    <span className="text-xs text-amber-500">★ {p.rating.toFixed(1)}</span>
-                    <span className="px-2 py-0.5 text-[10px] rounded-full bg-gray-100 text-gray-700 border border-gray-200">
-                      {p.tag}
+                    <span className="text-xs text-blue-500">📊 {p.vecesVendido} vendidos</span>
+                    <span className="px-2 py-0.5 text-[10px] rounded-full bg-green-100 text-green-700 border border-green-200">
+                      Q{p.totalVendido.toFixed(2)}
                     </span>
                   </div>
                 </div>

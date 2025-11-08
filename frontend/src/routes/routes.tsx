@@ -15,6 +15,7 @@ const VentasPuntoVenta = React.lazy(() => import("../features/Dashboard/Ventas/V
 const VentasProducto = React.lazy(() => import("../features/Dashboard/Ventas/Ventas/Producto"));
 const VentasCierreCaja = React.lazy(() => import("../features/Dashboard/Ventas/Ventas/CierreCaja"));
 const TicketVenta = React.lazy(() => import("../features/Dashboard/Ventas/Ventas/TicketVenta"));
+const Clientes = React.lazy(() => import("../features/Dashboard/Clientes"));
 const Inventario = React.lazy(() => import("../features/Dashboard/Inventario"));
 const GestionCategorias = React.lazy(() => import("../features/Dashboard/Inventario/Categorias"));
 const RecepcionMercaderia = React.lazy(() => import("../features/Dashboard/Inventario/RecepcionMercaderia"));
@@ -127,6 +128,13 @@ const protectedRoutes: IRoute[] = [
   {
     path: "/ventas/ticketventa",
     element: TicketVenta,
+    guard: AuthGuard,
+    layout: DashboardLayout,
+    requiredLevel: MODULE_PERMISSIONS.VENTAS,
+  },
+  {
+    path: "/clientes",
+    element: Clientes,
     guard: AuthGuard,
     layout: DashboardLayout,
     requiredLevel: MODULE_PERMISSIONS.VENTAS,

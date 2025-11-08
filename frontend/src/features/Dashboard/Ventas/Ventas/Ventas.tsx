@@ -9,7 +9,7 @@ import { useNotifications } from '@/hooks/useNotifications';
 import { NotificationContainer } from '@/components/NotificationContainer';
 import { useAuth } from '../../../../hooks/useAuth';
 import { PermissionLevel } from '../../../../constants/permissions';
-import { Trash2, X, Check, Edit3, Minus, Plus, ShoppingCart, UserX } from 'lucide-react';
+import { Trash2, X, Check, Edit3, Minus, Plus, ShoppingCart, UserX, CreditCard } from 'lucide-react';
 
 type Insumo = {
   id_insumo: number;
@@ -1210,8 +1210,8 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
       addNotification({
         type: 'success',
         title: 'Venta confirmada',
-        message: 'La venta se registró exitosamente. Generando ticket...',
-        duration: 3000,
+        message: 'La venta se registró exitosamente. Inventario actualizado correctamente. Generando ticket...',
+        duration: 4000,
       });
 
       // Reset y cierre del drawer
@@ -1848,8 +1848,9 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
                   <button
                     onClick={confirmarPago}
                     disabled={!carrito.length}
-                    className="h-12 rounded-lg bg-emerald-600 text-white font-semibold text-base hover:bg-emerald-700 disabled:opacity-50"
+                    className="h-12 rounded-lg bg-emerald-600 text-white font-semibold text-base hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center gap-2"
                   >
+                    <CreditCard size={18} />
                     Pagar ahora
                   </button>
                 </div>

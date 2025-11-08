@@ -21,8 +21,10 @@ router.use(authenticateToken);
 router.get('/', requireCajero, ventasController.getVentas.bind(ventasController));
 router.get('/del-dia', requireCajero, ventasController.getVentasDelDia.bind(ventasController));
 router.get('/total', requireCajero, ventasController.getTotalVentas.bind(ventasController));
+router.get('/sesion', requireCajero, ventasController.getTotalVentasSesion.bind(ventasController));
 router.get('/cajero/:idCajero', requireCajero, ventasController.getVentasPorCajero.bind(ventasController));
 router.get('/productos-populares', requireCajero, ventasController.getProductosPopulares.bind(ventasController));
+router.get('/productos-recientes', requireCajero, ventasController.getProductosRecientes.bind(ventasController));
 router.get('/:idVenta/detalles', requireCajero, ventasController.getDetallesByVenta.bind(ventasController));
 router.get('/:id', requireCajero, ventasController.getVentaById.bind(ventasController));
 

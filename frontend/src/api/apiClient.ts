@@ -4,10 +4,15 @@
 // Este archivo configura axios para comunicarse con el backend
 
 import axios from 'axios';
+import { localStore, cookieStore } from '../utils/storage';
 
 // URL del backend
 const API_URL = (import.meta.env.VITE_API_URL || '/api').trim();
-console.log('[API_URL]', API_URL);
+
+// Solo log en desarrollo
+if (import.meta.env.DEV) {
+  console.log('[API_URL]', API_URL);
+}
 
 // Crear instancia de axios
 export const api = axios.create({
@@ -21,10 +26,7 @@ export const api = axios.create({
 // Interceptor para agregar el token JWT a todas las peticiones
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      console.log('❌ API Client - No hay token para agregar al header');
-    }
+    const token = localStore.get<string>('access_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -48,15 +50,19 @@ api.interceptors.response.use(
       // Si la petición fue la de login (o ya estamos en /login), no forzar redirect aquí;
       // eso permite que la vista (p.ej. Login) maneje la presentación de errores/notifications.
       if (currentPath === '/login' || requestUrl.includes('/auth/login')) {
-        // limpiar tokens locales pero no forzar navegación
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('user');
+        // Limpiar storage pero no forzar navegación
+        localStore.remove('access_token');
+        localStore.remove('refreshToken');
+        localStore.remove('user');
+        cookieStore.remove('auth_session');
       } else {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('user');
-        window.location.href = '/login';
+        localStore.remove('access_token');
+        localStore.remove('refreshToken');
+        localStore.remove('user');
+        cookieStore.remove('auth_session');
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
       }
     }
     return Promise.reject(error);

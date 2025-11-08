@@ -786,7 +786,9 @@ EXECUTE FUNCTION fn_actualizar_totales_venta();
 CREATE OR REPLACE FUNCTION trg_descontar_inventario_venta()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF TG_OP = 'UPDATE' AND NEW.estado = 'confirmada' AND COALESCE(OLD.estado, '') <> 'confirmada' THEN
+    -- Ejecutar cuando se inserta una venta confirmada o cuando se actualiza a confirmada
+    IF (TG_OP = 'INSERT' AND NEW.estado = 'confirmada') OR
+       (TG_OP = 'UPDATE' AND NEW.estado = 'confirmada' AND COALESCE(OLD.estado, '') <> 'confirmada') THEN
         PERFORM fn_descontar_inventario_venta(NEW.id_venta, NEW.id_cajero);
     END IF;
 
@@ -796,7 +798,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 DROP TRIGGER IF EXISTS trg_descontar_inventario_venta ON venta;
 CREATE TRIGGER trg_descontar_inventario_venta
-AFTER UPDATE OF estado ON venta
+AFTER INSERT OR UPDATE OF estado ON venta
 FOR EACH ROW
 EXECUTE FUNCTION trg_descontar_inventario_venta();
 
@@ -2262,3 +2264,138 @@ CREATE TRIGGER IF NOT EXISTS trigger_actualizar_fecha_orden_compra
     BEFORE UPDATE ON orden_compra
     FOR EACH ROW
     EXECUTE FUNCTION actualizar_fecha_orden_compra();
+
+-- ===============================================================
+
+-- Función para acumular puntos por venta confirmada
+CREATE OR REPLACE FUNCTION fn_acumular_puntos_venta(p_id_venta INTEGER, p_id_cajero INTEGER DEFAULT NULL)
+RETURNS VOID AS $$
+DECLARE
+    v_id_cliente INTEGER;
+    v_puntos_anteriores INTEGER;
+    v_puntos_nuevos INTEGER;
+BEGIN
+    -- Obtener el cliente de la venta
+    SELECT id_cliente INTO v_id_cliente
+    FROM venta
+    WHERE id_venta = p_id_venta;
+
+    -- Si no hay cliente, no acumular puntos
+    IF v_id_cliente IS NULL THEN
+        RETURN;
+    END IF;
+
+    -- Obtener puntos actuales del cliente
+    SELECT COALESCE(puntos_acumulados, 0) INTO v_puntos_anteriores
+    FROM cliente
+    WHERE id_cliente = v_id_cliente;
+
+    -- Calcular nuevos puntos (1 punto por venta)
+    v_puntos_nuevos := v_puntos_anteriores + 1;
+
+    -- Actualizar puntos del cliente
+    UPDATE cliente
+    SET puntos_acumulados = v_puntos_nuevos,
+        ultima_compra = CURRENT_TIMESTAMP
+    WHERE id_cliente = v_id_cliente;
+
+    -- Registrar en historial de puntos
+    INSERT INTO historial_puntos (
+        id_cliente,
+        id_venta,
+        tipo_movimiento,
+        puntos_anterior,
+        puntos_movimiento,
+        puntos_nuevo,
+        descripcion,
+        id_cajero
+    ) VALUES (
+        v_id_cliente,
+        p_id_venta,
+        'acumulacion',
+        v_puntos_anteriores,
+        1,
+        v_puntos_nuevos,
+        'Punto acumulado por venta',
+        p_id_cajero
+    );
+
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Función para canjear puntos
+CREATE OR REPLACE FUNCTION fn_canjear_puntos(p_id_cliente INTEGER, p_id_venta INTEGER, p_id_cajero INTEGER DEFAULT NULL)
+RETURNS VOID AS $$
+DECLARE
+    v_puntos_actuales INTEGER;
+    v_puntos_a_canjear INTEGER := 10; -- Canjear 10 puntos por defecto
+    v_puntos_nuevos INTEGER;
+BEGIN
+    -- Obtener puntos actuales del cliente
+    SELECT COALESCE(puntos_acumulados, 0) INTO v_puntos_actuales
+    FROM cliente
+    WHERE id_cliente = p_id_cliente;
+
+    -- Verificar que tenga suficientes puntos
+    IF v_puntos_actuales < v_puntos_a_canjear THEN
+        RAISE EXCEPTION 'Puntos insuficientes para canje. Puntos actuales: %, requeridos: %', v_puntos_actuales, v_puntos_a_canjear;
+    END IF;
+
+    -- Calcular puntos nuevos
+    v_puntos_nuevos := v_puntos_actuales - v_puntos_a_canjear;
+
+    -- Actualizar puntos del cliente
+    UPDATE cliente
+    SET puntos_acumulados = v_puntos_nuevos
+    WHERE id_cliente = p_id_cliente;
+
+    -- Registrar en historial de puntos
+    INSERT INTO historial_puntos (
+        id_cliente,
+        id_venta,
+        tipo_movimiento,
+        puntos_anterior,
+        puntos_movimiento,
+        puntos_nuevo,
+        descripcion,
+        id_cajero
+    ) VALUES (
+        p_id_cliente,
+        p_id_venta,
+        'canje',
+        v_puntos_actuales,
+        -v_puntos_a_canjear,
+        v_puntos_nuevos,
+        'Canje de 10 puntos por producto gratis',
+        p_id_cajero
+    );
+
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger para acumular puntos automáticamente al confirmar venta
+CREATE OR REPLACE FUNCTION trg_acumular_puntos_venta()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Solo ejecutar cuando la venta se confirma por primera vez
+    IF (TG_OP = 'INSERT' AND NEW.estado = 'confirmada') OR
+       (TG_OP = 'UPDATE' AND NEW.estado = 'confirmada' AND COALESCE(OLD.estado, '') <> 'confirmada') THEN
+        -- Verificar que no sea un canje de puntos (para evitar loops)
+        IF NOT EXISTS (
+            SELECT 1 FROM detalle_venta
+            WHERE id_venta = NEW.id_venta
+            AND es_canje_puntos = true
+        ) THEN
+            PERFORM fn_acumular_puntos_venta(NEW.id_venta, NEW.id_cajero);
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_acumular_puntos_venta ON venta;
+CREATE TRIGGER trg_acumular_puntos_venta
+AFTER INSERT OR UPDATE OF estado ON venta
+FOR EACH ROW
+EXECUTE FUNCTION trg_acumular_puntos_venta();

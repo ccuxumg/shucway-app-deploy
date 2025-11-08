@@ -4,6 +4,7 @@
 
 import { message } from "antd";
 import api from "./apiClient";
+import { localStore, cookieStore } from "../utils/storage";
 
 export const handleLogin = async (
   identifier: string,
@@ -17,13 +18,23 @@ export const handleLogin = async (
     });
 
     if (response.data.success) {
-      // Guardar el token JWT en localStorage
+      // Guardar el token JWT usando el sistema de storage optimizado
       const { token, refreshToken, user } = response.data.data;
-      console.log('Guardando token en localStorage:', token ? 'Token presente' : 'Token ausente');
-      localStorage.setItem('access_token', token);
-      localStorage.setItem('refreshToken', refreshToken);
-      localStorage.setItem('user', JSON.stringify(user));
-      console.log('✅ Token guardado correctamente en localStorage');
+      console.log('Guardando token en storage optimizado:', token ? 'Token presente' : 'Token ausente');
+      
+      // Guardar en localStorage optimizado con expiración
+      localStore.set('access_token', token, { expires: 60 * 24 * 7 }); // 7 días
+      localStore.set('refreshToken', refreshToken, { expires: 60 * 24 * 30 }); // 30 días
+      localStore.set('user', user, { expires: 60 * 24 * 7 }); // 7 días
+
+      // También guardar en cookies para persistencia adicional
+      cookieStore.set('auth_session', JSON.stringify({ token, user }), {
+        expires: 60 * 24 * 7, // 7 días
+        secure: true,
+        sameSite: 'strict'
+      });
+
+      console.log('✅ Token guardado correctamente en storage optimizado');
       if (options?.useAntd !== false) {
         message.success("¡Sesión iniciada correctamente!");
       }

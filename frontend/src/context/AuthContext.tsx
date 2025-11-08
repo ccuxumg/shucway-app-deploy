@@ -1,5 +1,6 @@
 import { createContext, useState, useEffect, ReactNode } from 'react';
 import { validateToken, AuthUser } from '../api/authService';
+import { localStore } from '../utils/storage';
 
 // Definimos la estructura de lo que nuestro contexto proveerá
 export interface AuthContextType {
@@ -24,8 +25,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       setLoading(true);
       
-      // Verificar si hay token en localStorage
-      const token = localStorage.getItem('access_token');
+      // Verificar si hay token en storage optimizado
+      const token = localStore.get('access_token');
       
       if (!token) {
         // No hay token, usuario no autenticado
@@ -48,16 +49,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setUser(null);
         setRole(null);
         setRoleLevel(null);
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('user');
+        localStore.remove('access_token');
+        localStore.remove('user');
+        localStore.remove('refreshToken');
       }
     } catch (err) {
       console.error('Error al validar usuario:', err);
       setUser(null);
       setRole(null);
       setRoleLevel(null);
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('user');
+      localStore.remove('access_token');
+      localStore.remove('user');
+      localStore.remove('refreshToken');
     } finally {
       setLoading(false);
     }
@@ -65,7 +68,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     // Verificar token al montar el componente
-    const token = localStorage.getItem('access_token');
+    const token = localStore.get('access_token');
     if (token) {
       refreshUser();
     } else {

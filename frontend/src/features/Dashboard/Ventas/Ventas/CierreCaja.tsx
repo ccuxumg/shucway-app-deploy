@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { FaMoneyBillWave, FaMoneyCheckAlt, FaBoxOpen } from "react-icons/fa";
 import { MdPointOfSale } from "react-icons/md";
 import { cajaService, type CajaSesion } from "../../../../api/cajaService";
+import { ventasService } from "../../../../api/ventasService";
 
 /* ================= Paleta ================= */
 const primary = "#00B074";
@@ -176,8 +177,8 @@ const CierreCaja: React.FC = () => {
     return init;
   }, []);
 
-  const [ventasTotales] = useState<number>(2750);
-  const [ventasCount] = useState<number>(18);
+  const [ventasTotales, setVentasTotales] = useState<number>(0);
+  const [ventasCount, setVentasCount] = useState<number>(0);
   const ventasProm = useMemo(
     () => (ventasCount > 0 ? fromCents(Math.round((ventasTotales / ventasCount) * 100)) : 0),
     [ventasTotales, ventasCount]
@@ -315,6 +316,23 @@ const CierreCaja: React.FC = () => {
     void refreshEstado();
   }, [refreshEstado]);
 
+  useEffect(() => {
+    if (sesionCaja?.fecha_apertura) {
+      const loadVentasSesion = async () => {
+        try {
+          const result = await ventasService.getTotalVentasSesion(sesionCaja.fecha_apertura);
+          setVentasTotales(result.total);
+          setVentasCount(result.count);
+        } catch (error) {
+          console.error("Error cargando ventas de sesión:", error);
+          setVentasTotales(0);
+          setVentasCount(0);
+        }
+      };
+      void loadVentasSesion();
+    }
+  }, [sesionCaja?.fecha_apertura]);
+
   const handleIniciarCaja = async () => {
     setAperturaError(null);
     const val = Number(String(aperturaMonto).replace(",", "."));
@@ -399,14 +417,16 @@ const CierreCaja: React.FC = () => {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                onClick={resetSesionCaja}
-                className="px-3 py-2 rounded-md border bg-white hover:bg-gray-50 text-sm"
-              >
-                Forzar Apertura
-              </button>
+              {!sesionCaja && (
+                <button
+                  onClick={resetSesionCaja}
+                  className="px-3 py-2 rounded-md border bg-white hover:bg-gray-50 text-sm"
+                >
+                  Forzar Apertura
+                </button>
+              )}
               <button onClick={() => navigate("/ventas")} className="px-3 py-2 rounded-md border bg-white hover:bg-gray-50">
-                ??? Regresar
+                ← Regresar
               </button>
             </div>
           </div>

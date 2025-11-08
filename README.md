@@ -45,7 +45,9 @@ Cada proyecto (frontend y backend) tiene su propio archivo `.env`:
 
 - **Frontend** (`.env` en raíz): Variables con prefijo `VITE_` para configuración del cliente (Supabase, API URL). Estas se exponen al navegador.
 - **Backend** (`backend/.env`): Variables del servidor (JWT, BD, CORS, etc.). Estas permanecen en el servidor.
+
 npm run dev:all
+
 ### Archivo de Configuración Compartida
 
 Para constantes globales (como URLs de Supabase cuando la BD es compartida), usa `config/shared.ts`. Este archivo puede ser importado en ambos proyectos para mantener consistencia y tiene una función `getEnvVar()` para obtener variables con fallback.
@@ -149,7 +151,31 @@ npm run build:all     # Compilar todo
 
 This project is licensed under the [MIT License](LICENSE).
 
-## 📁 Estructura del Proyecto
+## � Troubleshooting
+
+### Error: "duplicate key value violates unique constraint 'cliente_pkey'"
+
+Si al crear un cliente obtienes este error, significa que la secuencia de auto-incremento de PostgreSQL no está sincronizada.
+
+**Solución rápida:**
+
+1. Ejecuta el script SQL en Supabase:
+
+   ```sql
+   -- Ejecutar en SQL Editor de Supabase
+   SELECT setval('cliente_id_cliente_seq', COALESCE((SELECT MAX(id_cliente) FROM cliente), 0) + 1, false);
+   ```
+
+2. O desde el backend:
+
+   ```bash
+   cd backend
+   npm run reset:cliente-sequence
+   ```
+
+**Script completo disponible:** `database/2025-11-07_cliente_sequence_reset.sql`
+
+## �📁 Estructura del Proyecto
 
 ```bash
 shucway-app/

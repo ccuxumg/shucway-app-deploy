@@ -9,6 +9,7 @@ import {
   RightOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import { localStore } from '../../../../utils/storage';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -89,8 +90,8 @@ interface BackupHistoryItem {
   tableKey?: IncrementalTableKey;
 }
 
-const LOCAL_STORAGE_KEY = 'backups';
 const MAX_HISTORY_ITEMS = 10;
+const PAGE_SIZE_OPTIONS = [5, 10, 20, 50];
 
 const INCREMENTAL_OPTIONS: { value: IncrementalTableKey; label: string }[] = [
   { value: 'insumo', label: 'Insumos' },
@@ -156,15 +157,12 @@ const loadStoredHistory = (): BackupHistoryItem[] => {
   if (typeof window === 'undefined') return [];
 
   try {
-    const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (!raw) {
+    const stored = localStore.get<BackupHistoryItem[]>('backups');
+    if (!stored || !Array.isArray(stored)) {
       return [];
     }
 
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-
-    return parsed
+    return stored
       .map((item: Partial<BackupHistoryItem>) => ({
         id: item.id ?? createId(),
         type: (item.type as BackupHistoryItem['type']) ?? 'schema',
@@ -218,12 +216,10 @@ const Backup: React.FC = () => {
   const [selectedTable, setSelectedTable] = useState<IncrementalTableKey>('insumo');
   const [history, setHistory] = useState<BackupHistoryItem[]>(() => loadStoredHistory());
   const [historyPage, setHistoryPage] = useState(1);
-  const [historyPageSize, setHistoryPageSize] = useState<number>(6);
+  const [historyPageSize, setHistoryPageSize] = useState<number>(PAGE_SIZE_OPTIONS[1]); // 10 por defecto
 
   const persistHistory = useCallback((records: BackupHistoryItem[]) => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(records));
-    }
+    localStore.set('backups', records, { expires: 60 * 24 * 30 }); // 30 días
   }, []);
 
   const registerHistory = useCallback(
@@ -676,7 +672,7 @@ const Backup: React.FC = () => {
                                         setHistoryPageSize(Number(val));
                                         setHistoryPage(1);
                                       }}
-                                      options={[5, 10, 20, 50].map(n => ({ value: n, label: String(n) }))}
+                                      options={PAGE_SIZE_OPTIONS.map(n => ({ value: n, label: String(n) }))}
                                       style={{ width: 96 }}
                                     />
                                   </div>

@@ -7,6 +7,7 @@ import { fetchProveedores, fetchOrdenesCompra, createOrdenCompra, createDetalleO
 import { getProfile } from '../../../../api/authService';
 import { useAuth } from "../../../../hooks/useAuth";
 import { PermissionLevel } from "../../../../constants/permissions";
+import { localStore } from '../../../../utils/storage';
 
 /* =============== Tipos API =============== */
 type ProveedorAPI = {
@@ -506,7 +507,7 @@ export default function IngresoCompra(): JSX.Element {
         fetchProveedores(),
         fetchOrdenesCompra(),
         fetch(`${import.meta.env.VITE_API_URL}/inventario/insumos`, {
-          headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+          headers: { 'Authorization': `Bearer ${localStore.get('access_token')}` }
         }).then(res => res.json()).catch(() => ({ data: [] })) // Fallback to empty array on error
       ]);
 
@@ -641,9 +642,9 @@ export default function IngresoCompra(): JSX.Element {
     return () => { document.body.style.overflow = prev || ""; };
   }, [openDrawer, openProvDrawer, openProvFormDrawer]);
 
-  // Detectar flag de localStorage para abrir modal de Nueva Orden desde stock monitoring
+  // Detectar flag de localStorage optimizado para abrir modal de Nueva Orden desde stock monitoring
   useEffect(() => {
-    const shouldOpenNewOrder = localStorage.getItem('openNewOrderModal');
+    const shouldOpenNewOrder = localStore.get('openNewOrderModal');
     if (shouldOpenNewOrder === 'true') {
       setDetail(null);
       setReadOnly(false);
@@ -763,7 +764,7 @@ export default function IngresoCompra(): JSX.Element {
       try {
         const resp = await fetch(`/api/proveedores/${deleteProviderModal.provider!.id_proveedor}`, {
           method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+          headers: { 'Authorization': `Bearer ${localStore.get('access_token')}` }
         });
         if (!resp.ok) {
           const txt = await resp.text();

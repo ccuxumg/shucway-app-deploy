@@ -49,7 +49,17 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Logs dev
 if (config.env === "development") {
-  app.use((req, _res, next) => { logger.debug(`${req.method} ${req.url}`); next(); });
+  app.use((req, _res, next) => {
+    // Solo log requests importantes, no todas las requests de polling
+    const importantPaths = ['/auth', '/usuarios', '/productos', '/caja'];
+    const isImportant = importantPaths.some(path => req.path.includes(path)) ||
+                       req.method !== 'GET';
+
+    if (isImportant) {
+      logger.debug(`${req.method} ${req.url}`);
+    }
+    next();
+  });
 }
 
 // MONTAJE DE RUTAS: prefijo /api AQUÍ

@@ -4,6 +4,7 @@ import { UsuarioDataType } from '../../../types';
 import { getProfile } from '../../../api/authService';
 import { FaUser, FaEdit, FaSave, FaCamera, FaEnvelope, FaPhone, FaMapMarkerAlt, FaCalendarAlt, FaUserTag } from 'react-icons/fa';
 import { message } from 'antd';
+import { localStore } from '../../../utils/storage';
 
 const Perfil: React.FC = () => {
   const [messageApi, contextHolder] = message.useMessage();
@@ -71,11 +72,11 @@ const Perfil: React.FC = () => {
       setUserData((prev: UsuarioDataType | null) => (prev ? ({ ...prev, avatar_url: publicUrl }) : prev));
 
       try {
-        const storedUser = localStorage.getItem('user');
+        const storedUser = localStore.get('user');
         if (storedUser) {
-          const parsedUser = JSON.parse(storedUser);
+          const parsedUser = storedUser;
           const updatedUser = { ...parsedUser, avatar_url: publicUrl };
-          localStorage.setItem('user', JSON.stringify(updatedUser));
+          localStore.set('user', updatedUser, { expires: 60 * 24 * 7 }); // 7 días
           window.dispatchEvent(new CustomEvent('userProfileUpdated'));
         }
       } catch (storageError) {

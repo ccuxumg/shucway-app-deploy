@@ -8,12 +8,15 @@ import { MdHome, MdInventory, MdSettings, MdOutlineAssessment, MdAdminPanelSetti
 import { FiBell } from "react-icons/fi";
 import { handleLogout } from "../api/handleLogout";
 import { useNavigate, useLocation } from "react-router-dom";
+import { localStore } from "../utils/storage";
+import { UsuarioDataType } from "../types";
 import { MenuItemGuard } from "../components/guards/ModuleGuard";
 import { dashboardService } from "../api/dashboardService";
 import { useAlerts } from "../hooks/useAlerts";
 import { usePermissions } from "../hooks/usePermissions";
 import { useStockMonitoring } from "../hooks/useStockMonitoring";
 import { cajaService, type CajaSesion as CajaSesionApi } from "../api/cajaService";
+import { ventasService } from "../api/ventasService";
 
 // usar el logo público (public/img/logo.png)
 const publicLogo = "/img/logo.png";
@@ -88,13 +91,8 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     // Obtener el usuario del localStorage y API (similar a Perfil.tsx)
     const fetchUser = async () => {
       try {
-        // Primero intentar obtener del localStorage
-        const userStr = localStorage.getItem('user');
-        let userData = null;
-
-        if (userStr) {
-          userData = JSON.parse(userStr);
-        }
+        // Primero intentar obtener del localStorage optimizado
+        let userData: UsuarioDataType | null = localStore.get('user') as UsuarioDataType | null;
 
         // Intentar obtener perfil actualizado de la API (similar a Perfil.tsx)
         try {
@@ -102,8 +100,8 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           const profile = await getProfile();
           userData = profile;
 
-          // Actualizar localStorage con la información más reciente
-          localStorage.setItem('user', JSON.stringify(profile));
+          // Actualizar localStorage optimizado con la información más reciente
+          localStore.set('user', profile, { expires: 60 * 24 * 7 }); // 7 días
         } catch (apiError) {
           console.warn('No se pudo obtener perfil de API, usando localStorage:', apiError);
           // Si falla la API, usar lo que hay en localStorage
@@ -360,7 +358,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const AuditoriaQuick: React.FC = () => {
     const [auditoriaActiva, setAuditoriaActiva] = useState<string | null>(() => {
       try {
-        return localStorage.getItem('auditoria_activa');
+        return localStore.get('auditoria_activa') as string | null;
       } catch {
         return null;
       }
@@ -368,7 +366,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
 
     const [auditoriaLabel, setAuditoriaLabel] = useState<string>(() => {
       try {
-        return localStorage.getItem('auditoria_label') || 'Auditoría';
+        return (localStore.get('auditoria_label') as string) || 'Auditoría';
       } catch {
         return 'Auditoría';
       }
@@ -376,18 +374,18 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
 
     const [auditoriaFecha, setAuditoriaFecha] = useState<string>(() => {
       try {
-        return localStorage.getItem('auditoria_fecha') || '';
+        return (localStore.get('auditoria_fecha') as string) || '';
       } catch {
         return '';
       }
     });
 
-    // Escuchar cambios en localStorage
+    // Escuchar cambios en localStorage optimizado directamente
     React.useEffect(() => {
       const interval = setInterval(() => {
-        const activa = localStorage.getItem('auditoria_activa');
-        const label = localStorage.getItem('auditoria_label') || 'Auditoría';
-        const fecha = localStorage.getItem('auditoria_fecha') || '';
+        const activa = localStore.get('auditoria_activa') as string | null;
+        const label = (localStore.get('auditoria_label') as string) || 'Auditoría';
+        const fecha = (localStore.get('auditoria_fecha') as string) || '';
         setAuditoriaActiva(activa);
         setAuditoriaLabel(label);
         setAuditoriaFecha(fecha);
@@ -496,6 +494,9 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     const [cajaError, setCajaError] = useState<string | null>(null);
     const [expirada, setExpirada] = useState<boolean>(false);
     const [showConfirm, setShowConfirm] = useState(false);
+    const [countVentas, setCountVentas] = useState<number>(0);
+    const [efectivoVentas, setEfectivoVentas] = useState<number>(0);
+    const [tarjetaVentas, setTarjetaVentas] = useState<number>(0);
 
     const loadEstado = useCallback(async () => {
       try {
@@ -503,14 +504,32 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
         const estado = await cajaService.getEstado();
         if (estado.abierta && estado.sesion) {
           setSesion(estado.sesion);
+          // Cargar total de ventas de la sesión
+          try {
+            const ventasResult = await ventasService.getTotalVentasSesion(estado.sesion.fecha_apertura);
+            setCountVentas(ventasResult.count);
+            setEfectivoVentas(ventasResult.efectivo);
+            setTarjetaVentas(ventasResult.tarjeta);
+          } catch (ventasError) {
+            console.error('Error obteniendo total de ventas:', ventasError);
+            setCountVentas(0);
+            setEfectivoVentas(0);
+            setTarjetaVentas(0);
+          }
         } else {
           setSesion(null);
+          setCountVentas(0);
+          setEfectivoVentas(0);
+          setTarjetaVentas(0);
         }
         setExpirada(Boolean(estado.expirada));
       } catch (error: unknown) {
         console.error('Error obteniendo estado de caja:', error);
         const message = resolveCajaApiMessage(error) ?? 'No se pudo obtener el estado de la caja.';
         setCajaError(message);
+        setCountVentas(0);
+        setEfectivoVentas(0);
+        setTarjetaVentas(0);
       } finally {
         setCajaLoading(false);
       }
@@ -537,6 +556,8 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       };
     }, [loadEstado]);
 
+    // Removido: useEffect que refresca en cada cambio de ruta para evitar sobrecarga
+
     const openCaja = () => {
       setCajaError(null);
       navigate('/ventas/cierre-caja', { state: { requireOpenCaja: true } });
@@ -560,18 +581,6 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     };
 
     const cajaOpen = !!sesion;
-    const fechaApertura = sesion ? new Date(sesion.fecha_apertura) : null;
-
-    const formatDateSpanish = (date?: Date | null) => {
-      if (!date) return '';
-      try {
-        const day = date.getDate();
-        const monthNames = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
-        return `${day} DE ${monthNames[date.getMonth()]}`;
-      } catch {
-        return '';
-      }
-    };
 
     return (
       <>
@@ -593,8 +602,18 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
                 {cajaOpen ? 'Caja Abierta' : expirada ? 'Caja Expirada' : 'Caja Cerrada'}
               </div>
               <div className="text-lg font-semibold text-gray-700 text-center">
-                {cajaOpen ? formatDateSpanish(fechaApertura) : '—'}
+                {cajaOpen ? (
+                  <div>
+                    <div>CAJA Q{efectivoVentas.toFixed(2)}</div>
+                    <div>BANCO Q{tarjetaVentas.toFixed(2)}</div>
+                  </div>
+                ) : '—'}
               </div>
+              {cajaOpen && (
+                <div className="text-sm text-gray-600 text-center mt-1">
+                  {countVentas} ventas
+                </div>
+              )}
               {cajaError && (
                 <div className="text-xs text-red-600 mt-1 text-center">{cajaError}</div>
               )}

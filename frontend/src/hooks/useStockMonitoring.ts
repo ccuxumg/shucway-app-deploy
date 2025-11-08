@@ -9,6 +9,7 @@ import { dashboardService } from '../api/dashboardService';
 import { useAlerts } from './useAlerts';
 import { useNavigate } from 'react-router-dom';
 import { MdWarning, MdError } from 'react-icons/md';
+import { localStore } from '../utils/storage';
 
 export interface StockAlert {
   id: string;
@@ -83,8 +84,8 @@ export const useStockMonitoring = (enabled: boolean = true) => {
 
             // Crear función de acción que abre modal de Nueva Orden
             const handleAction = () => {
-              // Usar localStorage para señalar que se debe abrir el modal de nueva orden
-              localStorage.setItem('openNewOrderModal', 'true');
+              // Usar storage optimizado para señalar que se debe abrir el modal de nueva orden
+              localStore.set('openNewOrderModal', 'true');
               // Navegar a ingreso-compra donde se abrirá el modal automáticamente
               navigate('/inventario/ingreso-compra');
             };
@@ -97,7 +98,7 @@ export const useStockMonitoring = (enabled: boolean = true) => {
               action: handleAction
             });
 
-            console.log(`📦 Stock Alert: ${mensaje}`);
+            // Log removido para evitar spam en consola
           }
         }
       });

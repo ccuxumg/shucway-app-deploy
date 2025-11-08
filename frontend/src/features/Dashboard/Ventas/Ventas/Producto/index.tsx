@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { getInsumos } from '@/api/inventarioService';
 import { productosService, type Producto as ProductoAPI, type CategoriaProducto as CategoriaProductoAPI, type ProductoConReceta } from '@/api/productosService';
 import { supabase } from '@/api/supabaseClient';
+import { localStore } from '@/utils/storage';
 import {
   PiEyeBold,
   PiPencilSimpleBold,
@@ -1155,7 +1156,7 @@ function ProductoModal({
       filtered.map(async (insumo) => {
         try {
           const stockResponse = await fetch(`${import.meta.env.VITE_API_URL}/inventario/stock?idInsumo=${insumo.id_insumo}`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+            headers: { 'Authorization': `Bearer ${localStore.get('access_token')}` }
           });
           const stockData = await stockResponse.json();
           return {

@@ -20,6 +20,7 @@ export const getProfile = async () => {
 
 import { message } from 'antd';
 import api from './apiClient';
+import { localStore, cookieStore } from '../utils/storage';
 
 // Interfaces
 export interface LoginCredentials {
@@ -71,9 +72,20 @@ export const login = async (credentials: LoginCredentials): Promise<boolean> => 
   try {
     const response = await api.post<LoginResponse>('/auth/login', credentials);
     if (response.data.success) {
-      localStorage.setItem('access_token', response.data.data.token);
-      localStorage.setItem('refreshToken', response.data.data.refreshToken);
-      localStorage.setItem('user', JSON.stringify(response.data.data.user));
+      const { token, refreshToken, user } = response.data.data;
+
+      // Guardar en localStorage con expiración (7 días para token, 30 días para refresh)
+      localStore.set('access_token', token, { expires: 60 * 24 * 7 }); // 7 días
+      localStore.set('refreshToken', refreshToken, { expires: 60 * 24 * 30 }); // 30 días
+      localStore.set('user', user, { expires: 60 * 24 * 7 }); // 7 días
+
+      // También guardar en cookies para persistencia adicional
+      cookieStore.set('auth_session', JSON.stringify({ token, user }), {
+        expires: 60 * 24 * 7, // 7 días
+        secure: true,
+        sameSite: 'strict'
+      });
+
       message.success('¡Sesión iniciada correctamente!');
       return true;
     }
@@ -81,7 +93,7 @@ export const login = async (credentials: LoginCredentials): Promise<boolean> => 
     return false;
   } catch (error: unknown) {
     console.error('Error en login:', error);
-    const errorMessage = error instanceof Error && 'response' in error 
+    const errorMessage = error instanceof Error && 'response' in error
       ? (error as { response?: { data?: { message?: string } } }).response?.data?.message || 'Error al iniciar sesión'
       : 'Error al iniciar sesión';
     message.error(errorMessage);
@@ -98,10 +110,11 @@ export const logout = async (): Promise<void> => {
   } catch (error) {
     console.error('Error en logout:', error);
   } finally {
-    // Limpiar localStorage
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
+    // Limpiar localStorage y cookies
+    localStore.remove('access_token');
+    localStore.remove('refreshToken');
+    localStore.remove('user');
+    cookieStore.remove('auth_session');
     message.success('Sesión cerrada correctamente');
   }
 };
@@ -112,17 +125,26 @@ export const logout = async (): Promise<void> => {
 export const register = async (data: RegisterData): Promise<boolean> => {
   try {
     const response = await api.post<LoginResponse>('/auth/register', data);
-    
+
     if (response.data.success) {
-      // Guardar token y usuario en localStorage
-      localStorage.setItem('access_token', response.data.data.token);
-      localStorage.setItem('refreshToken', response.data.data.refreshToken);
-      localStorage.setItem('user', JSON.stringify(response.data.data.user));
-      
+      const { token, refreshToken, user } = response.data.data;
+
+      // Guardar en localStorage con expiración
+      localStore.set('access_token', token, { expires: 60 * 24 * 7 }); // 7 días
+      localStore.set('refreshToken', refreshToken, { expires: 60 * 24 * 30 }); // 30 días
+      localStore.set('user', user, { expires: 60 * 24 * 7 }); // 7 días
+
+      // También guardar en cookies para persistencia adicional
+      cookieStore.set('auth_session', JSON.stringify({ token, user }), {
+        expires: 60 * 24 * 7, // 7 días
+        secure: true,
+        sameSite: 'strict'
+      });
+
       message.success('¡Registro exitoso!');
       return true;
     }
-    
+
     message.error(response.data.message || 'Error al registrar usuario');
     return false;
   } catch (error: unknown) {
@@ -140,13 +162,11 @@ export const register = async (data: RegisterData): Promise<boolean> => {
 // ============================================================
 export const validateToken = async (): Promise<AuthUser | null> => {
   try {
-    const token = localStorage.getItem('access_token');
+    const token = localStore.get<string>('access_token');
     if (!token) {
-      console.log('❌ validateToken - No hay token en localStorage');
       return null;
     }
 
-    console.log('📡 validateToken - Enviando token para validación');
     const response = await api.get<{ success: boolean; data: AuthUser }>('/auth/validate', {
       headers: {
         Authorization: `Bearer ${token}`
@@ -155,29 +175,27 @@ export const validateToken = async (): Promise<AuthUser | null> => {
 
     if (response.data.success) {
       // Actualizar usuario en localStorage
-      localStorage.setItem('user', JSON.stringify(response.data.data));
-      console.log('✅ validateToken - Token validado correctamente');
+      localStore.set('user', response.data.data, { expires: 60 * 24 * 7 }); // 7 días
       return response.data.data;
     }
 
-    console.log('❌ validateToken - Respuesta no exitosa');
     return null;
   } catch (error) {
     console.error('Error al validar token:', error);
-    // Limpiar localStorage si el token es inválido
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user');
+    // Limpiar storage si el token es inválido
+    localStore.remove('access_token');
+    localStore.remove('user');
+    cookieStore.remove('auth_session');
     return null;
   }
 };
 
 // ============================================================
-// OBTENER USUARIO ACTUAL DEL LOCALSTORAGE
+// OBTENER USUARIO ACTUAL DEL STORAGE
 // ============================================================
 export const getCurrentUser = (): AuthUser | null => {
   try {
-    const userStr = localStorage.getItem('user');
-    return userStr ? JSON.parse(userStr) : null;
+    return localStore.get<AuthUser>('user');
   } catch (error) {
     console.error('Error al obtener usuario actual:', error);
     return null;
@@ -188,7 +206,7 @@ export const getCurrentUser = (): AuthUser | null => {
 // VERIFICAR SI ESTÁ AUTENTICADO
 // ============================================================
 export const isAuthenticated = (): boolean => {
-  const token = localStorage.getItem('access_token');
+  const token = localStore.get<string>('access_token');
   const user = getCurrentUser();
   return !!(token && user);
 };

@@ -85,7 +85,7 @@ export class VentasController {
       res.status(201).json({
         success: true,
         data: venta,
-        message: 'Venta creada exitosamente',
+        message: 'Venta creada exitosamente. Inventario actualizado correctamente.',
       });
     } catch (error) {
       next(error);
@@ -217,6 +217,29 @@ export class VentasController {
     }
   }
 
+  async getTotalVentasSesion(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const fechaInicio = req.query.fechaInicio as string;
+
+      if (!fechaInicio) {
+        res.status(400).json({
+          success: false,
+          message: 'fechaInicio es requerido',
+        });
+        return;
+      }
+
+      const result = await ventasService.getTotalVentasSesion(fechaInicio);
+
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getVentasPorCajero(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const idCajero = parseInt(req.params.idCajero);
@@ -255,6 +278,31 @@ export class VentasController {
       }
 
       const productos = await ventasService.getProductosPopulares(limit);
+
+      res.json({
+        success: true,
+        data: productos,
+        count: productos.length,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getProductosRecientes(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const limitParam = req.query.limit as string;
+      const limit = limitParam ? parseInt(limitParam) : 5;
+
+      if (isNaN(limit) || limit < 1 || limit > 20) {
+        res.status(400).json({
+          success: false,
+          message: 'El límite debe ser un número entre 1 y 20',
+        });
+        return;
+      }
+
+      const productos = await ventasService.getProductosRecientes(limit);
 
       res.json({
         success: true,

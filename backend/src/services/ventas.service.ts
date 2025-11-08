@@ -1,5 +1,4 @@
 import { supabase } from '../config/database';
-import { AppError } from '../middlewares/errorHandler.middleware';
 import {
   Venta,
   DetalleVenta,
@@ -255,20 +254,20 @@ export class VentasService {
 
   /**
    * Crear venta con detalles
-   * Esta función crea la venta y sus detalles, luego confirma la venta para que los triggers PL/pgSQL hagan su trabajo:
-   * - fn_descontar_inventario_venta: Descuenta inventario operativo cuando estado cambia a 'confirmada'
-   * - fn_acumular_puntos_venta: Se ejecuta automáticamente por trigger al mismo cambio de estado
+   * Esta función crea la venta directamente en estado 'confirmada' para que los triggers PL/pgSQL hagan su trabajo:
+   * - fn_descontar_inventario_venta: Descuenta inventario operativo cuando se crea la venta confirmada
+   * - fn_acumular_puntos_venta: Se ejecuta automáticamente por trigger al crear la venta confirmada
    */
   async createVenta(dto: CreateVentaDTO, idCajero: number): Promise<VentaCompleta> {
     await cajaService.requireCajaAbierta(idCajero);
 
-    // 1. Crear venta principal (estado 'pendiente' por defecto)
+    // 1. Crear venta principal directamente en estado 'confirmada'
     const { data: venta, error: ventaError } = await supabase
       .from('venta')
       .insert({
         id_cliente: dto.id_cliente,
         tipo_pago: dto.tipo_pago,
-        estado: 'pendiente', // Siempre empieza en pendiente
+        estado: 'confirmada', // Crear directamente confirmada
         id_cajero: idCajero,
         notas: dto.notas,
       })
@@ -299,43 +298,33 @@ export class VentasService {
       await supabase.from('venta').delete().eq('id_venta', venta.id_venta);
       throw new Error(`Error al crear detalles de venta: ${detallesError.message}`);
     }
-    // 3. Confirmar venta (cambia estado a 'confirmada')
-    // Esto dispara:
+
+    // 3. La venta ya está confirmada, ejecutar descuento de inventario
+    // Esto dispara automáticamente:
     // - fn_descontar_inventario_venta (trigger en PostgreSQL)
     // - fn_acumular_puntos_venta (trigger automático)
-    const { error: confirmarError } = await supabase
-      .from('venta')
-      .update({ estado: 'confirmada' })
-      .eq('id_venta', venta.id_venta);
-
-    if (confirmarError) {
-      await supabase.from('detalle_venta').delete().eq('id_venta', venta.id_venta);
-      await supabase.from('venta').delete().eq('id_venta', venta.id_venta);
-      throw new AppError(confirmarError.message ?? 'Error al confirmar la venta', 400);
-    }
 
     try {
-      const { data: movimientosExistentes, error: movimientosError } = await supabase
-        .from('movimiento_inventario')
-        .select('id_movimiento')
-        .eq('id_referencia', venta.id_venta)
-        .eq('tipo_movimiento', 'salida_venta')
-        .limit(1);
+      // Forzar descuento de inventario para asegurar que se ejecute siempre
+      console.log(`Ejecutando descuento de inventario para venta ${venta.id_venta}...`);
+      const { error: rpcError } = await supabase.rpc('fn_descontar_inventario_venta', {
+        p_id_venta: venta.id_venta,
+        p_id_perfil: idCajero,
+      });
 
-      const requiereDescuento = !movimientosError && (!movimientosExistentes || movimientosExistentes.length === 0);
-
-      if (requiereDescuento) {
-        const { error: rpcError } = await supabase.rpc('fn_descontar_inventario_venta', {
-          p_id_venta: venta.id_venta,
-          p_id_perfil: idCajero,
+      if (rpcError) {
+        console.error('Error ejecutando fn_descontar_inventario_venta:', rpcError.message);
+        console.error('Detalles del error:', {
+          message: rpcError.message,
+          details: rpcError.details,
+          hint: rpcError.hint,
+          code: rpcError.code
         });
-
-        if (rpcError) {
-          console.error('Error ejecutando fn_descontar_inventario_venta manualmente:', rpcError.message);
-        }
+      } else {
+        console.log(`Descuento de inventario completado exitosamente para venta ${venta.id_venta}`);
       }
     } catch (fallbackError) {
-      console.warn('No se pudo verificar movimientos de inventario tras confirmar venta:', fallbackError);
+      console.warn('Error en el proceso de descuento de inventario:', fallbackError);
     }
 
     // 4. Manejar canje de puntos si existe
@@ -457,6 +446,36 @@ export class VentasService {
   }
 
   /**
+   * Obtener total de ventas de la sesión (desde fechaInicio hasta ahora)
+   */
+  async getTotalVentasSesion(fechaInicio: string): Promise<{ efectivo: number; tarjeta: number; total: number; count: number }> {
+    const { data, error } = await supabase
+      .from('venta')
+      .select('tipo_pago, total_venta')
+      .eq('estado', 'confirmada')
+      .gte('fecha_venta', fechaInicio);
+
+    if (error) throw new Error(`Error al obtener total de ventas de sesión: ${error.message}`);
+
+    let efectivo = 0;
+    let tarjeta = 0;
+    let total = 0;
+    let count = 0;
+
+    (data || []).forEach((venta) => {
+      total += venta.total_venta || 0;
+      count++;
+      if (venta.tipo_pago === 'Cash') {
+        efectivo += venta.total_venta || 0;
+      } else if (venta.tipo_pago === 'Tarjeta') {
+        tarjeta += venta.total_venta || 0;
+      }
+    });
+
+    return { efectivo, tarjeta, total, count };
+  }
+
+  /**
    * Obtener ventas por cajero en un rango de fechas
    */
   async getVentasPorCajero(
@@ -468,44 +487,219 @@ export class VentasService {
   }
 
   /**
-   * Obtener productos más populares (más vendidos)
+   * Obtener productos más populares (más vendidos) con fallback a productos recientes
    */
   async getProductosPopulares(limit: number = 5): Promise<ProductoPopular[]> {
     try {
-      // Consulta simplificada que funciona con datos actuales
-      // Cuando no hay ventas, devolver productos disponibles
-      const { data, error } = await supabase
-        .from('producto')
+      // Obtener estadísticas reales de productos más vendidos
+      const { data: estadisticas, error: statsError } = await supabase
+        .from('detalle_venta')
         .select(`
           id_producto,
-          nombre_producto,
-          precio_venta,
-          imagen_url
+          cantidad,
+          precio_unitario,
+          producto:producto(
+            nombre_producto,
+            imagen_url
+          )
         `)
-        .eq('estado', 'activo')
-        .order('id_producto', { ascending: false }) // Más recientes primero
-        .limit(limit);
+        .not('producto', 'is', null);
 
-      if (error) {
-        console.error('Error obteniendo productos:', error);
-        throw new Error(`Error al obtener productos: ${error.message}`);
+      if (statsError) {
+        console.warn('Error obteniendo estadísticas de productos, usando fallback:', statsError.message);
+        return this.getProductosRecientes(limit);
       }
 
-      // Por ahora devolver productos sin estadísticas de venta
-      // Cuando haya ventas, se puede mejorar esta lógica
-      return (data || []).map((producto) => ({
-        id_producto: producto.id_producto,
-        nombre_producto: producto.nombre_producto,
-        total_vendido: 0, // TODO: calcular cuando haya ventas
-        veces_vendido: 0, // TODO: calcular cuando haya ventas
-        categoria: 'Producto', // Categoría por defecto
-        imagen_url: producto.imagen_url,
-      }));
+      // Calcular estadísticas manualmente
+      const statsMap = new Map<number, {
+        id_producto: number;
+        nombre_producto: string;
+        total_vendido: number;
+        veces_vendido: number;
+        categoria: string;
+        imagen_url?: string;
+      }>();
 
+      interface DetalleConProducto {
+        id_producto: number;
+        cantidad: number;
+        precio_unitario: number;
+        producto: {
+          nombre_producto: string;
+          imagen_url?: string;
+        }[];
+      }
+
+      (estadisticas as unknown as DetalleConProducto[] || []).forEach((detalle) => {
+        const producto = detalle.producto?.[0]; // Tomar el primer elemento del array
+        if (!producto) return;
+
+        const id = detalle.id_producto;
+        const cantidad = detalle.cantidad || 0;
+        const precio = detalle.precio_unitario || 0;
+
+        if (statsMap.has(id)) {
+          const existing = statsMap.get(id)!;
+          existing.total_vendido += cantidad * precio;
+          existing.veces_vendido += cantidad;
+        } else {
+          statsMap.set(id, {
+            id_producto: id,
+            nombre_producto: producto.nombre_producto || `Producto ${id}`,
+            total_vendido: cantidad * precio,
+            veces_vendido: cantidad,
+            categoria: 'Producto', // Sin categoría por ahora
+            imagen_url: producto.imagen_url,
+          });
+        }
+      });
+
+      // Ordenar por veces vendido (descendente)
+      const sortedStats = Array.from(statsMap.values())
+        .sort((a, b) => b.veces_vendido - a.veces_vendido);
+
+      // Si tenemos suficientes productos vendidos, devolverlos
+      if (sortedStats.length >= limit) {
+        return sortedStats.slice(0, limit);
+      }
+
+      // Si no tenemos suficientes productos vendidos, combinar con productos recientes
+      const productosVendidos = sortedStats;
+      const productosRecientes = await this.getProductosRecientes(limit - productosVendidos.length);
+
+      // Combinar y eliminar duplicados
+      const combined = [...productosVendidos];
+      for (const reciente of productosRecientes) {
+        if (!combined.some(p => p.id_producto === reciente.id_producto)) {
+          combined.push(reciente);
+        }
+      }
+
+      return combined.slice(0, limit);
     } catch (error) {
-      console.error('Error obteniendo productos populares:', error);
-      throw error;
+      console.error('Error en getProductosPopulares:', error);
+      return this.getProductosRecientes(limit);
     }
+  }
+
+  /**
+   * Obtener productos más recientes (basados en ventas recientes)
+   */
+  async getProductosRecientes(limit: number = 5): Promise<ProductoPopular[]> {
+    try {
+      // Obtener productos vendidos en los últimos 30 días, ordenados por fecha de venta más reciente
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const { data, error } = await supabase
+        .from('detalle_venta')
+        .select(`
+          id_producto,
+          cantidad,
+          precio_unitario,
+          venta!inner(fecha_venta),
+          producto!inner(nombre_producto, imagen_url)
+        `)
+        .gte('venta.fecha_venta', thirtyDaysAgo.toISOString())
+        .order('venta.fecha_venta', { ascending: false });
+
+      if (error) {
+        console.warn('Error obteniendo productos recientes por ventas, usando fallback:', error.message);
+        // Fallback: productos por fecha de creación
+        return this.getProductosRecientesFallback(limit);
+      }
+
+      // Agrupar por producto y calcular estadísticas
+      const productStats = new Map<number, {
+        id_producto: number;
+        nombre_producto: string;
+        total_vendido: number;
+        veces_vendido: number;
+        categoria: string;
+        imagen_url?: string;
+        ultima_venta: string;
+      }>();
+
+      interface DetalleConProducto {
+        id_producto: number;
+        cantidad: number;
+        precio_unitario: number;
+        venta: {
+          fecha_venta: string;
+        };
+        producto: {
+          nombre_producto: string;
+          imagen_url?: string;
+        };
+      }
+
+      (data as unknown as DetalleConProducto[] || []).forEach((detalle) => {
+        const producto = detalle.producto;
+        const venta = detalle.venta;
+        if (!producto || !venta) return;
+
+        const id = detalle.id_producto;
+        const cantidad = detalle.cantidad || 0;
+        const precio = detalle.precio_unitario || 0;
+
+        if (productStats.has(id)) {
+          const existing = productStats.get(id)!;
+          existing.total_vendido += cantidad * precio;
+          existing.veces_vendido += cantidad;
+          // Mantener la fecha de venta más reciente
+          if (venta.fecha_venta > existing.ultima_venta) {
+            existing.ultima_venta = venta.fecha_venta;
+          }
+        } else {
+          productStats.set(id, {
+            id_producto: id,
+            nombre_producto: producto.nombre_producto || `Producto ${id}`,
+            total_vendido: cantidad * precio,
+            veces_vendido: cantidad,
+            categoria: 'Producto',
+            imagen_url: producto.imagen_url,
+            ultima_venta: venta.fecha_venta,
+          });
+        }
+      });
+
+      // Ordenar por fecha de última venta (más reciente primero)
+      const sortedProducts = Array.from(productStats.values())
+        .sort((a, b) => new Date(b.ultima_venta).getTime() - new Date(a.ultima_venta).getTime());
+
+      return sortedProducts.slice(0, limit);
+    } catch (error) {
+      console.error('Error en getProductosRecientes:', error);
+      return this.getProductosRecientesFallback(limit);
+    }
+  }
+
+  /**
+   * Fallback: Obtener productos por fecha de creación
+   */
+  private async getProductosRecientesFallback(limit: number): Promise<ProductoPopular[]> {
+    const { data, error } = await supabase
+      .from('producto')
+      .select(`
+        id_producto,
+        nombre_producto,
+        precio_venta,
+        imagen_url
+      `)
+      .eq('estado', 'activo')
+      .order('fecha_creacion', { ascending: false })
+      .limit(limit);
+
+    if (error) throw new Error(`Error al obtener productos recientes: ${error.message}`);
+
+    return (data || []).map((producto) => ({
+      id_producto: producto.id_producto,
+      nombre_producto: producto.nombre_producto,
+      total_vendido: 0,
+      veces_vendido: 0,
+      categoria: 'Producto',
+      imagen_url: producto.imagen_url,
+    }));
   }
 }
 

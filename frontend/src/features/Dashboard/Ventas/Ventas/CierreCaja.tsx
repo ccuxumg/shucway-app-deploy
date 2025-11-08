@@ -12,14 +12,14 @@ const primary = "#00B074";
 const yellow = "#FFD40D";
 
 /* ================= Helpers ================= */
-const currency = (q: number) =>
-  q.toLocaleString("es-GT", {
+const currency = (q: number | undefined | null) =>
+  (q ?? 0).toLocaleString("es-GT", {
     style: "currency",
     currency: "GTQ",
     minimumFractionDigits: 2,
   });
-const toCents = (n: number) => Math.round(n * 100);
-const fromCents = (c: number) => c / 100;
+const toCents = (n: number | undefined | null) => Math.round((n ?? 0) * 100);
+const fromCents = (c: number | undefined | null) => (c ?? 0) / 100;
 
 /* ================= Tipos compartidos ================= */
 type TfItem = { ref?: string; amount: number };
@@ -76,12 +76,10 @@ function SalesCard({
 
 function PaymentsCard({
   efectivo,
-  tarjeta,
-  transferencia,
+  banco,
 }: {
   efectivo: number;
-  tarjeta: number;
-  transferencia: number;
+  banco: number;
 }) {
   return (
     <div className="relative rounded-xl p-6 lg:p-7 bg-gradient-to-br from-white to-gray-50 border border-gray-100 shadow-sm">
@@ -97,13 +95,9 @@ function PaymentsCard({
         <div className="text-right font-semibold tabular-nums text-emerald-700">
           {currency(efectivo)}
         </div>
-        <div className="text-gray-500">Tarjeta</div>
-        <div className="text-right font-semibold tabular-nums text-gray-800">
-          {currency(tarjeta)}
-        </div>
-        <div className="text-gray-500">Transferencias verificadas</div>
+        <div className="text-gray-500">Banco (Transferencias)</div>
         <div className="text-right font-semibold tabular-nums text-teal-700">
-          {currency(transferencia)}
+          {currency(banco)}
         </div>
       </div>
     </div>
@@ -183,8 +177,6 @@ const CierreCaja: React.FC = () => {
     () => (ventasCount > 0 ? fromCents(Math.round((ventasTotales / ventasCount) * 100)) : 0),
     [ventasTotales, ventasCount]
   );
-
-  const [totalTarjeta] = useState<number>(0);
 
   const [efectivoContado, setEfectivoContado] = useState<number>(0);
   const [transferEsperadoCount, setTransferEsperadoCount] = useState<number>(0);
@@ -287,7 +279,8 @@ const CierreCaja: React.FC = () => {
     efectivoContado >= 0 &&
     transferVerificada >= 0 &&
     transferEsperadoCount >= 0 &&
-    egresos.every((e) => e.monto >= 0 && e.motivo.trim().length > 0);
+    egresos.every((e) => e.monto >= 0 && e.motivo.trim().length > 0) &&
+    sesionCaja !== null; // Solo requiere que haya una sesión de caja abierta
 
   const abrirReporte = () => setReporteVisible(true);
 
@@ -323,10 +316,18 @@ const CierreCaja: React.FC = () => {
           const result = await ventasService.getTotalVentasSesion(sesionCaja.fecha_apertura);
           setVentasTotales(result.total);
           setVentasCount(result.count);
+
+          // Calcular valores automáticamente
+          setEfectivoContado(result.efectivo);
+          setTransferVerificada(result.transferencia);
+          setTransferEsperadoCount(result.transferencia > 0 ? 1 : 0); // Al menos 1 si hay transferencias
         } catch (error) {
           console.error("Error cargando ventas de sesión:", error);
           setVentasTotales(0);
           setVentasCount(0);
+          setEfectivoContado(0);
+          setTransferVerificada(0);
+          setTransferEsperadoCount(0);
         }
       };
       void loadVentasSesion();
@@ -437,8 +438,7 @@ const CierreCaja: React.FC = () => {
           <SalesCard total={ventasTotales} count={ventasCount} avg={ventasProm} />
           <PaymentsCard
             efectivo={efectivoContado}
-            tarjeta={totalTarjeta}
-            transferencia={transferVerificada}
+            banco={transferVerificada}
           />
         </div>
 
@@ -487,10 +487,8 @@ const CierreCaja: React.FC = () => {
                   type="number"
                   step="0.01"
                   value={transferVerificada}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setTransferVerificada(parseFloat(e.target.value) || 0)
-                  }
-                  className="w-full border rounded-lg px-3 h-11"
+                  readOnly
+                  className="w-full border rounded-lg px-3 h-11 bg-gray-50 text-gray-700"
                 />
                 <button
                   type="button"
@@ -693,9 +691,7 @@ const CierreCaja: React.FC = () => {
           open={reporteVisible}
           onClose={() => setReporteVisible(false)}
           ventasTotales={ventasTotales}
-          totalTarjeta={totalTarjeta}
           transferTotal={transferVerificada}
-          ventasEfectivo={efectivoContado}
           montoInicial={montoInicial}
           egresosTotales={egresosTotales}
           esperado={efectivoEsperadoCalc}
@@ -1177,9 +1173,7 @@ function ReportModal({
   open,
   onClose,
   ventasTotales,
-  totalTarjeta,
   transferTotal,
-  ventasEfectivo,
   montoInicial,
   egresosTotales,
   esperado,
@@ -1194,9 +1188,7 @@ function ReportModal({
   open: boolean;
   onClose: () => void;
   ventasTotales: number;
-  totalTarjeta: number;
   transferTotal: number;
-  ventasEfectivo: number;
   montoInicial: number;
   egresosTotales: number;
   esperado: number;
@@ -1241,9 +1233,7 @@ function ReportModal({
                   <PrintableSheet
                     titulo={titulo}
                     ventasTotales={ventasTotales}
-                    totalTarjeta={totalTarjeta}
                     transferTotal={transferTotal}
-                    ventasEfectivo={ventasEfectivo}
                     montoInicial={montoInicial}
                     egresosTotales={egresosTotales}
                     esperado={esperado}
@@ -1274,9 +1264,7 @@ function ReportModal({
             <PrintableSheet
               titulo={titulo}
               ventasTotales={ventasTotales}
-              totalTarjeta={totalTarjeta}
               transferTotal={transferTotal}
-              ventasEfectivo={ventasEfectivo}
               montoInicial={montoInicial}
               egresosTotales={egresosTotales}
               esperado={esperado}
@@ -1351,9 +1339,7 @@ function Row({ label, value, strong = false }: { label: string; value: string; s
 function PrintableSheet({
   titulo,
   ventasTotales,
-  totalTarjeta,
   transferTotal,
-  ventasEfectivo,
   montoInicial,
   egresosTotales,
   esperado,
@@ -1367,9 +1353,7 @@ function PrintableSheet({
 }: {
   titulo: string;
   ventasTotales: number;
-  totalTarjeta: number;
   transferTotal: number;
-  ventasEfectivo: number;
   montoInicial: number;
   egresosTotales: number;
   esperado: number;

@@ -274,6 +274,7 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
   // Cantidades de extras en el customizer
   // Drawer de pago
   const [openPago, setOpenPago] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
   const [metodo, setMetodo] = useState<'efectivo' | 'transferencia'>('efectivo');
   const [referencia, setReferencia] = useState('');
   const [banco, setBanco] = useState('');
@@ -1014,6 +1015,7 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
     setPagoError('');
     setCashInvalid(false);
     setTransfInvalid(false);
+    setModalError(null); // Limpiar errores previos del modal
     setOpenPago(true);
   };
 
@@ -1253,19 +1255,17 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
         }
 
         const message = apiMessage ?? 'Error al procesar la venta. Inténtalo de nuevo.';
-        addNotification({ type: 'error', title: 'Error al crear venta', message, duration: 4000 });
+
+        // Mostrar error dentro del modal
+        setModalError(message);
         return;
       }
 
       const fallbackMessage =
         error instanceof Error ? error.message : 'Error al procesar la venta. Inténtalo de nuevo.';
 
-      addNotification({
-        type: 'error',
-        title: 'Error al crear venta',
-        message: fallbackMessage,
-        duration: 4000,
-      });
+      // Mostrar error dentro del modal
+      setModalError(fallbackMessage);
     }
   };
 
@@ -1836,6 +1836,18 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
                 {/* Error inline */}
                 {pagoError && (
                   <div className="mt-3 text-s text-rose-600 font-medium">{pagoError}</div>
+                )}
+
+                {/* Mensaje de error dentro del modal */}
+                {modalError && (
+                  <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <X className="text-red-500 flex-shrink-0" size={20} />
+                      <div className="text-red-800 text-sm font-medium">
+                        {modalError}
+                      </div>
+                    </div>
+                  </div>
                 )}
 
                 <div className="mt-6 grid grid-cols-2 gap-3">

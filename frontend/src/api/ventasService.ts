@@ -140,7 +140,7 @@ export const ventasService = {
   },
 
   // Obtener total de ventas de la sesión
-  async getTotalVentasSesion(fechaInicio: string): Promise<{ efectivo: number; tarjeta: number; total: number; count: number }> {
+  async getTotalVentasSesion(fechaInicio: string): Promise<{ efectivo: number; transferencia: number; tarjeta: number; total: number; count: number }> {
     try {
       const response = await apiClient.get(`/ventas/sesion?fechaInicio=${fechaInicio}`);
       return response.data.data;

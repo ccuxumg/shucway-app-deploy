@@ -448,7 +448,7 @@ export class VentasService {
   /**
    * Obtener total de ventas de la sesión (desde fechaInicio hasta ahora)
    */
-  async getTotalVentasSesion(fechaInicio: string): Promise<{ efectivo: number; tarjeta: number; total: number; count: number }> {
+  async getTotalVentasSesion(fechaInicio: string): Promise<{ efectivo: number; transferencia: number; tarjeta: number; total: number; count: number }> {
     const { data, error } = await supabase
       .from('venta')
       .select('tipo_pago, total_venta')
@@ -458,6 +458,7 @@ export class VentasService {
     if (error) throw new Error(`Error al obtener total de ventas de sesión: ${error.message}`);
 
     let efectivo = 0;
+    let transferencia = 0;
     let tarjeta = 0;
     let total = 0;
     let count = 0;
@@ -467,12 +468,14 @@ export class VentasService {
       count++;
       if (venta.tipo_pago === 'Cash') {
         efectivo += venta.total_venta || 0;
+      } else if (venta.tipo_pago === 'Transferencia') {
+        transferencia += venta.total_venta || 0;
       } else if (venta.tipo_pago === 'Tarjeta') {
         tarjeta += venta.total_venta || 0;
       }
     });
 
-    return { efectivo, tarjeta, total, count };
+    return { efectivo, transferencia, tarjeta, total, count };
   }
 
   /**

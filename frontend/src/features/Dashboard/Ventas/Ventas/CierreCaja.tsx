@@ -23,7 +23,6 @@ const fromCents = (c: number | undefined | null) => (c ?? 0) / 100;
 
 /* ================= Tipos compartidos ================= */
 type TfItem = { ref?: string; amount: number };
-type Egreso = { monto: number; motivo: string };
 type TfRowsFull = Record<string, { banco?: string; items: TfItem[] }>;
 
 /* Denominaciones GTQ */
@@ -179,14 +178,12 @@ const CierreCaja: React.FC = () => {
   );
 
   const [efectivoContado, setEfectivoContado] = useState<number>(0);
-  const [transferEsperadoCount, setTransferEsperadoCount] = useState<number>(0);
   const [transferVerificada, setTransferVerificada] = useState<number>(0);
-  const [egresos, setEgresos] = useState<Array<{ monto: number; motivo: string }>>([]);
+  const [transferEsperada, setTransferEsperada] = useState<number>(0);
   const [reporteVisible, setReporteVisible] = useState<boolean>(false);
 
   const [totalSistema, setTotalSistema] = useState<number>(0);
   const [observacionesArqueo, setObservacionesArqueo] = useState<string>("");
-  const [estadoArqueo, setEstadoArqueo] = useState<"abierto" | "cerrado" | "revisado">("abierto");
 
   const [showArqueo, setShowArqueo] = useState<boolean>(false);
   const [arqueo, setArqueo] = useState<Record<string, number>>(() => makeEmptyArqueo());
@@ -246,25 +243,18 @@ const CierreCaja: React.FC = () => {
   const resetFormulario = useCallback(() => {
     setEfectivoContado(0);
     setTransferVerificada(0);
-    setTransferEsperadoCount(0);
-    setEgresos([{ monto: 0, motivo: "" }]);
+    setTransferEsperada(0);
     setArqueo(makeEmptyArqueo());
     setTfRows(makeInitialTfRows());
     setTotalSistema(0);
     setObservacionesArqueo("");
-    setEstadoArqueo("abierto");
     setReporteVisible(false);
   }, [makeEmptyArqueo, makeInitialTfRows]);
 
-  const egresosTotales = useMemo(
-    () => egresos.reduce((acc, e) => acc + (Number(e.monto) || 0), 0),
-    [egresos]
-  );
-
   const efectivoEsperadoCalc = useMemo(() => {
-    const cents = toCents(efectivoContado) + toCents(montoInicial) - toCents(egresosTotales);
+    const cents = toCents(efectivoContado) + toCents(montoInicial);
     return fromCents(Math.max(0, cents));
-  }, [efectivoContado, montoInicial, egresosTotales]);
+  }, [efectivoContado, montoInicial]);
 
   useEffect(() => {
     setTotalSistema(efectivoEsperadoCalc);
@@ -278,8 +268,6 @@ const CierreCaja: React.FC = () => {
   const registroCompleto =
     efectivoContado >= 0 &&
     transferVerificada >= 0 &&
-    transferEsperadoCount >= 0 &&
-    egresos.every((e) => e.monto >= 0 && e.motivo.trim().length > 0) &&
     sesionCaja !== null; // Solo requiere que haya una sesión de caja abierta
 
   const abrirReporte = () => setReporteVisible(true);
@@ -320,14 +308,14 @@ const CierreCaja: React.FC = () => {
           // Calcular valores automáticamente
           setEfectivoContado(result.efectivo);
           setTransferVerificada(result.transferencia);
-          setTransferEsperadoCount(result.transferencia > 0 ? 1 : 0); // Al menos 1 si hay transferencias
+          setTransferEsperada(result.transferencia); // Monto esperado de transferencias
         } catch (error) {
           console.error("Error cargando ventas de sesión:", error);
           setVentasTotales(0);
           setVentasCount(0);
           setEfectivoContado(0);
           setTransferVerificada(0);
-          setTransferEsperadoCount(0);
+          setTransferEsperada(0);
         }
       };
       void loadVentasSesion();
@@ -481,8 +469,11 @@ const CierreCaja: React.FC = () => {
 
             {/* Transferencias verificadas + Drawer por banco */}
             <div>
-              <label className="block text-sm text-gray-600 mb-1">Transferencias Verificadas (monto)</label>
-              <div className="grid grid-cols-[1fr_auto] gap-2">
+              <div className="grid grid-cols-2 gap-2 mb-1">
+                <label className="block text-sm text-gray-600">Transferencias Verificadas (monto)</label>
+                <label className="block text-sm text-gray-600 text-right">(esperado)</label>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
                 <input
                   type="number"
                   step="0.01"
@@ -490,40 +481,28 @@ const CierreCaja: React.FC = () => {
                   readOnly
                   className="w-full border rounded-lg px-3 h-11 bg-gray-50 text-gray-700"
                 />
+                <input
+                  type="number"
+                  step="0.01"
+                  value={transferEsperada}
+                  readOnly
+                  className="w-full border rounded-lg px-3 h-11 bg-blue-50 text-blue-700"
+                />
                 <button
                   type="button"
                   title="Verificar transferencias por banco"
                   aria-label="Verificar transferencias por banco"
                   onClick={() => setShowTfDrawer(true)}
-                  className="h-11 px-3 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 flex items-center gap-2"
+                  className="h-11 px-3 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 flex items-center gap-2 col-span-2"
                 >
                   <FaMoneyCheckAlt size={18} />
-                  <span className="hidden sm:inline text-sm font-medium">Bancos</span>
+                  <span className="text-sm font-medium">Verificar Transferencias</span>
                 </button>
               </div>
             </div>
-
-            {/* Cantidad de transferencias esperadas */}
-            <div>
-              <label className="block text-sm text-gray-600 mb-1">Transferencias Esperadas (cantidad)</label>
-              <input
-                type="number"
-                min={0}
-                step={1}
-                value={transferEsperadoCount}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setTransferEsperadoCount(Math.max(0, parseInt(e.target.value || "0", 10)))
-                }
-                className="w-full border rounded-lg px-3 h-11"
-              />
-            </div>
           </div>
 
-          {/* Egresos */}
-          <div className="mt-6">
-            <h3 className="text-sm font-semibold text-gray-700 mb-2">Egresos</h3>
-            <EgresosForm egresos={egresos} setEgresos={setEgresos} />
-          </div>
+
 
           {/* Campos adicionales para arqueo_caja */}
           <div className="mt-6">
@@ -538,18 +517,6 @@ const CierreCaja: React.FC = () => {
                   onChange={(e) => setTotalSistema(parseFloat(e.target.value) || 0)}
                   className="w-full border rounded-lg px-3 h-11"
                 />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-600 mb-1">Estado del Arqueo</label>
-                <select
-                  value={estadoArqueo}
-                  onChange={(e) => setEstadoArqueo(e.target.value as 'abierto' | 'cerrado' | 'revisado')}
-                  className="w-full border rounded-lg px-3 h-11"
-                >
-                  <option value="abierto">Abierto</option>
-                  <option value="cerrado">Cerrado</option>
-                  <option value="revisado">Revisado</option>
-                </select>
               </div>
             </div>
             <div className="mt-4">
@@ -614,10 +581,6 @@ const CierreCaja: React.FC = () => {
                   <tr className="border-t">
                     <td className="px-4 py-3 text-gray-700">(+) Monto Inicial</td>
                     <td className="px-4 py-3 text-right">{currency(montoInicial)}</td>
-                  </tr>
-                  <tr className="border-t">
-                    <td className="px-4 py-3 text-gray-700">(-) Egresos Totales (Gastos)</td>
-                    <td className="px-4 py-3 text-right">{currency(egresosTotales)}</td>
                   </tr>
                   <tr className="border-t bg-emerald-50">
                     <td className="px-4 py-3 font-bold text-emerald-800">(=) EFECTIVO ESPERADO EN CAJA</td>
@@ -693,12 +656,10 @@ const CierreCaja: React.FC = () => {
           ventasTotales={ventasTotales}
           transferTotal={transferVerificada}
           montoInicial={montoInicial}
-          egresosTotales={egresosTotales}
           esperado={efectivoEsperadoCalc}
           contado={efectivoContado}
           diferencia={diferencia}
           // Enriquecer PDF:
-          detalleEgresos={egresos}
           detalleTransferencias={{
             industrial: { banco: "Banco Industrial", items: tfRows.industrial ?? [] },
             banrural: { banco: "Banrural", items: tfRows.banrural ?? [] },
@@ -829,76 +790,6 @@ const CierreCaja: React.FC = () => {
 };
 
 /* ===================== Subcomponentes auxiliares ===================== */
-function EgresosForm({
-  egresos,
-  setEgresos,
-}: {
-  egresos: Array<{ monto: number; motivo: string }>;
-  setEgresos: React.Dispatch<React.SetStateAction<Array<{ monto: number; motivo: string }>>>;
-}) {
-  const addRow = () => setEgresos((p) => [...p, { monto: 0, motivo: "" }]);
-  const removeRow = (idx: number) =>
-    setEgresos((p) => {
-      const arr = [...p];
-      arr.splice(idx, 1);
-      return arr.length ? arr : [{ monto: 0, motivo: "" }];
-    });
-  const updateRow = (idx: number, field: "monto" | "motivo", value: string) =>
-    setEgresos((p) => {
-      const arr = [...p];
-      const row = { ...arr[idx] };
-      if (field === "monto") row.monto = Math.max(0, Number(value) || 0);
-      if (field === "motivo") row.motivo = value;
-      arr[idx] = row;
-      return arr;
-    });
-
-  useEffect(() => {
-    if (!egresos.length) setEgresos([{ monto: 0, motivo: "" }]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // mantener vac??o
-
-  const total = egresos.reduce((a, e) => a + (Number(e.monto) || 0), 0);
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white/60">
-      <div className="px-4 py-3 border-b flex items-center justify-between">
-        <b className="text-gray-800">Gastos / Egresos</b>
-        <div className="text-sm">
-          Total: <b>{currency(total)}</b>
-        </div>
-      </div>
-      <div className="p-4 space-y-3">
-        {egresos.map((e, idx) => (
-          <div key={idx} className="grid md:grid-cols-[140px_1fr_auto] gap-2 items-center">
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={e.monto}
-              onChange={(ev) => updateRow(idx, "monto", ev.target.value)}
-              className="h-10 border rounded-md px-3"
-              placeholder="Q 0.00"
-            />
-            <input
-              type="text"
-              value={e.motivo}
-              onChange={(ev) => updateRow(idx, "motivo", ev.target.value)}
-              className="h-10 border rounded-md px-3"
-              placeholder='Motivo (p.ej. "Pago de entrega moto")'
-            />
-            <button onClick={() => removeRow(idx)} className="h-10 px-3 rounded-md border hover:bg-gray-100 text-sm">
-              Eliminar
-            </button>
-          </div>
-        ))}
-        <button onClick={addRow} className="mt-2 px-3 py-2 rounded-md border hover:bg-gray-100 text-sm">
-          + Registrar Egreso
-        </button>
-      </div>
-    </div>
-  );
-}
 
 function ArqueoDrawer({
   open,
@@ -1175,11 +1066,9 @@ function ReportModal({
   ventasTotales,
   transferTotal,
   montoInicial,
-  egresosTotales,
   esperado,
   contado,
   diferencia,
-  detalleEgresos,
   detalleTransferencias,
   cajero,
   fechaApertura,
@@ -1190,11 +1079,9 @@ function ReportModal({
   ventasTotales: number;
   transferTotal: number;
   montoInicial: number;
-  egresosTotales: number;
   esperado: number;
   contado: number;
   diferencia: number;
-  detalleEgresos?: Egreso[];
   detalleTransferencias?: TfRowsFull;
   cajero?: string;
   fechaApertura?: string;
@@ -1222,24 +1109,22 @@ function ReportModal({
 
           {/* Modal (preview pantalla) */}
           <div className="relative z-[71] h-full w-full print:hidden flex items-center justify-center p-4">
-            <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }} className="bg-white w-full max-w-4xl rounded-2xl shadow-xl overflow-hidden">
-              <div className="flex items-center justify-between border-b p-4">
+            <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }} className="bg-white w-full max-w-4xl rounded-2xl shadow-xl overflow-hidden max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between border-b p-4 flex-shrink-0">
                 <h2 className="text-xl font-bold text-gray-800">{titulo}</h2>
-                <button onClick={onClose} className="text-gray-500 hover:text-gray-700">???</button>
+                <button onClick={onClose} className="text-gray-500 hover:text-gray-700">✕</button>
               </div>
 
-              <div className="p-6 bg-gray-50">
+              <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
                 <div className="mx-auto bg-white rounded-xl border shadow-sm p-6">
                   <PrintableSheet
                     titulo={titulo}
                     ventasTotales={ventasTotales}
                     transferTotal={transferTotal}
                     montoInicial={montoInicial}
-                    egresosTotales={egresosTotales}
                     esperado={esperado}
                     contado={contado}
                     diferencia={diferencia}
-                    detalleEgresos={detalleEgresos}
                     detalleTransferencias={detalleTransferencias}
                     cajero={cajero}
                     fechaApertura={fechaApertura}
@@ -1248,7 +1133,7 @@ function ReportModal({
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 border-t p-4 bg-white">
+              <div className="flex justify-end gap-3 border-t p-4 bg-white flex-shrink-0">
                 <button onClick={() => window.print()} className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700">
                   Exportar a PDF / Imprimir
                 </button>
@@ -1266,11 +1151,9 @@ function ReportModal({
               ventasTotales={ventasTotales}
               transferTotal={transferTotal}
               montoInicial={montoInicial}
-              egresosTotales={egresosTotales}
               esperado={esperado}
               contado={contado}
               diferencia={diferencia}
-              detalleEgresos={detalleEgresos}
               detalleTransferencias={detalleTransferencias}
               cajero={cajero}
               fechaApertura={fechaApertura}
@@ -1341,11 +1224,9 @@ function PrintableSheet({
   ventasTotales,
   transferTotal,
   montoInicial,
-  egresosTotales,
   esperado,
   contado,
   diferencia,
-  detalleEgresos,
   detalleTransferencias,
   cajero,
   fechaApertura,
@@ -1355,17 +1236,14 @@ function PrintableSheet({
   ventasTotales: number;
   transferTotal: number;
   montoInicial: number;
-  egresosTotales: number;
   esperado: number;
   contado: number;
   diferencia: number;
-  detalleEgresos?: Egreso[];
   detalleTransferencias?: TfRowsFull;
   cajero?: string;
   fechaApertura?: string;
   fechaCierre: string;
 }) {
-  const hasEgresos = !!(detalleEgresos && detalleEgresos.length);
   const hasTf = !!(detalleTransferencias && Object.keys(detalleTransferencias).length);
 
   return (
@@ -1405,7 +1283,6 @@ function PrintableSheet({
         <div className="rounded-lg border p-4">
           <SectionHeading>Detalle de Cierre</SectionHeading>
           <Row label="Monto Inicial" value={currency(montoInicial)} />
-          <Row label="Egresos Totales" value={currency(egresosTotales)} />
           <div className="mt-2 border-t pt-2">
             <Row label="Efectivo Esperado en Caja" value={currency(esperado)} strong />
             <Row label="Efectivo Contado" value={currency(contado)} />
@@ -1454,39 +1331,6 @@ function PrintableSheet({
               </div>
             );
           })}
-        </div>
-      )}
-
-      {/* Egresos (si hay) */}
-      {hasEgresos && (
-        <div className="mt-6 rounded-lg border p-4 break-inside-avoid">
-          <SectionHeading>Egresos detallados</SectionHeading>
-          <div className="overflow-hidden rounded-md border">
-            <table className="w-full text-xs">
-              <thead className="bg-gray-50 text-gray-600">
-                <tr>
-                  <th className="px-3 py-2 text-left">#</th>
-                  <th className="px-3 py-2 text-left">Motivo</th>
-                  <th className="px-3 py-2 text-right">Monto (Q)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {detalleEgresos!.map((e, idx) => (
-                  <tr key={idx}>
-                    <td className="px-3 py-1">{idx + 1}</td>
-                    <td className="px-3 py-1">{e.motivo || "???"}</td>
-                    <td className="px-3 py-1 text-right tabular-nums">{currency(Number(e.monto) || 0)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="bg-gray-50 border-t">
-                  <td className="px-3 py-2 font-semibold" colSpan={2}>Total egresos</td>
-                  <td className="px-3 py-2 text-right font-bold tabular-nums">{currency(egresosTotales)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
         </div>
       )}
 

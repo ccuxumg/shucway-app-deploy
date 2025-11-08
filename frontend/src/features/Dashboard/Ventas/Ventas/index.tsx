@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { MdReceiptLong, MdInventory2, MdAccountBalance, MdError } from "react-icons/md";
-import { Banknote, Landmark, CreditCard, TrendingUp, Package, DollarSign, Users } from "lucide-react";
+import { Package, Utensils, Coffee, Pizza, Sandwich, Cookie, Banknote, CreditCard, Landmark, Users, TrendingUp, DollarSign } from "lucide-react";
 import { ventasService, Venta, ProductoPopular } from "../../../../api/ventasService";
 import { useAlerts } from "../../../../hooks/useAlerts";
 import type { LucideIcon } from "lucide-react";
@@ -234,7 +234,7 @@ const VentasDashboard: React.FC = () => {
     const loadProductosRecientes = async () => {
       try {
         setIsLoadingPopulares(true);
-        const recientes = await ventasService.getProductosRecientes(4);
+        const recientes = await ventasService.getProductosRecientes(5);
         setProductosRecientes(recientes);
       } catch (err) {
         console.error('Error cargando productos recientes:', err);
@@ -301,23 +301,26 @@ const VentasDashboard: React.FC = () => {
     }));
   }, [ventasData]);
 
-  // Convertir productos recientes del backend al formato del componente
-  const getProductIcon = (nombre: string): string => {
+  // Función para obtener ícono del producto (devuelve componente React)
+  const getProductIcon = (nombre: string): React.ReactNode => {
     const nombreLower = nombre.toLowerCase();
-    if (nombreLower.includes('gringa')) return '🌯';
-    if (nombreLower.includes('shuco') || nombreLower.includes('salami')) return '🌭';
-    if (nombreLower.includes('hamburguesa')) return '🍔';
-    if (nombreLower.includes('papas') || nombreLower.includes('fritas')) return '🍟';
-    if (nombreLower.includes('bebida') || nombreLower.includes('refresco')) return '🥤';
-    return '🍽️'; // Ícono genérico para comida
+    if (nombreLower.includes('gringa')) return <Sandwich className="w-8 h-8 text-orange-500" />;
+    if (nombreLower.includes('shuco') || nombreLower.includes('salami')) return <Sandwich className="w-8 h-8 text-red-500" />;
+    if (nombreLower.includes('hamburguesa')) return <Sandwich className="w-8 h-8 text-amber-600" />;
+    if (nombreLower.includes('papas') || nombreLower.includes('fritas')) return <Utensils className="w-8 h-8 text-yellow-500" />;
+    if (nombreLower.includes('bebida') || nombreLower.includes('refresco')) return <Coffee className="w-8 h-8 text-blue-500" />;
+    if (nombreLower.includes('pizza')) return <Pizza className="w-8 h-8 text-red-600" />;
+    if (nombreLower.includes('postre') || nombreLower.includes('dulce')) return <Cookie className="w-8 h-8 text-pink-500" />;
+    return <Package className="w-8 h-8 text-gray-500" />; // Ícono genérico
   };
 
   const productosRecientesList = useMemo(() => {
-    return productosRecientes.map((producto) => ({
+    return productosRecientes.slice(0, 5).map((producto) => ({
       id: `pp${producto.id_producto}`,
       nombre: producto.nombre_producto,
       tag: producto.categoria || 'Producto',
-      icon: getProductIcon(producto.nombre_producto),
+      icon: producto.imagen_url ? null : getProductIcon(producto.nombre_producto), // Solo ícono si no hay imagen
+      imagen_url: producto.imagen_url, // Nueva propiedad para la imagen
       rating: producto.rating_promedio || 4.5 + Math.random() * 0.4, // Rating simulado si no existe
       totalVendido: producto.total_vendido,
       vecesVendido: producto.veces_vendido,
@@ -808,18 +811,38 @@ const VentasDashboard: React.FC = () => {
                 key={p.id}
                 className="flex items-center gap-3 p-2 rounded-xl border border-gray-100 hover:border-emerald-200 hover:shadow-sm transition"
               >
-                <div className="shrink-0 w-16 h-16 rounded-xl bg-gray-50 grid place-content-center text-3xl">
-                  {p.icon}
+                <div className="shrink-0 w-16 h-16 rounded-xl bg-gray-50 grid place-content-center text-3xl overflow-hidden">
+                  {p.imagen_url ? (
+                    <img
+                      src={p.imagen_url}
+                      alt={p.nombre}
+                      className="w-full h-full object-cover rounded-xl"
+                      onError={(e) => {
+                        // Si la imagen falla, mostrar ícono
+                        const target = e.target as HTMLElement;
+                        target.style.display = 'none';
+                        const parent = target.parentElement;
+                        if (parent) {
+                          parent.innerHTML = '<div class="flex items-center justify-center w-full h-full text-gray-400"><svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg></div>';
+                        }
+                      }}
+                    />
+                  ) : (
+                    p.icon
+                  )}
                 </div>
 
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium text-gray-800 truncate">
                     {p.nombre}
                   </div>
-                  <div 
+                  <div
                   key={p.id}
                   className="flex items-center gap-2 mt-1">
-                    <span className="text-xs text-blue-500">📊 {p.vecesVendido} vendidos</span>
+                    <div className="flex items-center gap-1 text-xs text-blue-500">
+                      <TrendingUp className="w-3 h-3" />
+                      <span>{p.vecesVendido} vendidos</span>
+                    </div>
                     <span className="px-2 py-0.5 text-[10px] rounded-full bg-green-100 text-green-700 border border-green-200">
                       Q{p.totalVendido.toFixed(2)}
                     </span>

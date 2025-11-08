@@ -102,6 +102,12 @@ export interface CanjearPuntosDTO {
   descripcion?: string;
 }
 
+export interface GestionarPuntosDTO {
+  operacion: 'agregar' | 'restar';
+  cantidad: number;
+  motivo?: string;
+}
+
 export interface VentaCompleta extends Venta {
   detalles: DetalleVenta[];
   cliente?: Cliente;

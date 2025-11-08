@@ -1,7 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../types/express.types';
 import { clientesService } from '../services/clientes.service';
-import { CreateClienteDTO, UpdateClienteDTO, CanjearPuntosDTO } from '../types/ventas.types';
+import { CreateClienteDTO, UpdateClienteDTO, CanjearPuntosDTO, GestionarPuntosDTO } from '../types/ventas.types';
 
 // ================================================================
 // 👥 CONTROLADOR DE CLIENTES
@@ -122,6 +122,23 @@ export class ClientesController {
           id_cliente: idCliente,
           puntos,
         },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async gestionarPuntos(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const idCliente = parseInt(req.params.id);
+      const dto: GestionarPuntosDTO = req.body;
+
+      const resultado = await clientesService.gestionarPuntos(idCliente, dto);
+
+      res.json({
+        success: true,
+        message: `Puntos ${dto.operacion === 'agregar' ? 'agregados' : 'restados'} exitosamente`,
+        data: resultado,
       });
     } catch (error) {
       next(error);

@@ -29,6 +29,7 @@ router.delete('/:id', requireAdministrador, clientesController.deleteCliente.bin
 // Nivel mínimo: Cajero (30)
 
 router.get('/:id/puntos', requireCajero, clientesController.consultarPuntos.bind(clientesController));
+router.post('/:id/puntos/gestionar', requireCajero, clientesController.gestionarPuntos.bind(clientesController));
 router.post('/puntos/canjear', requireCajero, clientesController.canjearPuntos.bind(clientesController));
 router.get('/:id/historial-puntos', requireCajero, clientesController.getHistorialPuntos.bind(clientesController));
 

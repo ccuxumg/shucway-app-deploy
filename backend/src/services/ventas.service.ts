@@ -603,14 +603,17 @@ export class VentasService {
           venta!inner(fecha_venta),
           producto!inner(nombre_producto, imagen_url)
         `)
-        .gte('venta.fecha_venta', thirtyDaysAgo.toISOString())
-        .order('venta.fecha_venta', { ascending: false });
+        .gte('venta.fecha_venta', thirtyDaysAgo.toISOString());
 
       if (error) {
         console.warn('Error obteniendo productos recientes por ventas, usando fallback:', error.message);
         // Fallback: productos por fecha de creación
         return this.getProductosRecientesFallback(limit);
       }
+
+      // Ordenar los datos por fecha de venta (más reciente primero) antes de procesar
+      const sortedData = (data as unknown as DetalleConProducto[] || [])
+        .sort((a, b) => new Date(b.venta.fecha_venta).getTime() - new Date(a.venta.fecha_venta).getTime());
 
       // Agrupar por producto y calcular estadísticas
       const productStats = new Map<number, {
@@ -636,7 +639,7 @@ export class VentasService {
         };
       }
 
-      (data as unknown as DetalleConProducto[] || []).forEach((detalle) => {
+      sortedData.forEach((detalle) => {
         const producto = detalle.producto;
         const venta = detalle.venta;
         if (!producto || !venta) return;

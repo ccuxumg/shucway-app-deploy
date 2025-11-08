@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import dbSchema, { TableMeta } from './dbSchema';
 import api from '@/api/apiClient';
+import { localStore } from '@/utils/storage';
 import { FaEye, FaEdit, FaTrash, FaPlus, FaFilter, FaColumns, FaUndo, FaSearch, FaChevronRight, FaDatabase } from 'react-icons/fa';
 import { Button, Spin, Table, message, Modal, Input, Select, Form, Drawer, Switch, Dropdown, Tag, Alert, Empty } from 'antd';
 import { ColumnsType } from 'antd/es/table';
@@ -196,7 +197,7 @@ const Mantenimiento: React.FC = () => {
         // Usar el nuevo endpoint optimizado que devuelve todas las tablas disponibles en una sola llamada
   const response = await fetch('/api/dashboard/available-tables', {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            'Authorization': `Bearer ${localStore.get('access_token')}`,
             'Content-Type': 'application/json'
           }
         });
@@ -207,8 +208,8 @@ const Mantenimiento: React.FC = () => {
         } else if (response.status === 401) {
           message.error('Sesión expirada. Redirigiendo al login...');
           // Limpiar tokens y redirigir
-          localStorage.removeItem('access_token');
-          localStorage.removeItem('user');
+          localStore.remove('access_token');
+          localStore.remove('user');
           window.location.href = '/login';
         } else {
           // Si el endpoint no está disponible o falla, usar el esquema local (dbSchema)
@@ -287,7 +288,12 @@ const Mantenimiento: React.FC = () => {
 
           if (match) {
             try {
-              const resp = await fetch(`/api/dashboard/table-data/${match}`);
+              const resp = await fetch(`/api/dashboard/table-data/${match}`, {
+                headers: {
+                  'Authorization': `Bearer ${localStore.get('access_token')}`,
+                  'Content-Type': 'application/json'
+                }
+              });
               if (!resp.ok) continue;
               const js = await resp.json();
               const rows = js.data || [];
@@ -329,7 +335,12 @@ const Mantenimiento: React.FC = () => {
   const fetchLookupOptionsRemote = async (table: string, query: string) => {
     try {
       const q = query ? `?q=${encodeURIComponent(query)}&limit=50` : '?limit=50';
-      const resp = await fetch(`/api/dashboard/table-data/${table}${q}`);
+      const resp = await fetch(`/api/dashboard/table-data/${table}${q}`, {
+        headers: {
+          'Authorization': `Bearer ${localStore.get('access_token')}`,
+          'Content-Type': 'application/json'
+        }
+      });
       if (!resp.ok) return [];
       const js = await resp.json();
       const rows = js.data || [];
@@ -424,7 +435,7 @@ const Mantenimiento: React.FC = () => {
     try {
   const response = await fetch(`/api/dashboard/table-columns/${tableName}`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Authorization': `Bearer ${localStore.get('access_token')}`,
           'Content-Type': 'application/json'
         }
       });
@@ -434,8 +445,8 @@ const Mantenimiento: React.FC = () => {
         return (data.columns || []).map((c: { column_name: string }) => c.column_name);
       } else if (response.status === 401) {
         message.error('Sesión expirada. Redirigiendo al login...');
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('user');
+        localStore.remove('access_token');
+        localStore.remove('user');
         window.location.href = '/login';
         return [];
       } else {
@@ -456,7 +467,7 @@ const Mantenimiento: React.FC = () => {
       const filtersParam = Object.keys(filters).length > 0 ? `?filters=${encodeURIComponent(JSON.stringify(filters))}` : '';
       const response = await fetch(`/api/dashboard/table-data/${selectedTable}${filtersParam}`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Authorization': `Bearer ${localStore.get('access_token')}`,
           'Content-Type': 'application/json',
         },
       });
@@ -525,8 +536,8 @@ const Mantenimiento: React.FC = () => {
         }
       } else if (response.status === 401) {
         message.error('Sesión expirada. Redirigiendo al login...');
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('user');
+        localStore.remove('access_token');
+        localStore.remove('user');
         window.location.href = '/login';
       } else if (response.status === 403) {
         const errorData = await response.json();
@@ -601,11 +612,11 @@ const Mantenimiento: React.FC = () => {
       onOk: async () => {
         try {
           // Comprobar token local antes de intentar operaciones que requieren auth
-          const token = localStorage.getItem('access_token');
+          const token = localStore.get('access_token');
           if (!token) {
             message.error('Sesión expirada. Redirigiendo al login...');
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('user');
+            localStore.remove('access_token');
+            localStore.remove('user');
             window.location.href = '/login';
             return;
           }
@@ -652,8 +663,8 @@ const Mantenimiento: React.FC = () => {
           const is401 = e.status === 401 || (typeof e.message === 'string' && e.message.includes('401'));
           if (is401) {
             message.error('Sesión expirada. Redirigiendo al login...');
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('user');
+            localStore.remove('access_token');
+            localStore.remove('user');
             window.location.href = '/login';
             return;
           }

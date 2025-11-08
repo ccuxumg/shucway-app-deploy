@@ -19,8 +19,11 @@ export const authenticateToken = (
       ? authHeader.slice(7)
       : null;
 
-    // Solo logs detallados en desarrollo
-    if (isDevelopment) {
+    // Solo logs detallados en desarrollo, pero excluir rutas de alta frecuencia
+    const rutasAltaFrecuencia = ['/api/caja/estado', '/api/auth/validate'];
+    const debeLoguear = isDevelopment && !rutasAltaFrecuencia.includes(req.path);
+
+    if (debeLoguear) {
       logger.info(`🔍 Auth Check - Path: ${req.path}`);
       logger.info(`🔍 Auth Header: ${authHeader ? 'Presente' : 'Ausente'}`);
       logger.info(
@@ -48,10 +51,13 @@ export const authenticateToken = (
 
       req.user = decoded;
 
-      // Solo log detallado en desarrollo
-      if (isDevelopment) {
+      // Solo log detallado en desarrollo para rutas no de alta frecuencia
+      const rutasAltaFrecuencia = ['/api/caja/estado', '/api/auth/validate'];
+      const debeLoguearExito = isDevelopment && !rutasAltaFrecuencia.includes(req.path);
+
+      if (debeLoguearExito) {
         logger.info(`✅ Token válido - Usuario: ${req.user.email} (${req.user.role.nombre_rol})`);
-      } else {
+      } else if (!isDevelopment) {
         // En producción, log más conciso
         logger.info(`✅ Auth - ${req.path} - ${req.user.email}`);
       }

@@ -15,6 +15,7 @@ import {
   Trash2,
   Users,
   X,
+  Star,
 } from "lucide-react";
 import { clientesService, type Cliente } from "../../../api/clientesService";
 
@@ -62,6 +63,13 @@ export default function Clientes() {
   const [deletingCliente, setDeletingCliente] = useState<Cliente | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [puntosModalOpen, setPuntosModalOpen] = useState(false);
+  const [clientePuntos, setClientePuntos] = useState<Cliente | null>(null);
+  const [puntosActuales, setPuntosActuales] = useState(0);
+  const [puntosOperacion, setPuntosOperacion] = useState<'agregar' | 'restar'>('agregar');
+  const [cantidadPuntos, setCantidadPuntos] = useState(0);
+  const [motivoPuntos, setMotivoPuntos] = useState('');
+  const [procesandoPuntos, setProcesandoPuntos] = useState(false);
 
   useEffect(() => {
     loadData(true);
@@ -304,6 +312,56 @@ export default function Clientes() {
       setDeleteError('Error al eliminar el cliente. Puede que tenga ventas asociadas.');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const openPuntosModal = async (cliente: Cliente) => {
+    setClientePuntos(cliente);
+    setPuntosActuales(cliente.puntos_acumulados);
+    setPuntosOperacion('agregar');
+    setCantidadPuntos(0);
+    setMotivoPuntos('');
+    setPuntosModalOpen(true);
+  };
+
+  const closePuntosModal = () => {
+    setPuntosModalOpen(false);
+    setClientePuntos(null);
+    setProcesandoPuntos(false);
+  };
+
+  const handlePuntosSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!clientePuntos || cantidadPuntos <= 0) return;
+
+    setProcesandoPuntos(true);
+    try {
+      // Llamar a la API para gestionar puntos
+      const response = await fetch(`/api/clientes/${clientePuntos.id_cliente}/puntos/gestionar`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: JSON.stringify({
+          operacion: puntosOperacion,
+          cantidad: cantidadPuntos,
+          motivo: motivoPuntos || undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Error al gestionar puntos');
+      }
+
+      message.success(`${puntosOperacion === 'agregar' ? 'Agregados' : 'Restados'} ${cantidadPuntos} puntos exitosamente`);
+      closePuntosModal();
+      await loadData();
+    } catch (err) {
+      console.error('Error procesando puntos:', err);
+      message.error('Error al procesar la operación de puntos');
+    } finally {
+      setProcesandoPuntos(false);
     }
   };
 
@@ -568,6 +626,13 @@ export default function Clientes() {
                           title="Ver detalles"
                         >
                           <Eye className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => openPuntosModal(cliente)}
+                          className="text-purple-600 hover:text-purple-900 p-1"
+                          title="Gestionar puntos"
+                        >
+                          <Star className="h-4 w-4" />
                         </button>
                         <button
                           onClick={() => openEditDrawer(cliente)}
@@ -982,6 +1047,126 @@ export default function Clientes() {
                     {deleting ? 'Eliminando...' : 'Eliminar'}
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal de gestión de puntos */}
+      <AnimatePresence>
+        {puntosModalOpen && clientePuntos && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-xl shadow-xl max-w-md w-full"
+            >
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-800">Gestionar Puntos</h3>
+                  <button
+                    onClick={closePuntosModal}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <div className="mb-4">
+                  <div className="flex items-center gap-3 p-3 bg-purple-50 rounded-lg border border-purple-200">
+                    <Star className="h-5 w-5 text-purple-600" />
+                    <div>
+                      <p className="font-medium text-gray-800">{clientePuntos.nombre}</p>
+                      <p className="text-sm text-gray-600">Puntos actuales: <span className="font-semibold text-purple-600">{puntosActuales}</span></p>
+                    </div>
+                  </div>
+                </div>
+
+                <form onSubmit={handlePuntosSubmit}>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Operación
+                      </label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPuntosOperacion('agregar')}
+                          className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                            puntosOperacion === 'agregar'
+                              ? 'bg-green-600 text-white'
+                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          }`}
+                        >
+                          ➕ Agregar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPuntosOperacion('restar')}
+                          className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                            puntosOperacion === 'restar'
+                              ? 'bg-red-600 text-white'
+                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          }`}
+                        >
+                          ➖ Restar
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Cantidad de puntos
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={cantidadPuntos}
+                        onChange={(e) => setCantidadPuntos(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400"
+                        placeholder="Ingrese la cantidad"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Motivo (opcional)
+                      </label>
+                      <textarea
+                        value={motivoPuntos}
+                        onChange={(e) => setMotivoPuntos(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 resize-none"
+                        rows={3}
+                        placeholder="Describa el motivo de la operación..."
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 mt-6">
+                    <button
+                      type="button"
+                      onClick={closePuntosModal}
+                      className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-all"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={procesandoPuntos || cantidadPuntos <= 0}
+                      className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {procesandoPuntos ? 'Procesando...' : `${puntosOperacion === 'agregar' ? 'Agregar' : 'Restar'} Puntos`}
+                    </button>
+                  </div>
+                </form>
               </div>
             </motion.div>
           </motion.div>

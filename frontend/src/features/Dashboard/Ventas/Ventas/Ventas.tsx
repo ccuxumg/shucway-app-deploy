@@ -241,6 +241,17 @@ const Ventas: React.FC<{ onBack?: () => void }> = () => {
         setCategorias(categoriasConTodos);
         setProductos(productosData);
         setClientes(clientesData);
+
+        // Cargar totales de la sesión actual
+        try {
+          const fechaInicio = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+          const totalesSesion = await ventasService.getTotalVentasSesion(fechaInicio);
+          setTotalCaja(totalesSesion.efectivo);
+          setTotalBanco(totalesSesion.transferencia + totalesSesion.tarjeta);
+        } catch (sessionError) {
+          console.warn('No se pudieron cargar los totales de la sesión:', sessionError);
+          // Mantener valores por defecto (0) si falla la carga
+        }
       } catch (err) {
         console.error('Error cargando datos:', err);
         setError('Error al cargar los datos. Por favor, recarga la página.');

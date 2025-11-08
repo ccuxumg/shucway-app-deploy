@@ -1,5 +1,5 @@
 import { supabase } from '../config/database';
-import { Cliente, CreateClienteDTO, UpdateClienteDTO, CanjearPuntosDTO } from '../types/ventas.types';
+import { Cliente, CreateClienteDTO, UpdateClienteDTO, CanjearPuntosDTO, GestionarPuntosDTO } from '../types/ventas.types';
 
 // ================================================================
 // 👥 SERVICIO DE CLIENTES
@@ -103,6 +103,50 @@ export class ClientesService {
 
     if (error) throw new Error(`Error al consultar puntos: ${error.message}`);
     return data || 0;
+  }
+
+  /**
+   * Gestionar puntos (agregar/restar) manualmente
+   */
+  async gestionarPuntos(idCliente: number, dto: GestionarPuntosDTO): Promise<{ puntos_anteriores: number; puntos_nuevos: number }> {
+    // Primero obtener los puntos actuales
+    const puntosActuales = await this.consultarPuntos(idCliente);
+
+    // Calcular los puntos nuevos
+    const puntosNuevos = dto.operacion === 'agregar'
+      ? puntosActuales + dto.cantidad
+      : Math.max(0, puntosActuales - dto.cantidad); // No permitir puntos negativos
+
+    // Actualizar los puntos en la base de datos
+    const { error: updateError } = await supabase
+      .from('cliente')
+      .update({ puntos_acumulados: puntosNuevos })
+      .eq('id_cliente', idCliente);
+
+    if (updateError) {
+      throw new Error(`Error al actualizar puntos: ${updateError.message}`);
+    }
+
+    // Registrar en el historial de puntos
+    const { error: historialError } = await supabase
+      .from('historial_puntos')
+      .insert({
+        id_cliente: idCliente,
+        tipo_movimiento: dto.operacion === 'agregar' ? 'credito' : 'debito',
+        puntos: dto.cantidad,
+        descripcion: dto.motivo || `Puntos ${dto.operacion === 'agregar' ? 'agregados' : 'restados'} manualmente`,
+        fecha_movimiento: new Date().toISOString(),
+      });
+
+    if (historialError) {
+      console.warn('Error al registrar en historial de puntos:', historialError);
+      // No lanzamos error aquí para no fallar la operación principal
+    }
+
+    return {
+      puntos_anteriores: puntosActuales,
+      puntos_nuevos: puntosNuevos,
+    };
   }
 
   /**

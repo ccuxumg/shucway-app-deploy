@@ -219,24 +219,38 @@ export const dashboardService = {
     }
   },
 
-  async getTableData(tableName: string, filters: Record<string, string> = {}): Promise<Record<string, unknown>[]> {
+  async getTableData(tableName: string, filters: Record<string, unknown> = {}): Promise<unknown[]> {
     try {
+      // Verificar que la tabla esté en la lista de tablas permitidas
+      const allowedTables = await this.getAvailableTables();
+      if (!allowedTables.includes(tableName)) {
+        throw new Error(`Tabla '${tableName}' no está permitida para acceso directo`);
+      }
+
       let query = supabase.from(tableName).select('*');
 
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value) query = query.ilike(key, `%${value}%`);
-      });
+      // Aplicar filtros si existen
+      if (filters && Object.keys(filters).length > 0) {
+        Object.entries(filters).forEach(([key, value]) => {
+          if (value !== undefined && value !== null && value !== '') {
+            query = query.eq(key, value);
+          }
+        });
+      }
+
+      // Limitar resultados para evitar sobrecarga (máximo 1000 registros)
+      query = query.limit(1000);
 
       const { data, error } = await query;
 
       if (error) {
-        console.error('Error al consultar datos de tabla:', error);
-        throw error;
+        console.error(`Error consultando tabla ${tableName}:`, error);
+        throw new Error(`Error al acceder a la tabla ${tableName}: ${error.message}`);
       }
 
       return data || [];
     } catch (error) {
-      console.error('Error al obtener datos de la tabla:', error);
+      console.error(`Error en getTableData para tabla ${tableName}:`, error);
       throw error;
     }
   },

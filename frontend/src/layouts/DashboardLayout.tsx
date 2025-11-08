@@ -202,6 +202,12 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
 
   // removed theme toggle per request
 
+  const handleAlertNavigation = useCallback((module: string) => {
+    if (module === 'Inventario') navigate('/inventario');
+    else if (module === 'Ventas') navigate('/ventas');
+    else if (module === 'Configuración') navigate('/configuracion');
+  }, [navigate]);
+
   useEffect(() => {
     const loadAlerts = async () => {
       try {
@@ -215,11 +221,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
             message: alert.message,
             icon: alert.type === 'error' ? <MdError size={16} /> : alert.type === 'warning' ? <MdWarning size={16} /> : <MdBackup size={16} />,
             module: alert.module,
-            action: () => {
-              if (alert.module === 'Inventario') navigate('/inventario');
-              else if (alert.module === 'Ventas') navigate('/ventas');
-              else if (alert.module === 'Configuración') navigate('/configuracion');
-            }
+            action: () => handleAlertNavigation(alert.module || '')
           };
           if (isInventoryWarning) {
             notifs.push(item);
@@ -243,7 +245,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       }
     };
     loadAlerts();
-  }, [navigate, setNotifications, setAlerts]);
+  }, [handleAlertNavigation]);
 
   // 🔔 Activar monitoreo automático de stock
   useStockMonitoring(true);
@@ -380,17 +382,29 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       }
     });
 
-    // Escuchar cambios en localStorage optimizado directamente
+    // Escuchar cambios en localStorage usando event listener en lugar de polling
     React.useEffect(() => {
-      const interval = setInterval(() => {
-        const activa = localStore.get('auditoria_activa') as string | null;
-        const label = (localStore.get('auditoria_label') as string) || 'Auditoría';
-        const fecha = (localStore.get('auditoria_fecha') as string) || '';
-        setAuditoriaActiva(activa);
-        setAuditoriaLabel(label);
-        setAuditoriaFecha(fecha);
-      }, 1000);
-      return () => clearInterval(interval);
+      const handleStorageChange = (e: StorageEvent) => {
+        if (e.key?.startsWith('auditoria_')) {
+          const activa = localStore.get('auditoria_activa') as string | null;
+          const label = (localStore.get('auditoria_label') as string) || 'Auditoría';
+          const fecha = (localStore.get('auditoria_fecha') as string) || '';
+          setAuditoriaActiva(activa);
+          setAuditoriaLabel(label);
+          setAuditoriaFecha(fecha);
+        }
+      };
+
+      // Verificar estado inicial
+      const activa = localStore.get('auditoria_activa') as string | null;
+      const label = (localStore.get('auditoria_label') as string) || 'Auditoría';
+      const fecha = (localStore.get('auditoria_fecha') as string) || '';
+      setAuditoriaActiva(activa);
+      setAuditoriaLabel(label);
+      setAuditoriaFecha(fecha);
+
+      window.addEventListener('storage', handleStorageChange);
+      return () => window.removeEventListener('storage', handleStorageChange);
     }, []);
 
     const formatDateSpanish = (dateStr: string) => {
@@ -496,7 +510,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     const [showConfirm, setShowConfirm] = useState(false);
     const [countVentas, setCountVentas] = useState<number>(0);
     const [efectivoVentas, setEfectivoVentas] = useState<number>(0);
-    const [tarjetaVentas, setTarjetaVentas] = useState<number>(0);
+    const [transferenciaVentas, setTransferenciaVentas] = useState<number>(0);
 
     const loadEstado = useCallback(async () => {
       try {
@@ -509,18 +523,18 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
             const ventasResult = await ventasService.getTotalVentasSesion(estado.sesion.fecha_apertura);
             setCountVentas(ventasResult.count);
             setEfectivoVentas(ventasResult.efectivo);
-            setTarjetaVentas(ventasResult.tarjeta);
+            setTransferenciaVentas(ventasResult.transferencia);
           } catch (ventasError) {
             console.error('Error obteniendo total de ventas:', ventasError);
             setCountVentas(0);
             setEfectivoVentas(0);
-            setTarjetaVentas(0);
+            setTransferenciaVentas(0);
           }
         } else {
           setSesion(null);
           setCountVentas(0);
           setEfectivoVentas(0);
-          setTarjetaVentas(0);
+          setTransferenciaVentas(0);
         }
         setExpirada(Boolean(estado.expirada));
       } catch (error: unknown) {
@@ -529,7 +543,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
         setCajaError(message);
         setCountVentas(0);
         setEfectivoVentas(0);
-        setTarjetaVentas(0);
+        setTransferenciaVentas(0);
       } finally {
         setCajaLoading(false);
       }
@@ -605,7 +619,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
                 {cajaOpen ? (
                   <div>
                     <div>CAJA Q{efectivoVentas.toFixed(2)}</div>
-                    <div>BANCO Q{tarjetaVentas.toFixed(2)}</div>
+                    <div>BANCO Q{transferenciaVentas.toFixed(2)}</div>
                   </div>
                 ) : '—'}
               </div>

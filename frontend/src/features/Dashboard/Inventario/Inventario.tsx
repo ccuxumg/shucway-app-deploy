@@ -121,7 +121,7 @@ const Inventario: React.FC = () => {
         }
         
         // Luego intentar obtener del backend
-        const token = localStore.get('token');
+        const token = localStore.get('access_token');
         if (!token) {
           console.log('Inventario: No hay token para auditorías pendientes');
           return;

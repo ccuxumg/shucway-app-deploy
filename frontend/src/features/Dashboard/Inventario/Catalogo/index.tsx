@@ -18,6 +18,7 @@ import { supabase } from "../../../../api/supabaseClient";
 import { message } from "antd";
 import { useAuth } from "../../../../hooks/useAuth";
 import { PermissionLevel } from "../../../../constants/permissions";
+import { localStore } from "../../../../utils/storage";
 
 /** Tipos */
 type TipoInsumo = "Perpetuo" | "Operativo";
@@ -173,7 +174,7 @@ export default function Catalogo() {
       // Cargar insumos desde la API de catálogo
       const insumosResponse = await fetch(`${import.meta.env.VITE_API_URL}/inventario/catalogo`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Authorization': `Bearer ${localStore.get('access_token')}`,
         },
       });
 
@@ -191,7 +192,7 @@ export default function Catalogo() {
       // Cargar categorías
       const categoriasResponse = await fetch(`${import.meta.env.VITE_API_URL}/dashboard/table-data/categoria_insumo`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Authorization': `Bearer ${localStore.get('access_token')}`,
         },
       });
 
@@ -205,7 +206,7 @@ export default function Catalogo() {
       // Cargar proveedores
       const proveedoresResponse = await fetch(`${import.meta.env.VITE_API_URL}/dashboard/table-data/proveedor`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Authorization': `Bearer ${localStore.get('access_token')}`,
         },
       });
 
@@ -328,12 +329,12 @@ export default function Catalogo() {
         const [catRes, provRes] = await Promise.all([
           fetch(`${import.meta.env.VITE_API_URL}/inventario/categorias`, {
             headers: {
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+              'Authorization': `Bearer ${localStore.get('access_token')}`,
             },
           }).then(res => res.json()).then(data => data.data || []),
           fetch(`${import.meta.env.VITE_API_URL}/inventario/proveedores`, {
             headers: {
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+              'Authorization': `Bearer ${localStore.get('access_token')}`,
             },
           }).then(res => res.json()).then(data => data.data || []),
         ]);
@@ -354,7 +355,7 @@ export default function Catalogo() {
       // Usar el endpoint del backend que ya devuelve el catálogo/joined view
       const res = await fetch(`${import.meta.env.VITE_API_URL}/inventario/catalogo`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Authorization': `Bearer ${localStore.get('access_token')}`,
         },
       });
       const json = await res.json();
@@ -490,7 +491,7 @@ export default function Catalogo() {
       // Obtener detalles completos del insumo incluyendo presentaciones y lotes
       const res = await fetch(`${import.meta.env.VITE_API_URL}/inventario/insumos/${row.id}/details`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Authorization': `Bearer ${localStore.get('access_token')}`,
         },
       });
 
@@ -569,7 +570,7 @@ export default function Catalogo() {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Authorization': `Bearer ${localStore.get('access_token')}`,
         },
       });
       const text = await res.text().catch(() => '');
@@ -660,7 +661,7 @@ export default function Catalogo() {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+              'Authorization': `Bearer ${localStore.get('access_token')}`,
             },
             body: JSON.stringify(payload),
           });
@@ -678,7 +679,7 @@ export default function Catalogo() {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+              'Authorization': `Bearer ${localStore.get('access_token')}`,
             },
             body: JSON.stringify(payload),
           });

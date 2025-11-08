@@ -1520,7 +1520,7 @@ function PurchaseOrderForm({
       const loadOrder = async () => {
         try {
           const response = await fetch(`${import.meta.env.VITE_API_URL}/ordenes-compra/${detail.id_orden}/detalles`, {
-            headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
+            headers: { Authorization: `Bearer ${localStore.get('access_token')}` },
           });
           if (response.ok) {
             const detalles = await response.json() as DetalleOrdenCompra[];
@@ -1533,7 +1533,7 @@ function PurchaseOrderForm({
               let stockInfo = {};
               try {
                 const insumoResponse = await fetch(`${import.meta.env.VITE_API_URL}/inventario/insumos/${d.id_insumo}`, {
-                  headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
+                  headers: { Authorization: `Bearer ${localStore.get('access_token')}` },
                 });
                 if (insumoResponse.ok) {
                   const insumoData = await insumoResponse.json();
@@ -1870,7 +1870,7 @@ function PurchaseOrderForm({
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Authorization': `Bearer ${localStore.get('access_token')}`,
         },
         body: JSON.stringify(updates),
       });
@@ -1889,7 +1889,7 @@ function PurchaseOrderForm({
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Authorization': `Bearer ${localStore.get('access_token')}`,
         },
         body: JSON.stringify({ costo_unitario: costoUnitario }),
       });
@@ -2089,7 +2089,7 @@ function PurchaseOrderForm({
                         try {
                           const response = await fetch(`${import.meta.env.VITE_API_URL}/inventario/insumos/${id_insumo}/presentaciones`, {
                             headers: {
-                              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+                              'Authorization': `Bearer ${localStore.get('access_token')}`,
                             },
                           });
                           if (response.ok) {
@@ -2422,7 +2422,7 @@ function ProviderInsumosModal({ id_proveedor, proveedorData }: { id_proveedor: n
         // Obtener insumos del proveedor desde insumo_presentacion
         const response = await fetch(`${import.meta.env.VITE_API_URL}/compras/proveedores/${id_proveedor}/insumos`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            'Authorization': `Bearer ${localStore.get('access_token')}`,
           },
         });
 

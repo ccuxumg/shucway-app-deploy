@@ -15,6 +15,7 @@ import { FaUserCircle } from "react-icons/fa";
 import { PiBroomBold } from "react-icons/pi";
 import { useAuth } from "../../../../hooks/useAuth";
 import { supabase } from "../../../../api/supabaseClient";
+import { localStore } from "../../../../utils/storage";
 
 /* ======================= Tipos ======================= */
 type Row = {
@@ -921,7 +922,7 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
     setIsCanceling(true);
 
     try {
-      const token = localStorage.getItem('access_token');
+      const token = localStore.get('access_token');
       if (!token) {
         notify("error", "No se encontró el token de autenticación");
         return;

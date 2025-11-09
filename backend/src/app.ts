@@ -3,10 +3,10 @@ import cors, { CorsOptions } from "cors";
 import helmet from "helmet";
 // import rateLimit from "express-rate-limit";
 import path from "path";
-import { config } from "./config/env";
-import { logger } from "./utils/logger";
-import { errorHandler, notFoundHandler } from "./middlewares/errorHandler.middleware";
-import routes from "./routes";
+import { config } from "./config/env.js";
+import { logger } from "./utils/logger.js";
+import { errorHandler, notFoundHandler } from "./middlewares/errorHandler.middleware.js";
+import routes from "./routes/index.js";
 
 const app: Application = express();
 

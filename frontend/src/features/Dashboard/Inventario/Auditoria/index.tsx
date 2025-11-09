@@ -170,11 +170,11 @@ function getUserDisplayName(u: unknown, fallback?: string): string {
 const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) => {
   const { user } = useAuth();
 
-  // Sesión - Restaurar desde localStorage si existe
+  // Sesión - Restaurar desde localStore si existe
   const [sessionId, setSessionId] = useState<string | undefined>(() => {
     if (initialSessionId) return initialSessionId;
-    // Intentar restaurar auditoría activa desde localStorage
-    const stored = localStorage.getItem('auditoria_activa');
+    // Intentar restaurar auditoría activa desde localStore
+    const stored = localStore.get('auditoria_activa') as string | null;
     return stored || undefined;
   });
   const [sessionDate, setSessionDate] = useState<string | undefined>();
@@ -219,17 +219,17 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
 
   // Abre modal de bienvenida auto si no hay sesión activa
   useEffect(() => {
-    // Solo abrir modal si NO hay auditoría activa (ni en props ni en localStorage)
-    const storedAudit = localStorage.getItem('auditoria_activa');
+    // Solo abrir modal si NO hay auditoría activa (ni en props ni en localStore)
+    const storedAudit = localStore.get('auditoria_activa');
     if (!initialSessionId && !storedAudit) {
       setShowStartModal(true);
     }
     
-    // Restaurar datos de auditoría desde localStorage
+    // Restaurar datos de auditoría desde localStore
     if (storedAudit && !initialSessionId) {
-      const storedLabel = localStorage.getItem('auditoria_label');
-      const storedFecha = localStorage.getItem('auditoria_fecha');
-      const storedEstado = localStorage.getItem('auditoria_estado') as 'en_progreso' | 'completada' | 'cancelada' | null;
+      const storedLabel = localStore.get('auditoria_label') as string | null;
+      const storedFecha = localStore.get('auditoria_fecha') as string | null;
+      const storedEstado = localStore.get('auditoria_estado') as 'en_progreso' | 'completada' | 'cancelada' | null;
       
       if (storedLabel) setSessionLabel(storedLabel);
       if (storedFecha) setSessionDate(storedFecha);
@@ -420,7 +420,10 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
       }
 
       // Cargar desde el backend endpoint (respeta RLS)
-      const token = localStorage.getItem("access_token");
+      const token = localStore.get('access_token');
+      console.log('🔍 Token para auditoría:', token ? 'Presente' : 'Ausente');
+      console.log('🔍 ID de auditoría:', idAuditoria);
+      
       const response = await fetch(
         `${import.meta.env.VITE_API_URL}/auditoria/detalle/${idAuditoria}`,
         {
@@ -433,8 +436,10 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
       );
 
       if (!response.ok) {
-        console.error("Error cargando detalles de auditoría:", response.status);
-        notify("error", `Error al cargar detalles: ${response.status}`);
+        console.error("❌ Error cargando detalles de auditoría:", response.status, response.statusText);
+        const errorText = await response.text();
+        console.error("❌ Detalles del error:", errorText);
+        notify("error", `Error al cargar detalles: ${response.status} - ${response.statusText}`);
         setRows([]);
         return;
       }
@@ -681,11 +686,11 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
       setSessionLabel(auditLabel);
       setSessionEstado('en_progreso');
       
-      // ✅ PERSISTIR EN LOCALSTORAGE
-      localStorage.setItem('auditoria_activa', idAuditoria);
-      localStorage.setItem('auditoria_label', auditLabel);
-      localStorage.setItem('auditoria_fecha', new Date().toISOString());
-      localStorage.setItem('auditoria_estado', 'en_progreso');
+      // ✅ PERSISTIR EN LOCALSTORE
+      localStore.set('auditoria_activa', idAuditoria);
+      localStore.set('auditoria_label', auditLabel);
+      localStore.set('auditoria_fecha', new Date().toISOString());
+      localStore.set('auditoria_estado', 'en_progreso');
       
       // ✅ DISPARAR EVENTO PARA ACTUALIZAR CONTADOR
       window.dispatchEvent(new Event('auditoria-changed'));
@@ -890,11 +895,11 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
       setOptComentario("");
       clearFilters();
       
-      // ✅ LIMPIAR LOCALSTORAGE
-      localStorage.removeItem('auditoria_activa');
-      localStorage.removeItem('auditoria_label');
-      localStorage.removeItem('auditoria_fecha');
-      localStorage.removeItem('auditoria_estado');
+      // ✅ LIMPIAR LOCALSTORE
+      localStore.remove('auditoria_activa');
+      localStore.remove('auditoria_label');
+      localStore.remove('auditoria_fecha');
+      localStore.remove('auditoria_estado');
       
       // ✅ DISPARAR EVENTO PARA ACTUALIZAR CONTADOR
       window.dispatchEvent(new Event('auditoria-changed'));
@@ -953,17 +958,17 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
 
       // Limpiar estado local independientemente del resultado del servidor
       setSessionEstado('cancelada');
-      localStorage.setItem('auditoria_estado', 'cancelada');
+      localStore.set('auditoria_estado', 'cancelada');
 
       // Limpiar sesión
       setSessionId(undefined);
       setSessionDate(undefined);
       setSessionLabel(undefined);
       setRows([]);
-      localStorage.removeItem('auditoria_activa');
-      localStorage.removeItem('auditoria_label');
-      localStorage.removeItem('auditoria_fecha');
-      localStorage.removeItem('auditoria_estado');
+      localStore.remove('auditoria_activa');
+      localStore.remove('auditoria_label');
+      localStore.remove('auditoria_fecha');
+      localStore.remove('auditoria_estado');
 
       // Mostrar modal de éxito
       setShowCancelConfirmModal(false);
@@ -979,15 +984,15 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
       
       // Aún si hay error de red, limpiamos el estado local
       setSessionEstado('cancelada');
-      localStorage.setItem('auditoria_estado', 'cancelada');
+      localStore.set('auditoria_estado', 'cancelada');
       setSessionId(undefined);
       setSessionDate(undefined);
       setSessionLabel(undefined);
       setRows([]);
-      localStorage.removeItem('auditoria_activa');
-      localStorage.removeItem('auditoria_label');
-      localStorage.removeItem('auditoria_fecha');
-      localStorage.removeItem('auditoria_estado');
+      localStore.remove('auditoria_activa');
+      localStore.remove('auditoria_label');
+      localStore.remove('auditoria_fecha');
+      localStore.remove('auditoria_estado');
       
       setShowCancelConfirmModal(false);
       setShowCancelSuccessModal(true);
@@ -999,20 +1004,16 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
     }
   }
 
-  // ===== Manejar Continuar sin Cancelar =====
   function handleContinueWithoutCancel() {
+    // Guardar cambios y permitir continuar la auditoría
     setShowCancelConfirmModal(false);
+    notify("success", "Cambios guardados. Puedes continuar la auditoría más tarde.");
     
     // Si hay navegación pendiente, ejecutarla
     if (pendingNavigation) {
       pendingNavigation();
       setPendingNavigation(null);
     }
-  }
-
-  function handleSaveAndExit() {
-    setShowCancelConfirmModal(false);
-    setShowFinalizeModal(true);
   }
 
   // ===== Cerrar modal de éxito y navegar =====
@@ -1619,27 +1620,19 @@ const Auditoria: React.FC<AuditoriaProps> = ({ initialSessionId, auditorName }) 
             </div>
 
             <p className="text-gray-600 mb-4">
-              Tienes una auditoría en progreso. Si sales ahora, puedes:
+              Tienes una auditoría en progreso. ¿Qué deseas hacer?
             </p>
 
             <ul className="list-disc list-inside text-gray-600 mb-4 space-y-2">
               <li><strong>Guardar ajustes:</strong> Finaliza la auditoría para conservar todo lo registrado.</li>
               <li><strong>Cancelar la auditoría:</strong> Se marcará como cancelada y perderás todo el progreso.</li>
-              <li><strong>Continuar:</strong> Podrás navegar entre módulos y la auditoría seguirá activa.</li>
             </ul>
 
             <div className="mt-6 flex gap-3 justify-end flex-wrap">
-              <button
-                className="btn primary"
-                onClick={handleSaveAndExit}
-                style={{ minWidth: 140 }}
-              >
-                Guardar cambios
-              </button>
               <button 
-                className="btn ghost" 
+                className="btn primary" 
                 onClick={handleContinueWithoutCancel}
-                style={{ minWidth: 110 }}
+                style={{ minWidth: 140 }}
               >
                 Continuar
               </button>

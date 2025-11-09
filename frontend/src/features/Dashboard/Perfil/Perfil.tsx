@@ -123,7 +123,22 @@ const Perfil: React.FC = () => {
       messageApi.success('Perfil actualizado correctamente');
     } catch (error) {
       console.error('Error updating profile:', error);
-      messageApi.error('Error al actualizar el perfil');
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const lower = errorMessage.toLowerCase();
+
+      if (lower.includes('ya existe') && lower.includes('username')) {
+        messageApi.error('Ya existe un usuario con este nombre de usuario. Por favor, utiliza otro nombre de usuario.');
+      } else if (lower.includes('duplicate') || lower.includes('unique') || lower.includes('already exists')) {
+        if (lower.includes('email') || lower.includes('correo')) {
+          messageApi.error('El correo electrónico ya está registrado. Por favor, utiliza otro correo.');
+        } else if (lower.includes('username') || lower.includes('usuario')) {
+          messageApi.error('Ya existe un usuario con este nombre de usuario. Por favor, utiliza otro nombre de usuario.');
+        } else {
+          messageApi.error('El usuario o correo ya existe. Revisa los datos e intenta nuevamente.');
+        }
+      } else {
+        messageApi.error('Error al actualizar el perfil. Revisa los datos e intenta nuevamente.');
+      }
     } finally {
       setSaving(false);
     }

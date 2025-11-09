@@ -305,11 +305,11 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
       const lower = errorMessage.toLowerCase();
       if (lower.includes('forbidden') || lower.includes('permission') || lower.includes('policy')) {
         message.error(`Error de permisos al guardar usuario. Revisa roles/permisos en el backend. Detalles: ${errorMessage}`);
-      } else if (lower.includes('duplicate') || lower.includes('unique') || lower.includes('already exists')) {
+      } else if (lower.includes('duplicate') || lower.includes('unique') || lower.includes('already exists') || lower.includes('ya existe')) {
         if (lower.includes('email') || lower.includes('correo')) {
           message.error(`El correo electrónico ya está registrado. Por favor, utiliza otro correo. Detalles: ${errorMessage}`);
         } else if (lower.includes('username') || lower.includes('usuario')) {
-          message.error(`El nombre de usuario ya está registrado. Por favor, utiliza otro nombre de usuario. Detalles: ${errorMessage}`);
+          message.error(`Ya existe un usuario con este nombre de usuario. Por favor, utiliza otro nombre de usuario.`);
         } else {
           message.error(`El usuario o correo ya existe. Revisa los datos e intenta nuevamente. Detalles: ${errorMessage}`);
         }
@@ -451,7 +451,7 @@ const EditDrawer = ({ data }: { data?: UsuarioDataType | null }) => {
                     <div className="flex items-center gap-5">
                       {isLoadingUpload ? <Spin /> : <img src={UploadIcon} alt="upload icon" />}
                       <p className="text-[1.4rem] font-extralight w-8/12">
-                        <strong>Click to upload</strong> or drag and drop SVG, PNG, JPG or GIF
+                        <strong>Oprime</strong>o arrastra SVG, PNG, JPG or GIF
                       </p>
                     </div>
                   </Dragger>

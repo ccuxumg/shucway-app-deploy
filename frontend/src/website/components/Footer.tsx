@@ -52,7 +52,7 @@ const Footer = () => {
             <div className="nav-section">
               <h4>Enlaces Rápidos</h4>
               <ul>
-                <li><Link to="/">Inicio</Link></li>
+                <li><Link to="/home">Inicio</Link></li>
                 <li><Link to="/nosotros">Nosotros</Link></li>
                 <li><Link to="/productos">Productos</Link></li>
                 <li><Link to="/contacto">Contacto</Link></li>

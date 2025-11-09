@@ -382,17 +382,15 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       }
     });
 
-    // Escuchar cambios en localStorage usando event listener en lugar de polling
+    // Escuchar cambios en localStore usando event listener personalizado
     React.useEffect(() => {
-      const handleStorageChange = (e: StorageEvent) => {
-        if (e.key?.startsWith('auditoria_')) {
-          const activa = localStore.get('auditoria_activa') as string | null;
-          const label = (localStore.get('auditoria_label') as string) || 'Auditoría';
-          const fecha = (localStore.get('auditoria_fecha') as string) || '';
-          setAuditoriaActiva(activa);
-          setAuditoriaLabel(label);
-          setAuditoriaFecha(fecha);
-        }
+      const handleAuditoriaChange = () => {
+        const activa = localStore.get('auditoria_activa') as string | null;
+        const label = (localStore.get('auditoria_label') as string) || 'Auditoría';
+        const fecha = (localStore.get('auditoria_fecha') as string) || '';
+        setAuditoriaActiva(activa);
+        setAuditoriaLabel(label);
+        setAuditoriaFecha(fecha);
       };
 
       // Verificar estado inicial
@@ -403,8 +401,8 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       setAuditoriaLabel(label);
       setAuditoriaFecha(fecha);
 
-      window.addEventListener('storage', handleStorageChange);
-      return () => window.removeEventListener('storage', handleStorageChange);
+      window.addEventListener('auditoria-changed', handleAuditoriaChange);
+      return () => window.removeEventListener('auditoria-changed', handleAuditoriaChange);
     }, []);
 
     const formatDateSpanish = (dateStr: string) => {

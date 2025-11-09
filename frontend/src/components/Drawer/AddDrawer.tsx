@@ -273,7 +273,7 @@ const AddDrawer = () => {
                         <img src={UploadIcon} alt="upload icon" />
                       )}
                       <p className="text-[1.4rem] font-extralight w-8/12">
-                        <strong>Click to upload</strong> or drag and drop SVG, PNG,
+                        <strong>Oprime aca</strong> o arrastra SVG, PNG,
                         JPG or GIF
                       </p>
                     </div>
@@ -291,7 +291,7 @@ const AddDrawer = () => {
                   "linear-gradient(90.09deg, rgba(255, 255, 255, 0.43) 6.16%, rgba(68, 143, 237, 0.43) 70.73%, rgba(8, 111, 233, 0.6) 99.98%)",
               }}
             >
-              Information
+              Datos Solicitados
             </div>
 
             {/* Primer Nombre Field */}

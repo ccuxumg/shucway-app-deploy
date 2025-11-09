@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import './Inventario.css';
-import { MdInventory2, MdAddShoppingCart, MdAssignmentTurnedIn } from 'react-icons/md';
+import { MdInventory2, MdAddShoppingCart, MdAssignmentTurnedIn, MdCancel } from 'react-icons/md';
+import { Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { message } from 'antd';
 import Catalogo from './Catalogo';
 import IngresoCompra from './IngresoCompra';
 import Auditoria from './Auditoria';
@@ -105,6 +107,8 @@ const Inventario: React.FC = () => {
   const [qPerpetual, setQPerpetual] = useState<string>('');
   const [qOperational, setQOperational] = useState<string>('');
   const [auditoriasPendientes, setAuditoriasPendientes] = useState<number>(0);
+  const [cancellingAll, setCancellingAll] = useState(false);
+  const [showCancelAllModal, setShowCancelAllModal] = useState(false);
 
   // Cargar auditorías pendientes
   useEffect(() => {
@@ -121,7 +125,7 @@ const Inventario: React.FC = () => {
         }
         
         // Luego intentar obtener del backend
-        const token = localStore.get('access_token');
+      const token = localStore.get('access_token');
         if (!token) {
           console.log('Inventario: No hay token para auditorías pendientes');
           return;
@@ -209,6 +213,51 @@ const Inventario: React.FC = () => {
     }
   };
 
+  const handleCancelAllConfirm = async () => {
+    setCancellingAll(true);
+    try {
+      const token = localStore.get('access_token');
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/auditoria/cancelar-todas`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      message.success(result.message || 'Todas las auditorías pendientes han sido canceladas exitosamente');
+      
+      // Limpiar localStorage si había una auditoría activa
+      localStore.remove('auditoria_activa');
+      localStore.remove('auditoria_label');
+      localStore.remove('auditoria_fecha');
+      localStore.remove('auditoria_estado');
+      
+      // Disparar evento para actualizar contadores
+      window.dispatchEvent(new Event('auditoria-changed'));
+      
+      // Recargar datos
+      await load();
+    } catch (error) {
+      console.error('Error cancelando auditorías:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const lower = errorMessage.toLowerCase();
+      if (lower.includes('forbidden') || lower.includes('permission') || lower.includes('policy')) {
+        message.error(`Error de permisos al cancelar auditorías. Revisa roles/permisos en el backend. Detalles: ${errorMessage}`);
+      } else {
+        message.error(`Error al cancelar las auditorías. Revisa la consola para más detalles. ${errorMessage}`);
+      }
+    } finally {
+      setCancellingAll(false);
+      setShowCancelAllModal(false);
+    }
+  };
+
   useEffect(() => {
     load();
   }, []);
@@ -283,6 +332,22 @@ const Inventario: React.FC = () => {
                     <div className="inv-card">
                       <h3>Auditorías Pendientes</h3>
                       <div className="number">{auditoriasPendientes}</div>
+                      {auditoriasPendientes > 0 && (
+                        <button 
+                          className="btn danger mt-2 text-xs flex items-center gap-1" 
+                          onClick={() => setShowCancelAllModal(true)}
+                          disabled={cancellingAll}
+                          style={{ 
+                            padding: '6px 10px', 
+                            fontSize: '11px',
+                            borderRadius: '6px',
+                            transition: 'all 0.2s ease'
+                          }}
+                        >
+                          <MdCancel size={12} />
+                          {cancellingAll ? 'Cancelando...' : 'Cancelar Todas'}
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -388,6 +453,60 @@ const Inventario: React.FC = () => {
               {activeTab === 'auditoria' && (
                 <motion.div key="auditoria" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.18 }}>
                   <Auditoria />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Modal de confirmación para cancelar todas las auditorías */}
+            <AnimatePresence>
+              {showCancelAllModal && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 md:items-center"
+                >
+                  <motion.div
+                    initial={{ scale: 0.95, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.95, opacity: 0 }}
+                    className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="rounded-full bg-red-100 p-2 text-red-600">
+                        <Trash2 className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-semibold text-gray-900">Cancelar todas las auditorías</h2>
+                        <p className="mt-1 text-sm text-gray-600">
+                          Esta acción cancelará definitivamente todas las auditorías en progreso.
+                        </p>
+                        <div className="mt-4 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+                          <p className="font-medium text-gray-900">Auditorías pendientes: {auditoriasPendientes}</p>
+                          <p className="mt-1 text-xs text-gray-500">Se perderá todo el progreso no guardado</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 flex justify-end gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowCancelAllModal(false)}
+                        className="rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition hover:border-emerald-200 hover:text-emerald-600"
+                        disabled={cancellingAll}
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCancelAllConfirm}
+                        className="rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-60"
+                        disabled={cancellingAll}
+                      >
+                        {cancellingAll ? "Cancelando..." : "Cancelar Todas"}
+                      </button>
+                    </div>
+                  </motion.div>
                 </motion.div>
               )}
             </AnimatePresence>

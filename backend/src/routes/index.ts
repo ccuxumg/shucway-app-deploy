@@ -1,20 +1,20 @@
 import { Router } from 'express';
-import authRoutes from './auth.routes';
-import productosRoutes from './productos.routes';
-import inventarioRoutes from './inventario.routes';
-import comprasRoutes from './compras.routes';
-import clientesRoutes from './clientes.routes';
-import ventasRoutes from './ventas.routes';
-import usuariosRoutes from './usuarios.routes';
-import dashboardRoutes from './dashboard.routes';
-import { dashboardController } from '../controllers/dashboard.controller';
-import proveedorRoutes from './proveedor.routes';
-import ordenCompraRoutes from './orden_compra.routes';
-import backupRoutes from './backup.routes';
-import auditoriaRoutes from './auditoria.routes';
-import reportesRoutes from './reportes.routes';
-import gastosOperativosRoutes from './gastos_operativos.routes';
-import cajaRoutes from './caja.routes';
+import authRoutes from './auth.routes.js';
+import productosRoutes from './productos.routes.js';
+import inventarioRoutes from './inventario.routes.js';
+import comprasRoutes from './compras.routes.js';
+import clientesRoutes from './clientes.routes.js';
+import ventasRoutes from './ventas.routes.js';
+import usuariosRoutes from './usuarios.routes.js';
+import dashboardRoutes from './dashboard.routes.js';
+import { dashboardController } from '../controllers/dashboard.controller.js';
+import proveedorRoutes from './proveedor.routes.js';
+import ordenCompraRoutes from './orden_compra.routes.js';
+import backupRoutes from './backup.routes.js';
+import auditoriaRoutes from './auditoria.routes.js';
+import reportesRoutes from './reportes.routes.js';
+import gastosOperativosRoutes from './gastos_operativos.routes.js';
+import cajaRoutes from './caja.routes.js';
 
 const router = Router();
 

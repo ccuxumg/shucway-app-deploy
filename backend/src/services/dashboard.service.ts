@@ -1,5 +1,5 @@
 import { StatsData, InventoryItem } from '../types';
-import supabase from '../config/database';
+import supabase from '../config/database.js';
 
 interface Alerta {
   id: string;

@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
 import path from 'path';
 import { promises as fs } from 'fs';
-import { supabase } from '../config/database';
-import { logger } from '../utils/logger';
+import { supabase } from '../config/database.js';
+import { logger } from '../utils/logger.js';
 
 interface VentaBackupRecord {
   id_venta: number;

@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { dashboardController } from '../controllers/dashboard.controller';
-import { authenticateToken } from '../middlewares/auth.middleware';
+import { dashboardController } from '../controllers/dashboard.controller.js';
+import { authenticateToken } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 

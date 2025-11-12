@@ -1,7 +1,7 @@
 import { Response, NextFunction } from 'express';
-import { AuthRequest } from '../types/express.types';
-import { ventasService } from '../services/ventas.service';
-import { CreateVentaDTO } from '../types/ventas.types';
+import { AuthRequest } from '../types/express.types.js';
+import { ventasService } from '../services/ventas.service.js';
+import { CreateVentaDTO } from '../types/ventas.types.js';
 
 // ================================================================
 // 💰 CONTROLADOR DE VENTAS

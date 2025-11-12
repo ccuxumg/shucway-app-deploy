@@ -1,9 +1,9 @@
 import { Router } from 'express';
-import supabase from '../config/database';
-import { getOrdenesCompra, getOrdenCompraById, updateOrdenCompra, deleteOrdenCompra, getDetallesOrdenCompra } from '../controllers/orden_compra.controller';
-import { crearOrdenCompra, crearDetalleOrdenCompra } from '../controllers/orden_compra_create.controller';
-import { validate } from '../middlewares/validator.middleware';
-import { authenticateToken } from '../middlewares/auth.middleware';
+import supabase from '../config/database.js';
+import { getOrdenesCompra, getOrdenCompraById, updateOrdenCompra, deleteOrdenCompra, getDetallesOrdenCompra } from '../controllers/orden_compra.controller.js';
+import { crearOrdenCompra, crearDetalleOrdenCompra } from '../controllers/orden_compra_create.controller.js';
+import { validate } from '../middlewares/validator.middleware.js';
+import { authenticateToken } from '../middlewares/auth.middleware.js';
 import { z } from 'zod';
 
 const router = Router();

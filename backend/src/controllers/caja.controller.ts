@@ -1,7 +1,7 @@
 import { Response, NextFunction } from 'express';
-import { cajaService } from '../services/caja.service';
-import { AuthRequest } from '../types/express.types';
-import { AbrirCajaDTO, CerrarCajaDTO } from '../types/caja.types';
+import { cajaService } from '../services/caja.service.js';
+import { AuthRequest } from '../types/express.types.js';
+import { AbrirCajaDTO, CerrarCajaDTO } from '../types/caja.types.js';
 
 export class CajaController {
   async getEstado(_req: AuthRequest, res: Response, next: NextFunction) {

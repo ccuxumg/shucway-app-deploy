@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { cajaController } from '../controllers/caja.controller';
-import { authenticateToken } from '../middlewares/auth.middleware';
+import { cajaController } from '../controllers/caja.controller.js';
+import { authenticateToken } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 

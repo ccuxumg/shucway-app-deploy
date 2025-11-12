@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express';
-import { AuthRequest } from '../types/express.types';
+import { AuthRequest } from '../types/express.types.js';
 
 // ================================================================
 // 🔐 MIDDLEWARE DE PERMISOS POR NIVEL

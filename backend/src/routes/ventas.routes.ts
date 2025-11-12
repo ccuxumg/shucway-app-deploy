@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { ventasController } from '../controllers/ventas.controller';
-import { authenticateToken } from '../middlewares/auth.middleware';
+import { ventasController } from '../controllers/ventas.controller.js';
+import { authenticateToken } from '../middlewares/auth.middleware.js';
 import {
   requireCajero,
   requireAdministrador,

@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
-import supabase from '../config/database';
-import { inventarioService } from '../services/inventario.service';
+import supabase from '../config/database.js';
+import { inventarioService } from '../services/inventario.service.js';
 
 type RecepcionRow = { id_recepcion: number };
 

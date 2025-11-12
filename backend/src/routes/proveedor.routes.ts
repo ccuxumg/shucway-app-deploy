@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { getProveedores, createProveedor, updateProveedor, deleteProveedor } from '../controllers/proveedor.controller';
-import { validate } from '../middlewares/validator.middleware';
+import { getProveedores, createProveedor, updateProveedor, deleteProveedor } from '../controllers/proveedor.controller.js';
+import { validate } from '../middlewares/validator.middleware.js';
 import { z } from 'zod';
 
 const router = Router();

@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { usuariosController } from '../controllers/usuarios.controller';
-import { authenticateToken } from '../middlewares/auth.middleware';
-import { requireCajero, requireAdministrador, requirePropietario } from '../middlewares/roleGuard.middleware';
-import { AuthRequest } from '../types/express.types';
+import { usuariosController } from '../controllers/usuarios.controller.js';
+import { authenticateToken } from '../middlewares/auth.middleware.js';
+import { requireCajero, requireAdministrador, requirePropietario } from '../middlewares/roleGuard.middleware.js';
+import { AuthRequest } from '../types/express.types.js';
 
 const router = Router();
 

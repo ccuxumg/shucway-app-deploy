@@ -1,6 +1,6 @@
 import { Response, NextFunction } from 'express';
-import { AuthRequest } from '../types/express.types';
-import { inventarioService } from '../services/inventario.service';
+import { AuthRequest } from '../types/express.types.js';
+import { inventarioService } from '../services/inventario.service.js';
 import {
   CreateInsumoDTO,
   UpdateInsumoDTO,

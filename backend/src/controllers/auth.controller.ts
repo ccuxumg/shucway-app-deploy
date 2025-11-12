@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
-import { authService } from '../services/auth.service';
-import { logger } from '../utils/logger';
+import { authService } from '../services/auth.service.js';
+import { logger } from '../utils/logger.js';
 import { AuthRequest } from '../types';
 
 import { UsuariosService } from '../services/usuarios.service';

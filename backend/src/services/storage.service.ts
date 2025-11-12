@@ -1,6 +1,6 @@
-import { supabase } from '../config/database';
-import { logger } from '../utils/logger';
-import { AppError } from '../middlewares/errorHandler.middleware';
+import { supabase } from '../config/database.js';
+import { logger } from '../utils/logger.js';
+import { AppError } from '../middlewares/errorHandler.middleware.js';
 import { UploadOptions, UploadResponse } from '../types';
 
 // Tipo para archivos de Supabase Storage

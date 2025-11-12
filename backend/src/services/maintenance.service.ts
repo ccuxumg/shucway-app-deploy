@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase } from '../config/database.js';
 import {
 	MAINTENANCE_ALLOWED_TABLES,
 	MAINTENANCE_TABLES,

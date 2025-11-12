@@ -1,6 +1,6 @@
 import { Response, NextFunction } from 'express';
-import { AuthRequest } from '../types/express.types';
-import { UsuariosService } from '../services/usuarios.service';
+import { AuthRequest } from '../types/express.types.js';
+import { UsuariosService } from '../services/usuarios.service.js';
 
 interface UsuarioRol {
   id_rol: number;

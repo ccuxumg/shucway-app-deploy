@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import supabase from '../config/database';
+import supabase from '../config/database.js';
 
 export const getProveedores = async (_req: Request, res: Response) => {
   try {

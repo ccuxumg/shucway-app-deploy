@@ -1,6 +1,6 @@
 import { Response, NextFunction } from 'express';
-import { AuthRequest } from '../types/express.types';
-import { ComprasService } from '../services/compras.service';
+import { AuthRequest } from '../types/express.types.js';
+import { ComprasService } from '../services/compras.service.js';
 import {
   CreateProveedorDTO,
   UpdateProveedorDTO,

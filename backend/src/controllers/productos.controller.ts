@@ -1,6 +1,6 @@
 import { Response, NextFunction } from 'express';
-import { AuthRequest } from '../types/express.types';
-import { productosService } from '../services/productos.service';
+import { AuthRequest } from '../types/express.types.js';
+import { productosService } from '../services/productos.service.js';
 import { CreateProductoDTO, UpdateProductoDTO, CreateVarianteDTO, CreateRecetaDTO } from '../types/productos.types';
 
 // ================================================================

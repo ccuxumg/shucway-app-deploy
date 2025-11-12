@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { clientesController } from '../controllers/clientes.controller';
-import { authenticateToken } from '../middlewares/auth.middleware';
+import { clientesController } from '../controllers/clientes.controller.js';
+import { authenticateToken } from '../middlewares/auth.middleware.js';
 import {
   requireCajero,
   requireAdministrador,

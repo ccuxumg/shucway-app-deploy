@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { maintenanceService } from '../services/maintenance.service';
+import { maintenanceService } from '../services/maintenance.service.js';
 
 export const maintenanceController = {
 	async listTables(_req: Request, res: Response) {

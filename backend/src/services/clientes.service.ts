@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase } from '../config/database.js';
 import { Cliente, CreateClienteDTO, UpdateClienteDTO, CanjearPuntosDTO, GestionarPuntosDTO } from '../types/ventas.types';
 
 // ================================================================

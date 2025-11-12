@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { crearOrdenCompra, crearDetalleOrdenCompra } from '../controllers/orden_compra_create.controller';
+import { crearOrdenCompra, crearDetalleOrdenCompra } from '../controllers/orden_compra_create.controller.js';
 
 const router = Router();
 

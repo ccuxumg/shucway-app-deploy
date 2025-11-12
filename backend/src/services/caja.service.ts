@@ -1,6 +1,6 @@
-import { supabase } from '../config/database';
-import { AppError } from '../middlewares/errorHandler.middleware';
-import { AbrirCajaDTO, CajaEstadoResponse, CajaSesion, CerrarCajaDTO } from '../types/caja.types';
+import { supabase } from '../config/database.js';
+import { AppError } from '../middlewares/errorHandler.middleware.js';
+import { AbrirCajaDTO, CajaEstadoResponse, CajaSesion, CerrarCajaDTO } from '../types/caja.types.js';
 
 type CajaSesionRow = {
   id_sesion: number;

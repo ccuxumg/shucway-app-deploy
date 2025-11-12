@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { config } from './env';
-import { logger } from '../utils/logger';
+import { config } from './env.js';
+import { logger } from '../utils/logger.js';
 
 // Cliente de Supabase con Service Role Key (bypass RLS)
 export const supabase: SupabaseClient = createClient(

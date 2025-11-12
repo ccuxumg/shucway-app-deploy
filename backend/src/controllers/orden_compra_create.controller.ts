@@ -1,8 +1,8 @@
 
 import { Response } from 'express';
-import { createOrdenCompra, createDetalleOrdenCompra, getOrdenCompraById } from '../services/orden_compra.service';
-import { OrdenCompra, DetalleOrdenCompra } from '../types/orden_compra.types';
-import { AuthRequest } from '../types/express.types';
+import { createOrdenCompra, createDetalleOrdenCompra, getOrdenCompraById } from '../services/orden_compra.service.js';
+import { OrdenCompra, DetalleOrdenCompra } from '../types/orden_compra.types.js';
+import { AuthRequest } from '../types/express.types.js';
 
 export const crearOrdenCompra = async (req: AuthRequest, res: Response): Promise<void> => {
   try {

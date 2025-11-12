@@ -1,9 +1,9 @@
 import bcrypt from 'bcrypt';
-import { jwt } from '../utils/jwt';                 // ⬅️ usa el wrapper
+import { jwt } from '../utils/jwt.js';                 // ⬅️ usa el wrapper
 import { supabase } from '../config/database';
-import { config } from '../config/env';
-import { logger } from '../utils/logger';
-import { AppError } from '../middlewares/errorHandler.middleware';
+import { config } from '../config/env.js';
+import { logger } from '../utils/logger.js';
+import { AppError } from '../middlewares/errorHandler.middleware.js';
 import {
   LoginCredentials,
   LoginResponse,

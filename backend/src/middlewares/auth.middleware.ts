@@ -1,8 +1,8 @@
 import { Response, NextFunction } from 'express';
-import { jwt } from '../utils/jwt';                 // ⬅️ usa el wrapper
-import { config } from '../config/env';
-import { AuthRequest, AuthUser } from '../types/express.types';
-import { logger } from '../utils/logger';
+import { jwt } from '../utils/jwt.js';                 // ⬅️ usa el wrapper
+import { config } from '../config/env.js';
+import { AuthRequest, AuthUser } from '../types/express.types.js';
+import { logger } from '../utils/logger.js';
 
 const JWT_SECRET = config.jwt.secret;
 const isDevelopment = config.env === 'development';

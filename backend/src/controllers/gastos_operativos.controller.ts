@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
-import { supabase } from '../config/database';
-import { CategoriaGasto } from '../types/finanzas.types';
+import { supabase } from '../config/database.js';
+import { CategoriaGasto } from '../types/finanzas.types.js';
 
 const CATEGORIAS_VALIDAS: CategoriaGasto[] = [
   'Gastos de Personal',

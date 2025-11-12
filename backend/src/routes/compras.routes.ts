@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { ComprasController } from '../controllers/compras.controller';
-import { authenticateToken } from '../middlewares/auth.middleware';
-import { validate } from '../middlewares/validator.middleware';
+import { ComprasController } from '../controllers/compras.controller.js';
+import { authenticateToken } from '../middlewares/auth.middleware.js';
+import { validate } from '../middlewares/validator.middleware.js';
 import {
   createProveedorSchema,
   updateProveedorSchema,

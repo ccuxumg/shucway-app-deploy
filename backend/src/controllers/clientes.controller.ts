@@ -1,7 +1,7 @@
 import { Response, NextFunction } from 'express';
-import { AuthRequest } from '../types/express.types';
-import { clientesService } from '../services/clientes.service';
-import { CreateClienteDTO, UpdateClienteDTO, CanjearPuntosDTO, GestionarPuntosDTO } from '../types/ventas.types';
+import { AuthRequest } from '../types/express.types.js';
+import { clientesService } from '../services/clientes.service.js';
+import { CreateClienteDTO, UpdateClienteDTO, CanjearPuntosDTO, GestionarPuntosDTO } from '../types/ventas.types.js';
 
 // ================================================================
 // 👥 CONTROLADOR DE CLIENTES

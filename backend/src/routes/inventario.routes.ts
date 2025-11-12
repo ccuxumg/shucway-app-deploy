@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { inventarioController } from '../controllers/inventario.controller';
-import { ComprasController } from '../controllers/compras.controller';
-import { authenticateToken } from '../middlewares/auth.middleware';
+import { inventarioController } from '../controllers/inventario.controller.js';
+import { ComprasController } from '../controllers/compras.controller.js';
+import { authenticateToken } from '../middlewares/auth.middleware.js';
 import {
   requireCajero,
   requireAdministrador,

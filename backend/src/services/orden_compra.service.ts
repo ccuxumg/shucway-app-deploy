@@ -1,4 +1,4 @@
-import { supabase } from '../config/database';
+import { supabase } from '../config/database.js';
 import { OrdenCompra, DetalleOrdenCompra } from '../types/orden_compra.types';
 
 export async function createOrdenCompra(data: OrdenCompra) {
